@@ -518,19 +518,19 @@ $RTYPE NAME##_SYNC_SLOW(Worker *w, Task *__dq_head)
 
     if (w->o_allstolen) goto lace_allstolen_##NAME;
  
-    if (w->movesplit) {
+    if (unlikely(w->o_split > __dq_head)) {
+        if (unlikely(NAME##_movesplit(w, __dq_head))) {
+            goto lace_allstolen_##NAME;
+        }
+    }
+
+    if (unlikely(w->movesplit)) {
         Task *t = w->o_split;
         size_t diff = __dq_head - t;
         diff = (diff + 1) / 2;
         w->o_split = t + diff;
         w->ts.ts.split += diff;
         w->movesplit = 0;
-    }
-
-    if (unlikely(w->o_split > __dq_head)) {
-        if (unlikely(NAME##_movesplit(w, __dq_head))) {
-            goto lace_allstolen_##NAME;
-        }
     }
 
     t = (TD_##NAME *)__dq_head;
