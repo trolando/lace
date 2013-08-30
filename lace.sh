@@ -82,9 +82,12 @@ echo '
 #define LACE_TASKSIZE '$1'*8
 #endif
 
+#if LACE_COUNT_EVENTS
+typedef uint64_t hrtime_t;
+#endif
+
 #if LACE_PIE_TIMES
 /* Some code for event counters and timers */
-typedef uint64_t hrtime_t;
 
 static inline hrtime_t gethrtime()
 {

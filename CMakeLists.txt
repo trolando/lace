@@ -3,7 +3,7 @@ project(lace C)
 
 option(USE_NUMA "Use NUMA" ON)
 option(PIE_TIMES "Record Pie Times" OFF)
-option(LACE_COUNT_TASKS "Count Tasks in lace" OFF)
+option(COUNT_TASKS "Count Tasks in lace" OFF)
 
 include(CheckIncludeFiles)
 
