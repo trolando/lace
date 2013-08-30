@@ -4,6 +4,7 @@ project(lace C)
 option(USE_NUMA "Use NUMA" ON)
 option(PIE_TIMES "Record Pie Times" OFF)
 option(COUNT_TASKS "Count Tasks in lace" OFF)
+option(COUNT_STEALS "Count Steals and Leaps in lace" OFF)
 
 include(CheckIncludeFiles)
 
@@ -35,6 +36,12 @@ else()
   set (LACE_COUNT_TASKS "LACE_COUNT_TASKS=0")
 endif()
 
+if (COUNT_STEALS)
+  set (LACE_COUNT_STEALS "LACE_COUNT_STEALS=1")
+else()
+  set (LACE_COUNT_STEALS "LACE_COUNT_STEALS=0")
+endif()
+
 add_custom_command(OUTPUT lace-1.c lace-1.h COMMAND ./prepare.sh 1 DEPENDS lace.sh lace.c)
 add_custom_command(OUTPUT lace-2.c lace-2.h COMMAND ./prepare.sh 2 DEPENDS lace.sh lace.c)
 add_custom_command(OUTPUT lace-3.c lace-3.h COMMAND ./prepare.sh 3 DEPENDS lace.sh lace.c)
@@ -46,7 +53,7 @@ add_custom_command(OUTPUT lace-8.c lace-8.h COMMAND ./prepare.sh 8 DEPENDS lace.
 
 set(CMAKE_C_FLAGS "-g -O3 -Wall")
 
-set(lace_flags "${NUMA_DEF};${LACE_PIE};${LACE_COUNT_TASKS}")
+set(lace_flags "${NUMA_DEF};${LACE_PIE};${LACE_COUNT_TASKS};${LACE_COUNT_STEALS}")
 
 set(uts_sources benchmarks/uts/rng/brg_sha1.c benchmarks/uts/rng/brg_sha1.h benchmarks/uts/uts.c)
 

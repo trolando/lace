@@ -184,7 +184,20 @@ worker_thread( void *arg )
             victim = workers + (rng(&seed, n-1) + worker_id + 1) % n;
         }
 
-        if (lace_steal(*self, (*self)->o_dq, *victim) == LACE_NOWORK) lace_cb_stealing();
+        PR_COUNTSTEALS(*self, CTR_steal_tries);
+        switch (lace_steal(*self, (*self)->o_dq, *victim)) {
+        case LACE_NOWORK:
+            lace_cb_stealing();
+            break;
+        case LACE_STOLEN:
+            PR_COUNTSTEALS(*self, CTR_steals);
+            break;
+        case LACE_BUSY:
+            PR_COUNTSTEALS(*self, CTR_steal_busy);
+            break;
+        default:
+            break;
+        }
 
         if (!more_work) break;
 
@@ -403,6 +416,29 @@ lace_count_report_file(FILE *file)
         fprintf(file, "Tasks (%zu): %zu\n", i, workers[i]->ctr[CTR_tasks]);
     }
     fprintf(file, "Tasks (sum): %zu\n", ctr_all[CTR_tasks]);
+    fprintf(file, "\n");
+#endif
+
+#if LACE_COUNT_STEALS
+    for (i=0;i<n_workers;i++) {
+        fprintf(file, "Steals (%zu): %zu good/%zu busy of %zu tries; leaps: %zu good/%zu busy of %zu tries\n", i,
+            workers[i]->ctr[CTR_steals], workers[i]->ctr[CTR_steal_busy],
+            workers[i]->ctr[CTR_steal_tries], workers[i]->ctr[CTR_leaps], 
+            workers[i]->ctr[CTR_leap_busy], workers[i]->ctr[CTR_leap_tries]);
+    }
+    fprintf(file, "Steals (sum): %zu good/%zu busy of %zu tries; leaps: %zu good/%zu busy of %zu tries\n", 
+        ctr_all[CTR_steals], ctr_all[CTR_steal_busy],
+        ctr_all[CTR_steal_tries], ctr_all[CTR_leaps], 
+        ctr_all[CTR_leap_busy], ctr_all[CTR_leap_tries]);
+    fprintf(file, "\n");
+#endif
+
+#if LACE_COUNT_STEALS && LACE_COUNT_TASKS
+    for (i=0;i<n_workers;i++) {
+        fprintf(file, "Tasks per steal (%zu): %zu\n", i, 
+            workers[i]->ctr[CTR_tasks]/(workers[i]->ctr[CTR_steals]+workers[i]->ctr[CTR_leaps]));
+    }
+    fprintf(file, "Tasks per steal (sum): %zu\n", ctr_all[CTR_tasks]/(ctr_all[CTR_steals]+ctr_all[CTR_leaps]));
     fprintf(file, "\n");
 #endif
 

@@ -35,8 +35,12 @@ echo '
 #define LACE_COUNT_TASKS 0
 #endif
 
+#ifndef LACE_COUNT_STEALS
+#define LACE_COUNT_STEALS 0
+#endif
+
 #ifndef LACE_COUNT_EVENTS
-#define LACE_COUNT_EVENTS LACE_PIE_TIMES || LACE_COUNT_TASKS
+#define LACE_COUNT_EVENTS (LACE_PIE_TIMES || LACE_COUNT_TASKS || LACE_COUNT_STEALS)
 #endif
 
 /* Common code for atomic operations */
@@ -108,6 +112,12 @@ void lace_count_report_file(FILE *file);
 #define PR_COUNTTASK(s) /* Empty */
 #endif
 
+#if LACE_COUNT_STEALS
+#define PR_COUNTSTEALS(s,i) PR_INC(s,i)
+#else
+#define PR_COUNTSTEALS(s,i) /* Empty */
+#endif
+
 #if LACE_COUNT_EVENTS
 #define PR_ADD(s,i,k) ( ((s)->ctr[i])+=k )
 #else
@@ -121,6 +131,8 @@ typedef enum {
     CTR_leap_tries,  /* Number of leap attempts */
     CTR_steals,      /* Number of succesful steals */
     CTR_leaps,       /* Number of succesful leaps */
+    CTR_steal_busy,  /* Number of steal busies */
+    CTR_leap_busy,   /* Number of leap busies */
     CTR_split,       /* Number of split modifications */
     CTR_splitreq,    /* Number of split requests */
     CTR_fast_sync,   /* Number of fast syncs */
@@ -503,7 +515,20 @@ NAME##_leapfrog(Worker *w, Task *__dq_head)
 
         /* Now leapfrog */
         while (thief != THIEF_COMPLETED) {
-            if (lace_steal(w, __dq_head+1, thief) == LACE_NOWORK) lace_cb_stealing();
+            PR_COUNTSTEALS(w, CTR_leap_tries);
+            switch (lace_steal(w, __dq_head+1, thief)) {
+            case LACE_NOWORK:
+                lace_cb_stealing();
+                break;
+            case LACE_STOLEN:
+                PR_COUNTSTEALS(w, CTR_leaps);
+                break;
+            case LACE_BUSY:
+                PR_COUNTSTEALS(w, CTR_leap_busy);
+                break;
+            default:
+                break;
+            }
             thief = atomic_read(&(t->thief));
         }
         w->allstolen = 1;
