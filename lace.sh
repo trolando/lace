@@ -87,7 +87,7 @@ echo '
 #define ROUND(x,b) ( (x) + PAD( (x), (b) ) )
 
 #ifndef LACE_TASKSIZE
-#define LACE_TASKSIZE '$1'*8
+#define LACE_TASKSIZE ('$1'+1)*8
 #endif
 
 #if LACE_COUNT_EVENTS
@@ -455,6 +455,9 @@ typedef struct _TD_##NAME {
     $RES_FIELD
   } d;
 } TD_##NAME;
+
+/* If this line generates an error, please manually set the define LACE_TASKSIZE to a higher value */
+typedef char assertion_failed_task_descriptor_out_of_bounds_##NAME[(sizeof(TD_##NAME)<=sizeof(Task)) ? 0 : -1];
 
 void NAME##_WRAP(Worker *, Task *, TD_##NAME *);
 $RTYPE NAME##_CALL(Worker *, Task * $FUN_ARGS);
