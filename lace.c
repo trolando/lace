@@ -442,6 +442,16 @@ lace_count_report_file(FILE *file)
     fprintf(file, "\n");
 #endif
 
+#if LACE_COUNT_SPLITS
+    for (i=0;i<n_workers;i++) {
+        fprintf(file, "Splits (%zu): %zu shrinks, %zu grows, %zu outgoing requests\n", i,
+            workers[i]->ctr[CTR_split_shrink], workers[i]->ctr[CTR_split_grow], workers[i]->ctr[CTR_split_req]);
+    }
+    fprintf(file, "Splits (sum): %zu shrinks, %zu grows, %zu outgoing requests\n",
+        ctr_all[CTR_split_shrink], ctr_all[CTR_split_grow], ctr_all[CTR_split_req]);
+    fprintf(file, "\n");
+#endif
+
 #if LACE_PIE_TIMES
     count_at_end = gethrtime();
 

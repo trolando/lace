@@ -39,8 +39,12 @@ echo '
 #define LACE_COUNT_STEALS 0
 #endif
 
+#ifndef LACE_COUNT_SPLITS
+#define LACE_COUNT_SPLITS 0
+#endif
+
 #ifndef LACE_COUNT_EVENTS
-#define LACE_COUNT_EVENTS (LACE_PIE_TIMES || LACE_COUNT_TASKS || LACE_COUNT_STEALS)
+#define LACE_COUNT_EVENTS (LACE_PIE_TIMES || LACE_COUNT_TASKS || LACE_COUNT_STEALS || LACE_COUNT_SPLITS)
 #endif
 
 /* Common code for atomic operations */
@@ -118,6 +122,12 @@ void lace_count_report_file(FILE *file);
 #define PR_COUNTSTEALS(s,i) /* Empty */
 #endif
 
+#if LACE_COUNT_SPLITS
+#define PR_COUNTSPLITS(s,i) PR_INC(s,i)
+#else
+#define PR_COUNTSPLITS(s,i) /* Empty */
+#endif
+
 #if LACE_COUNT_EVENTS
 #define PR_ADD(s,i,k) ( ((s)->ctr[i])+=k )
 #else
@@ -126,17 +136,25 @@ void lace_count_report_file(FILE *file);
 #define PR_INC(s,i) PR_ADD(s,i,1)
 
 typedef enum {
-    CTR_tasks=0,     /* Number of tasks spawned */
+#ifdef LACE_COUNT_TASKS
+    CTR_tasks,       /* Number of tasks spawned */
+#endif
+#ifdef LACE_COUNT_STEALS
     CTR_steal_tries, /* Number of steal attempts */
     CTR_leap_tries,  /* Number of leap attempts */
     CTR_steals,      /* Number of succesful steals */
     CTR_leaps,       /* Number of succesful leaps */
     CTR_steal_busy,  /* Number of steal busies */
     CTR_leap_busy,   /* Number of leap busies */
-    CTR_split,       /* Number of split modifications */
-    CTR_splitreq,    /* Number of split requests */
+#endif
+#ifdef LACE_COUNT_SPLITS
+    CTR_split_grow,  /* Number of split right */
+    CTR_split_shrink,/* Number of split left */
+    CTR_split_req,   /* Number of split requests */
+#endif
     CTR_fast_sync,   /* Number of fast syncs */
     CTR_slow_sync,   /* Number of slow syncs */
+#ifdef LACE_PIE_TIMES
     CTR_init,        /* Timer for initialization */
     CTR_close,       /* Timer for shutdown */
     CTR_wapp,        /* Timer for application code (steal) */
@@ -147,6 +165,7 @@ typedef enum {
     CTR_lstealsucc,  /* Timer for succesful steal code (leap) */
     CTR_wsignal,     /* Timer for signal after work (steal) */
     CTR_lsignal,     /* Timer for signal after work (leap) */
+#endif
     CTR_MAX
 } CTR_index;
 
@@ -354,7 +373,10 @@ lace_steal(Worker *self, Task *__dq_head, Worker *victim)
 
     register TailSplit ts = victim->ts;
     if (ts.ts.tail >= ts.ts.split) {
-        if (victim->movesplit == 0) victim->movesplit = 1;
+        if (victim->movesplit == 0) {
+            victim->movesplit = 1;
+            PR_COUNTSPLITS(self, CTR_split_req);
+        }
         lace_time_event(self, 7);
         return LACE_NOWORK;
     }
@@ -472,6 +494,7 @@ void NAME##_SPAWN(Worker *w, Task *__dq_head $FUN_ARGS)
         w->ts.ts.split = newsplit;
         w->o_split = w->o_dq + newsplit;
         w->movesplit = 0;
+        PR_COUNTSPLITS(w, CTR_split_grow);
     }
 }
 
@@ -493,6 +516,9 @@ NAME##_movesplit(Worker *w, Task *__dq_head)
                 /* head = head-1 therefore instead of t!=h we do t<=h */
                 if (tail <= head) w->ts.ts.split = newsplit;
             }
+            PR_COUNTSPLITS(w, CTR_split_shrink);
+        } else {
+            PR_COUNTSPLITS(w, CTR_split_grow);
         }
         w->o_split = w->o_dq+newsplit;
     }
@@ -559,6 +585,7 @@ $RTYPE NAME##_SYNC_SLOW(Worker *w, Task *__dq_head)
         w->o_split = t + diff;
         w->ts.ts.split += diff;
         w->movesplit = 0;
+        PR_COUNTSPLITS(w, CTR_split_grow);
     }
 
     t = (TD_##NAME *)__dq_head;
