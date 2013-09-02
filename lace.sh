@@ -176,7 +176,7 @@ struct _Task;
 
 #define TASK_COMMON_FIELDS(type)                               \
     void (*f)(struct _Worker *, struct _Task *, struct type *);  \
-struct _Worker *thief;
+    struct _Worker *thief;
 
 #define LACE_COMMON_FIELD_SIZE sizeof(struct { TASK_COMMON_FIELDS(_Task) })
 
