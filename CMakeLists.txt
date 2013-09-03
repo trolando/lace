@@ -83,7 +83,7 @@ target_link_libraries(fib-boot pthread m ${NUMA_LIB})
 
 # add_executable(fib-lace-prof benchmarks/fib/fib-lace.c lace-1.c lace-1.h ${numa_tools})
 # set_target_properties(fib-lace-prof PROPERTIES COMPILE_FLAGS "-I. -g -fno-inline")
-# set_target_properties(fib-lace PROPERTIES COMPILE_DEFINITIONS "${lace_flags}")
+# set_target_properties(fib-lace-prof PROPERTIES COMPILE_DEFINITIONS "${lace_flags}")
 # target_link_libraries(fib-lace-prof pthread m profiler ${NUMA_LIB})
 
 add_executable(uts-seq ${uts_sources} benchmarks/uts/uts-seq.c)
@@ -95,10 +95,20 @@ set_target_properties(uts-lace PROPERTIES COMPILE_FLAGS "-I.")
 set_target_properties(uts-lace PROPERTIES COMPILE_DEFINITIONS "${lace_flags};BRG_C99_TYPES;BRG_RNG")
 target_link_libraries(uts-lace m pthread ${NUMA_LIB})
 
+# add_executable(uts-lace-prof ${uts_sources} benchmarks/uts/uts-lace.c lace-2.c lace-2.h ${numa_tools})
+# set_target_properties(uts-lace-prof PROPERTIES COMPILE_FLAGS "-I. -g -fno-inline")
+# set_target_properties(uts-lace-prof PROPERTIES COMPILE_DEFINITIONS "${lace_flags};BRG_C99_TYPES;BRG_RNG")
+# target_link_libraries(uts-lace-prof m pthread profiler ${NUMA_LIB})
+
 add_executable(queens-lace benchmarks/queens/queens-lace.c lace-3.c lace-3.h ${numa_tools})
 set_target_properties(queens-lace PROPERTIES COMPILE_FLAGS "-I.")
 set_target_properties(queens-lace PROPERTIES COMPILE_DEFINITIONS "${lace_flags}")
 target_link_libraries(queens-lace pthread m ${NUMA_LIB})
+
+# add_executable(queens-lace-prof benchmarks/queens/queens-lace.c lace-3.c lace-3.h ${numa_tools})
+# set_target_properties(queens-lace-prof PROPERTIES COMPILE_FLAGS "-I. -g -fno-inline")
+# set_target_properties(queens-lace-prof PROPERTIES COMPILE_DEFINITIONS "${lace_flags}")
+# target_link_libraries(queens-lace-prof pthread m profiler ${NUMA_LIB})
 
 add_executable(queens-seq benchmarks/queens/queens-seq.c)
 target_link_libraries(queens-seq m)

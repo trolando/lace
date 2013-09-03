@@ -366,37 +366,35 @@ static void lace_time_event( Worker *w, int event )
 static int __attribute__((noinline))
 lace_steal(Worker *self, Task *__dq_head, Worker *victim)
 {
-    if (victim->allstolen) {
-        lace_time_event(self, 7);
-        return LACE_NOWORK;
-    }
+    if (!victim->allstolen) {
+        register TailSplit ts = victim->ts;
+        if (ts.ts.tail < ts.ts.split) {
+            register TailSplit ts_new = ts;
+            ts_new.ts.tail++;
+            if (cas(&victim->ts.v, ts.v, ts_new.v)) {
+                // Stolen
+                Task *t = &victim->dq[ts.ts.tail];
+                t->thief = self;
+                lace_time_event(self, 1);
+                t->f(self, __dq_head, t);
+                lace_time_event(self, 2);
+                t->thief = THIEF_COMPLETED;
+                lace_time_event(self, 8);
+                return LACE_STOLEN;
+            }
 
-    register TailSplit ts = victim->ts;
-    if (ts.ts.tail >= ts.ts.split) {
+            lace_time_event(self, 7);
+            return LACE_BUSY;
+        }
+
         if (victim->movesplit == 0) {
             victim->movesplit = 1;
             PR_COUNTSPLITS(self, CTR_split_req);
         }
-        lace_time_event(self, 7);
-        return LACE_NOWORK;
     }
 
-    register TailSplit ts_new = ts;
-    ts_new.ts.tail++;
-    if (!cas(&victim->ts.v, ts.v, ts_new.v)) {
-        lace_time_event(self, 7);
-        return LACE_BUSY;
-    }
-
-    // Stolen
-    Task *t = &victim->dq[ts.ts.tail];
-    t->thief = self;
-    lace_time_event(self, 1);
-    t->f(self, __dq_head, t);
-    lace_time_event(self, 2);
-    t->thief = THIEF_COMPLETED;
-    lace_time_event(self, 8);
-    return LACE_STOLEN;
+    lace_time_event(self, 7);
+    return LACE_NOWORK;
 }
 
 '
@@ -604,13 +602,14 @@ lace_allstolen_##NAME:
 static inline
 $RTYPE NAME##_SYNC_FAST(Worker *w, Task *__dq_head)
 {
-    TD_##NAME *t;
+    /* assert (__dq_head > 0); */  /* Commented out because we assume contract */
 
-    /* assert (head > 0); */  /* Commented out because we assume contract */
-    if (likely(0 == w->movesplit && w->o_split <= __dq_head)) {
-        t = (TD_##NAME *)__dq_head;
-        t->f = 0;
-        return NAME##_CALL(w, __dq_head $TASK_GET_FROM_t);
+    if (likely(0 == w->movesplit)) {
+        if (likely(w->o_split <= __dq_head)) {
+            TD_##NAME *t = (TD_##NAME *)__dq_head;
+            t->f = 0;
+            return NAME##_CALL(w, __dq_head $TASK_GET_FROM_t);
+        }
     }
 
     return NAME##_SYNC_SLOW(w, __dq_head);
