@@ -121,6 +121,11 @@ target_link_libraries(matmul-lace pthread m ${NUMA_LIB})
 add_executable(matmul-seq benchmarks/matmul/matmul-seq.c)
 target_link_libraries(matmul-seq m)
 
+add_executable(matmul-lace-prof benchmarks/matmul/matmul-lace.c lace-8.c lace-8.h ${numa_tools})
+set_target_properties(matmul-lace-prof PROPERTIES COMPILE_FLAGS "-I. -g -fno-inline")
+set_target_properties(matmul-lace-prof PROPERTIES COMPILE_DEFINITIONS "${lace_flags}")
+target_link_libraries(matmul-lace-prof pthread m profiler ${NUMA_LIB})
+
 add_executable(knapsack-lace benchmarks/knapsack/knapsack-lace.c lace-4.c lace-4.h ${numa_tools})
 set_target_properties(knapsack-lace PROPERTIES COMPILE_FLAGS "-I.")
 set_target_properties(knapsack-lace PROPERTIES COMPILE_DEFINITIONS "${lace_flags}")
@@ -143,3 +148,10 @@ target_link_libraries(cilksort-lace pthread m ${NUMA_LIB})
 
 add_executable(cilksort-seq benchmarks/cilksort/cilksort-seq.c)
 target_link_libraries(cilksort-seq m)
+
+add_executable(cilksort-lace-prof benchmarks/cilksort/cilksort-lace.c lace-5.c lace-5.h ${numa_tools})
+set_target_properties(cilksort-lace-prof PROPERTIES COMPILE_FLAGS "-I. -g -fno-inline")
+set_target_properties(cilksort-lace-prof PROPERTIES COMPILE_DEFINITIONS "${lace_flags}")
+target_link_libraries(cilksort-lace-prof pthread m profiler ${NUMA_LIB})
+
+

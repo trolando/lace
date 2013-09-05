@@ -78,6 +78,8 @@ echo '
 #ifndef likely
 #define likely(x)       __builtin_expect((x),1)
 #define unlikely(x)     __builtin_expect((x),0)
+//#define likely(x)  (x)
+//#define unlikely(x) (x)
 #endif
 
 /* The size of a pointer, 8 bytes on a 64-bit architecture */
@@ -500,7 +502,7 @@ void NAME##_SPAWN(Worker *w, Task *__dq_head $FUN_ARGS)
 }
 
 static int
-NAME##_movesplit(Worker *w, Task *__dq_head)
+NAME##_shrink_shared(Worker *w, Task *__dq_head)
 {
     uint32_t tail = w->ts.ts.tail;
     uint32_t head = __dq_head - w->o_dq;
@@ -525,7 +527,8 @@ NAME##_movesplit(Worker *w, Task *__dq_head)
     }
     /* head = head-1 therefore instead of t==h we to t>h */
     if (tail > head) {
-        w->allstolen = w->o_allstolen = 1;
+        w->allstolen = 1;
+        w->o_allstolen = 1;
         return 1;
     }
     return 0;
@@ -540,10 +543,13 @@ NAME##_leapfrog(Worker *w, Task *__dq_head)
     if (thief != THIEF_COMPLETED) {
         while (thief == 0) thief = atomic_read(&(t->thief));
 
+        /* PRE-LEAP: increase head again */
+        __dq_head += 1;
+
         /* Now leapfrog */
         while (thief != THIEF_COMPLETED) {
             PR_COUNTSTEALS(w, CTR_leap_tries);
-            switch (lace_steal(w, __dq_head+1, thief)) {
+            switch (lace_steal(w, __dq_head, thief)) {
             case LACE_NOWORK:
                 lace_cb_stealing();
                 break;
@@ -558,8 +564,15 @@ NAME##_leapfrog(Worker *w, Task *__dq_head)
             }
             thief = atomic_read(&(t->thief));
         }
-        w->allstolen = 1;
-        w->o_allstolen = 1;
+
+        /* POST-LEAP: really pop the finished task */
+        /*            no need to decrease __dq_head, since it is a local variable */
+        if (w->o_allstolen == 0) {
+            /* Assume: tail = split = head (pre-pop) */
+            /* Now we do a 'real pop' ergo either decrease tail,split,head or declare allstolen */
+            w->allstolen = 1;
+            w->o_allstolen = 1;
+        }
     }
 
     t->f = 0;
@@ -574,7 +587,7 @@ $RTYPE NAME##_SYNC_SLOW(Worker *w, Task *__dq_head)
     if (w->o_allstolen) goto lace_allstolen_##NAME;
  
     if (unlikely(w->o_split > __dq_head)) {
-        if (unlikely(NAME##_movesplit(w, __dq_head))) {
+        if (unlikely(NAME##_shrink_shared(w, __dq_head))) {
             goto lace_allstolen_##NAME;
         }
     }
