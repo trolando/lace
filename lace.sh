@@ -504,34 +504,31 @@ void NAME##_SPAWN(Worker *w, Task *__dq_head $FUN_ARGS)
 static int
 NAME##_shrink_shared(Worker *w, Task *__dq_head)
 {
-    uint32_t tail = w->ts.ts.tail;
-    uint32_t head = __dq_head - w->o_dq;
-    uint32_t newsplit = (head+tail+1)/2;
-    uint32_t oldsplit = w->ts.ts.split;
-    
-    if (newsplit != oldsplit) {
+    TailSplit ts;
+    ts.v = w->ts.v;
+    uint32_t tail = ts.ts.tail;
+    uint32_t split = ts.ts.split;
+    /*uint32_t tail = w->ts.ts.tail;
+    uint32_t split = w->ts.ts.split;*/
+
+    if (tail == split) goto NAME##_allstolen;
+
+    uint32_t newsplit = (tail + split)/2;
+    w->ts.ts.split = newsplit;
+    mfence();
+    tail = atomic_read(&(w->ts.ts.tail));
+    if (tail == split) goto NAME##_allstolen;
+    if (unlikely(tail > newsplit)) {
+        newsplit = (tail + split) / 2;
         w->ts.ts.split = newsplit;
-        if (likely(newsplit < oldsplit)) {
-            mfence();
-            tail = atomic_read(&(w->ts.ts.tail));
-            if (tail > newsplit) {
-                newsplit = (head+tail+1)/2;
-                /* head = head-1 therefore instead of t!=h we do t<=h */
-                if (tail <= head) w->ts.ts.split = newsplit;
-            }
-            PR_COUNTSPLITS(w, CTR_split_shrink);
-        } else {
-            PR_COUNTSPLITS(w, CTR_split_grow);
-        }
-        w->o_split = w->o_dq+newsplit;
     }
-    /* head = head-1 therefore instead of t==h we to t>h */
-    if (tail > head) {
-        w->allstolen = 1;
-        w->o_allstolen = 1;
-        return 1;
-    }
+    w->o_split = w->o_dq + newsplit;
+    PR_COUNTSPLITS(w, CTR_split_shrink);
     return 0;
+NAME##_allstolen:
+    w->allstolen = 1;
+    w->o_allstolen = 1;
+    return 1;
 }
 
 static inline void
@@ -584,15 +581,19 @@ $RTYPE NAME##_SYNC_SLOW(Worker *w, Task *__dq_head)
 {
     TD_##NAME *t;
 
-    if (w->o_allstolen) goto lace_allstolen_##NAME;
- 
-    if (unlikely(w->o_split > __dq_head)) {
-        if (unlikely(NAME##_shrink_shared(w, __dq_head))) {
-            goto lace_allstolen_##NAME;
+    if (w->o_allstolen == 0) {
+        if ((w->o_split <= __dq_head)) goto lace_notallstolen_##NAME;
+        if (!(NAME##_shrink_shared(w, __dq_head))) {
+            goto lace_notallstolen_##NAME;
         }
     }
 
-    if (unlikely(w->movesplit)) {
+    NAME##_leapfrog(w, __dq_head);
+    t = (TD_##NAME *)__dq_head;
+    return $RETURN_RES;
+
+lace_notallstolen_##NAME:
+    if ((w->movesplit)) {
         Task *t = w->o_split;
         size_t diff = __dq_head - t;
         diff = (diff + 1) / 2;
@@ -606,10 +607,6 @@ $RTYPE NAME##_SYNC_SLOW(Worker *w, Task *__dq_head)
     t->f = 0;
     return NAME##_CALL(w, __dq_head $TASK_GET_FROM_t);
 
-lace_allstolen_##NAME:
-    NAME##_leapfrog(w, __dq_head);
-    t = (TD_##NAME *)__dq_head;
-    return $RETURN_RES;
 }
 
 static inline
