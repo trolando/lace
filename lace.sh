@@ -505,27 +505,26 @@ static int
 NAME##_shrink_shared(Worker *w, Task *__dq_head)
 {
     TailSplit ts;
-    ts.v = w->ts.v;
+    ts.v = w->ts.v; /* Force in 1 memory read */
     uint32_t tail = ts.ts.tail;
     uint32_t split = ts.ts.split;
-    /*uint32_t tail = w->ts.ts.tail;
-    uint32_t split = w->ts.ts.split;*/
 
-    if (tail == split) goto NAME##_allstolen;
-
-    uint32_t newsplit = (tail + split)/2;
-    w->ts.ts.split = newsplit;
-    mfence();
-    tail = atomic_read(&(w->ts.ts.tail));
-    if (tail == split) goto NAME##_allstolen;
-    if (unlikely(tail > newsplit)) {
-        newsplit = (tail + split) / 2;
+    if (tail != split) {
+        uint32_t newsplit = (tail + split)/2;
         w->ts.ts.split = newsplit;
+        mfence();
+        tail = atomic_read(&(w->ts.ts.tail));
+        if (tail != split) {
+            if (unlikely(tail > newsplit)) {
+                newsplit = (tail + split) / 2;
+                w->ts.ts.split = newsplit;
+            }
+            w->o_split = w->o_dq + newsplit;
+            PR_COUNTSPLITS(w, CTR_split_shrink);
+            return 0;
+        }
     }
-    w->o_split = w->o_dq + newsplit;
-    PR_COUNTSPLITS(w, CTR_split_shrink);
-    return 0;
-NAME##_allstolen:
+
     w->allstolen = 1;
     w->o_allstolen = 1;
     return 1;
