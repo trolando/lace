@@ -580,18 +580,12 @@ $RTYPE NAME##_SYNC_SLOW(Worker *w, Task *__dq_head)
 {
     TD_##NAME *t;
 
-    if (w->o_allstolen == 0) {
-        if ((w->o_split <= __dq_head)) goto lace_notallstolen_##NAME;
-        if (!(NAME##_shrink_shared(w, __dq_head))) {
-            goto lace_notallstolen_##NAME;
-        }
+    if ((w->o_allstolen) || (w->o_split > __dq_head && NAME##_shrink_shared(w, __dq_head))) {
+        NAME##_leapfrog(w, __dq_head);
+        t = (TD_##NAME *)__dq_head;
+        return $RETURN_RES;
     }
 
-    NAME##_leapfrog(w, __dq_head);
-    t = (TD_##NAME *)__dq_head;
-    return $RETURN_RES;
-
-lace_notallstolen_##NAME:
     if ((w->movesplit)) {
         Task *t = w->o_split;
         size_t diff = __dq_head - t;
@@ -605,7 +599,6 @@ lace_notallstolen_##NAME:
     t = (TD_##NAME *)__dq_head;
     t->f = 0;
     return NAME##_CALL(w, __dq_head $TASK_GET_FROM_t);
-
 }
 
 static inline
