@@ -138,12 +138,12 @@ numa_available_cpus()
 /**
  * Calculate the number of currently available nodes
  */
-int
+size_t
 numa_available_work_nodes()
 {
     if (!numa_tools_init()) return 0;
-    int *nodes = (int*)alloca(sizeof(int)*num_nodes);
-    memset(nodes, 0, num_nodes*sizeof(int));
+    unsigned int *nodes = (unsigned int*)alloca(sizeof(unsigned int)*num_nodes);
+    memset(nodes, 0, num_nodes*sizeof(unsigned int));
 
     size_t i,j=0;
     for (i=0;i<num_cpus;i++) if (cpu_to_node[i]!=-1) nodes[cpu_to_node[i]]++;
@@ -456,7 +456,8 @@ numa_checkdomain(void *ptr, size_t size, size_t expected_node)
     for (; base != last; base += pagesize) {
         int status = -1, res;
         if ((res = move_pages(0, 1, (void**)&base, NULL, &status, 0)) != 0) return res;
-        if (status != expected_node) return 0;
+        if (status < 0) return 0;
+        if ((size_t)status != expected_node) return 0;
     }
 
     return 1;

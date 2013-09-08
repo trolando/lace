@@ -6,18 +6,44 @@
  */
 int numa_tools_refresh(void);
 
+/**
+ * Get the number of configured cpus on this system
+ */
 size_t get_num_cpus(void);
+
+/**
+ * Returns an array per configured cpu which node (-1 if cpu not usable)
+ */
 const int *get_cpu_to_node(void);
 
 size_t numa_available_cpus(); // number of available cores
 size_t numa_available_work_nodes(); // number of nodes with available cores
 size_t numa_available_memory_nodes(); // number of nodes with memory allocation
+
+/**
+ * Check if all nodes that host available cpus can also allocate memory
+ * Returns 1 if this is the case, 0 otherwise.
+ */
 int numa_check_sanity(); // check that all work nodes are also memory nodes
 
+/**
+ * Calculate a distribution of N workers
+ * Returns 0 if successful.
+ */
 int numa_distribute(size_t workers);
 
+/**
+ * Retrieve info for a certain worker
+ * Retrieves - the node the worker is on
+ *           - the index of our node (only count available nodes)
+ *           - our worker index on the node
+ *           - the total number of workers on this node
+ */
 int numa_worker_info(size_t worker, size_t *node, size_t *node_index, size_t *index, size_t *total);
 
+/**
+ * Bind me (worker) according to the calculated distribution
+ */
 int numa_bind_me(size_t worker);
 
 /**
@@ -45,7 +71,7 @@ int numa_move(void *mem, size_t size, int node);
 int numa_interleave(void *mem, size_t size, size_t *fragment_size);
 
 /**
- * Retrieves the domain of a memory address...
+ * Retrieves the domain of a memory address... -1 if we could not retrieve
  */
 int numa_getdomain(void *ptr);
 
