@@ -6,19 +6,19 @@
  */
 int numa_tools_refresh(void);
 
-int get_num_cpus(void);
+size_t get_num_cpus(void);
 const int *get_cpu_to_node(void);
 
-int numa_available_cpus(); // number of available cores
-int numa_available_work_nodes(); // number of nodes with available cores
-int numa_available_memory_nodes(); // number of nodes with memory allocation
+size_t numa_available_cpus(); // number of available cores
+size_t numa_available_work_nodes(); // number of nodes with available cores
+size_t numa_available_memory_nodes(); // number of nodes with memory allocation
 int numa_check_sanity(); // check that all work nodes are also memory nodes
 
-int numa_distribute(int workers);
+int numa_distribute(size_t workers);
 
-int numa_worker_info(int worker, int *node, int *node_index, int *index, int *total);
+int numa_worker_info(size_t worker, size_t *node, size_t *node_index, size_t *index, size_t *total);
 
-int numa_bind_me(int worker);
+int numa_bind_me(size_t worker);
 
 /**
  * Move some piece of memory to some memory domain.
@@ -54,6 +54,6 @@ int numa_getdomain(void *ptr);
  * or 0 if not all pages on the right domain
  * or 1 if they are on the expected domain
  */
-int numa_checkdomain(void *ptr, size_t size, int expected_node);
+int numa_checkdomain(void *ptr, size_t size, size_t expected_node);
 
 #endif

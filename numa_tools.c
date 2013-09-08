@@ -86,7 +86,7 @@ numa_tools_refresh(void)
     return 1;
 }
 
-int
+size_t
 get_num_cpus(void)
 {
     return num_cpus;
@@ -109,11 +109,11 @@ numa_tools_init()
 /**
  * Returns number of available cpus
  */
-int
-numa_cpus_per_node(int *nodes)
+size_t
+numa_cpus_per_node(size_t *nodes)
 {
     if (!numa_tools_init()) return 0;
-    unsigned int i;
+    size_t i;
     for (i=0;i<num_cpus;i++) {
         if (cpu_to_node[i] != -1) nodes[cpu_to_node[i]]++;
     }
@@ -124,7 +124,7 @@ numa_cpus_per_node(int *nodes)
 /**
  * Calculates the number of currently available cpus
  */
-int
+size_t
 numa_available_cpus()
 {
     if (!numa_tools_init()) return 0;
@@ -180,11 +180,11 @@ numa_check_sanity(void)
 }
 
 static size_t n_workers = 0, n_nodes = 0;
-static int *worker_to_node = 0;
-static int *selected_nodes = 0;
+static size_t *worker_to_node = 0;
+static size_t *selected_nodes = 0;
 
 int
-numa_worker_info(size_t worker, int *node, int *node_index, int *index, int *total)
+numa_worker_info(size_t worker, size_t *node, size_t *node_index, size_t *index, size_t *total)
 {
     *node = -1;
 
@@ -211,7 +211,8 @@ numa_worker_info(size_t worker, int *node, int *node_index, int *index, int *tot
 int
 numa_bind_me(size_t worker)
 {
-    int node, res;
+    size_t node;
+    int res;
     if ((res=numa_worker_info(worker, &node, 0, 0, 0)) != 0) return res;
     if ((res=numa_run_on_node(node)) != 0) return res;
     return 0;
@@ -224,11 +225,11 @@ numa_distribute(size_t workers)
 
     n_workers = workers;
     if (worker_to_node != 0) free(worker_to_node);
-    worker_to_node = malloc(sizeof(int) * n_workers);
+    worker_to_node = malloc(sizeof(size_t) * n_workers);
 
     size_t i,j;
-    int *nodes = (int*)alloca(sizeof(int) * num_nodes);
-    memset(nodes, 0, num_nodes*sizeof(int));
+    size_t *nodes = (size_t*)alloca(sizeof(size_t) * num_nodes);
+    memset(nodes, 0, num_nodes*sizeof(size_t));
     for (i=0;i<num_cpus;i++) if (cpu_to_node[i]!=-1) nodes[cpu_to_node[i]]++;
 
     // Determine number of selected nodes
@@ -237,7 +238,7 @@ numa_distribute(size_t workers)
     n_nodes = workers > tot_nodes ? tot_nodes : workers;
 
     // Get distances
-    int *distances = (int*)malloc(num_nodes * num_nodes * sizeof(int));
+    size_t *distances = (size_t*)malloc(num_nodes * num_nodes * sizeof(size_t));
     for (i=0; i<num_nodes; i++) for (j=0; j<num_nodes; j++) distances[num_nodes*i + j] = numa_distance(i, j);
 
     // Calculate best setup
@@ -250,7 +251,7 @@ numa_distribute(size_t workers)
         if (__builtin_popcount(setup) != n_nodes) continue;
 
         // Calculate cumulative distance
-        int cumdist=0, links=0, k, all_available=1;
+        size_t cumdist=0, links=0, k, all_available=1;
         long s=setup, t;
         j=0;
         while (s && all_available) {
@@ -286,7 +287,7 @@ numa_distribute(size_t workers)
 
     // Select nodes
     if (selected_nodes != 0) free(selected_nodes);
-    selected_nodes = (int*)malloc(sizeof(int) * n_nodes);
+    selected_nodes = (size_t*)malloc(sizeof(size_t) * n_nodes);
 
     i = j = 0;
     while (best_setup) {
@@ -297,7 +298,7 @@ numa_distribute(size_t workers)
 
     // Distribute workers
     size_t count;
-    int *s_cpus = (int*)alloca(sizeof(int) * n_nodes);
+    size_t *s_cpus = (size_t*)alloca(sizeof(size_t) * n_nodes);
     for (i=count=0; i<n_nodes; i++) count += (s_cpus[i] = nodes[selected_nodes[i]]);
 
     for (i=j=0; i<n_workers; i++) {
@@ -320,7 +321,7 @@ numa_distribute(size_t workers)
  * mem should be on a <getpagesize()> boundary!
  */
 int
-numa_move(void *mem, size_t size, int node)
+numa_move(void *mem, size_t size, size_t node)
 {
     struct bitmask *bmp = numa_allocate_nodemask();
     numa_bitmask_clearall(bmp);
@@ -448,7 +449,7 @@ numa_getdomain(void *ptr)
 }
 
 int
-numa_checkdomain(void *ptr, size_t size, int expected_node)
+numa_checkdomain(void *ptr, size_t size, size_t expected_node)
 {
     size_t base = ((size_t)ptr & ~(pagesize-1));
     size_t last = ((((size_t)ptr) + size) & ~(pagesize-1));
