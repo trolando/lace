@@ -280,6 +280,10 @@ _lace_create_thread(int worker, size_t stacksize, void* (*f)(void*), void *arg)
     pthread_t res;
     pthread_create(&res, &worker_attr, f, arg);
     return res;
+#if ! USE_NUMA
+    (void)worker;
+    (void)stacksize;
+#endif
 }
 
 static void
