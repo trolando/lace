@@ -3,14 +3,7 @@ CMakeFiles
 Makefile
 cmake_install.cmake
 config.h
-lace-?.*
 wool/wool-?.*
 wool015/wool-?.*
-fib-*
-uts-*
-matmul-*
-queens-*
-knapsack-*
-strassen-*
 experiments/*.result
 experiments/*.pyc
