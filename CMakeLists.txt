@@ -154,4 +154,10 @@ target_link_libraries(cilksort-seq m)
 #set_target_properties(cilksort-lace-prof PROPERTIES COMPILE_DEFINITIONS "${lace_flags}")
 #target_link_libraries(cilksort-lace-prof pthread m profiler ${NUMA_LIB})
 
+add_executable(dfs-lace benchmarks/dfs/dfs-lace.c lace-1.c lace-1.h ${numa_tools})
+set_target_properties(dfs-lace PROPERTIES COMPILE_FLAGS "-I.")
+set_target_properties(dfs-lace PROPERTIES COMPILE_DEFINITIONS "${lace_flags}")
+target_link_libraries(dfs-lace pthread m ${NUMA_LIB})
 
+add_executable(dfs-seq benchmarks/dfs/dfs-seq.c)
+target_link_libraries(dfs-seq m)
