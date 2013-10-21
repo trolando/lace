@@ -369,7 +369,11 @@ static int __attribute__((noinline))
 lace_steal(Worker *self, Task *__dq_head, Worker *victim)
 {
     if (!victim->allstolen) {
-        register TailSplit ts = victim->ts;
+        /* Must be a volatile. In GCC 4.8, if it is not declared volatile, the
+           compiler will 'optimize' extra memory accesses to victim->ts instead
+           of comparing the local values ts.ts.tail and ts.ts.split, causing
+           thieves to steal non existent tasks! */
+        register TailSplit ts = *(volatile TailSplit *)&victim->ts;
         if (ts.ts.tail < ts.ts.split) {
             register TailSplit ts_new = ts;
             ts_new.ts.tail++;
