@@ -82,6 +82,9 @@ echo '
 #define PAD(x,b) ( ( (b) - ((x)%(b)) ) & ((b)-1) ) /* b must be power of 2 */
 #define ROUND(x,b) ( (x) + PAD( (x), (b) ) )
 
+/* The size is in bytes. Note that this is without the extra overhead from Lace.
+   The value must be greater than or equal to the maximum size of your tasks.
+   The task size is the maximum of the size of the result or of the sum of the parameter sizes. */
 #ifndef LACE_TASKSIZE
 #define LACE_TASKSIZE ('$1'+1)*8
 #endif
