@@ -20,6 +20,7 @@
 #include <sys/time.h> // for gettimeofday
 #include <pthread.h>
 
+#include <barrier.h>
 #include <lace.h>
 
 #ifndef USE_NUMA
@@ -33,6 +34,7 @@
 
 static Worker **workers;
 static int inited = 0;
+static size_t dq_size = -1;
 
 static int n_workers = 0;
 
@@ -41,6 +43,7 @@ static pthread_t *ts = NULL;
 
 static pthread_attr_t worker_attr;
 static pthread_key_t worker_key;
+static barrier_t bar;
 
 static pthread_cond_t wait_until_done = PTHREAD_COND_INITIALIZER;
 static pthread_mutex_t wait_until_done_mutex = PTHREAD_MUTEX_INITIALIZER;
@@ -72,7 +75,7 @@ us_elapsed(void)
 #endif
 
 static void
-init_worker(int worker, size_t dq_size)
+init_worker(int worker)
 {
     Worker *w;
 
@@ -104,7 +107,9 @@ init_worker(int worker, size_t dq_size)
     w->level = 0;
 #endif
 
+    pthread_setspecific(worker_key, w);
     workers[worker] = w;
+    barrier_wait(&bar);
 }
 
 static inline uint32_t
@@ -123,19 +128,17 @@ rng(uint32_t *seed, int max)
 static void*
 lace_boot_wrapper(void *arg)
 {
-    Worker *self = workers[0];
+    init_worker(0); // init master
 
 #if USE_NUMA
-    numa_bind_me(self->worker);
+    numa_bind_me(0);
 #endif
-
-    pthread_setspecific(worker_key, self);
 
 #if LACE_PIE_TIMES
     self->time = gethrtime();
 #endif
 
-    lace_time_event(self, 1);
+    lace_time_event(workers[0], 1);
 
     ((void (*)())arg)();
 
@@ -150,7 +153,11 @@ lace_boot_wrapper(void *arg)
 static void*
 worker_thread( void *arg )
 {
-    Worker **self = (Worker **) arg, **victim = NULL;
+    long self_id = (long) arg;
+    init_worker(self_id); // init slave
+
+    Worker **self = &workers[self_id];
+    Worker **victim = NULL;
     int worker_id = (*self)->worker;
     uint32_t seed = worker_id;
     unsigned int n = n_workers;
@@ -159,8 +166,6 @@ worker_thread( void *arg )
 #if USE_NUMA
     numa_bind_me((*self)->worker);
 #endif
-
-    pthread_setspecific(worker_key, *self);
 
 #if LACE_PIE_TIMES
     (*self)->time = gethrtime();
@@ -277,6 +282,7 @@ _lace_create_thread(int worker, size_t stacksize, void* (*f)(void*), void *arg)
         }
     }
 #endif
+
     pthread_t res;
     pthread_create(&res, &worker_attr, f, arg);
     return res;
@@ -287,15 +293,16 @@ _lace_create_thread(int worker, size_t stacksize, void* (*f)(void*), void *arg)
 }
 
 static void
-_lace_init(int n, size_t dq_size, size_t stacksize, void (*f)(void))
+_lace_init(int n, size_t stacksize, void (*f)(void))
 {
     n_workers = n;
-    int i;
+    long i;
 
     more_work = 1;
     inited = 1;
     lace_cb_stealing = &lace_default_cb;
 
+    barrier_init(&bar, lace_workers());
     posix_memalign((void**)&workers, LINE_SIZE, n*sizeof(Worker*));
     ts = (pthread_t *)malloc((n-1) * sizeof(pthread_t));
     pthread_attr_init(&worker_attr);
@@ -331,9 +338,6 @@ _lace_init(int n, size_t dq_size, size_t stacksize, void (*f)(void))
     }
 #endif
 
-    // Initialize data structures for work stealing
-    for (i=0; i<n; i++) init_worker(i, dq_size);
-
 #if LACE_PIE_TIMES
     us_elapsed_start();
     count_at_start = gethrtime();
@@ -345,10 +349,10 @@ _lace_init(int n, size_t dq_size, size_t stacksize, void (*f)(void))
 #endif
 
     for (i=1; i<n; i++) {
-        *(ts+i-1) = _lace_create_thread(i, stacksize, &worker_thread, workers+i);
+        *(ts+i-1) = _lace_create_thread(i, stacksize, &worker_thread, (void*)i);
     }
 
-    if (f != 0) {
+    if (f != NULL) {
         _lace_create_thread(0, stacksize, &lace_boot_wrapper, (void*)f);
 
         // Wait on condition until done
@@ -361,16 +365,17 @@ _lace_init(int n, size_t dq_size, size_t stacksize, void (*f)(void))
         numa_bind_me(0);
 #endif
 
-        pthread_setspecific(worker_key, *workers);
+        init_worker(0); // init master
 
         lace_time_event(workers[0], 1);
     }
 }
 
 void
-lace_init(int workers, size_t dq_size, size_t stacksize)
+lace_init(int workers, size_t dqsize, size_t stacksize)
 {
-    _lace_init(workers, dq_size, stacksize, 0);
+    dq_size = dqsize;
+    _lace_init(workers, stacksize, NULL);
 }
 
 #if LACE_COUNT_EVENTS
@@ -507,15 +512,18 @@ void lace_exit()
     int i;
     for(i=0; i<n_workers-1; i++) pthread_join(ts[i], NULL);
 
+    barrier_destroy(&bar);
+
 #if LACE_COUNT_EVENTS
     lace_count_report_file(stderr);
 #endif
 }
 
 void
-lace_boot(int workers, size_t dq_size, size_t stack_size, void (*f)(void))
+lace_boot(int workers, size_t dqsize, size_t stack_size, void (*f)(void))
 {
-    _lace_init(workers, dq_size, stack_size, f);
+    dq_size = dqsize;
+    _lace_init(workers, stack_size, f);
     lace_exit();
 }
 
