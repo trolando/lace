@@ -197,6 +197,15 @@ typedef struct _Worker {
 } Worker;
 
 /**
+ * Allow Lace callee to initiate worker threads by itself.
+ * It should call lace_init_static once, and after starting the worker threads,
+ * each thread should call lace_init_worker, from which only the master thread
+ * returns immediately (idx == 0).
+ */
+extern void lace_init_static(int workers, size_t dqsize);
+extern void lace_init_worker(int idx);
+
+/**
  * Either use lace_init and lace_exit, or use lace_boot with a callback function.
  * lace_init will start w-1 workers, lace_boot will start w workers and run the callback function in a worker.
  * Use lace_boot is recommended because there is more control over the program stack allocation then.

@@ -293,10 +293,9 @@ _lace_create_thread(int worker, size_t stacksize, void* (*f)(void*), void *arg)
 }
 
 static void
-_lace_init(int n, size_t stacksize, void (*f)(void))
+_lace_init(int n)
 {
     n_workers = n;
-    long i;
 
     more_work = 1;
     inited = 1;
@@ -304,25 +303,6 @@ _lace_init(int n, size_t stacksize, void (*f)(void))
 
     barrier_init(&bar, lace_workers());
     posix_memalign((void**)&workers, LINE_SIZE, n*sizeof(Worker*));
-    ts = (pthread_t *)malloc((n-1) * sizeof(pthread_t));
-    pthread_attr_init(&worker_attr);
-    pthread_attr_setscope(&worker_attr, PTHREAD_SCOPE_SYSTEM);
-
-    if (stacksize == 0) {
-        pthread_attr_getstacksize(&worker_attr, &stacksize);
-    } else {
-        if (0 != pthread_attr_setstacksize(&worker_attr, stacksize)) {
-            fprintf(stderr, "Error: Cannot set stacksize for new pthreads in Lace!\n");
-            exit(1);
-            pthread_attr_getstacksize(&worker_attr, &stacksize);
-        }
-    }
-
-    if (stacksize == 0) {
-        fprintf(stderr, "Error: Unable to get stacksize for new pthreads in Lace!\n");
-        exit(1);
-    }
-
     pthread_key_create(&worker_key, NULL);
 
 #if USE_NUMA
@@ -342,12 +322,31 @@ _lace_init(int n, size_t stacksize, void (*f)(void))
     us_elapsed_start();
     count_at_start = gethrtime();
 #endif
+}
 
-#if USE_NUMA
-    size_t pagesize = numa_pagesize();
-    stacksize = (stacksize + pagesize - 1) & ~(pagesize - 1); // ceil(stacksize, pagesize)
-#endif
+static void
+_lace_spawn_workers (int n, size_t stacksize, void (*f)(void))
+{
+    pthread_attr_init(&worker_attr);
+    pthread_attr_setscope(&worker_attr, PTHREAD_SCOPE_SYSTEM);
 
+    if (stacksize == 0) {
+        pthread_attr_getstacksize(&worker_attr, &stacksize);
+    } else {
+        if (0 != pthread_attr_setstacksize(&worker_attr, stacksize)) {
+            fprintf(stderr, "Error: Cannot set stacksize for new pthreads in Lace!\n");
+            exit(1);
+            pthread_attr_getstacksize(&worker_attr, &stacksize);
+        }
+    }
+
+    if (stacksize == 0) {
+        fprintf(stderr, "Error: Unable to get stacksize for new pthreads in Lace!\n");
+        exit(1);
+    }
+
+    long i;
+    ts = (pthread_t *)malloc((n-1) * sizeof(pthread_t));
     for (i=1; i<n; i++) {
         *(ts+i-1) = _lace_create_thread(i, stacksize, &worker_thread, (void*)i);
     }
@@ -366,8 +365,25 @@ _lace_init(int n, size_t stacksize, void (*f)(void))
 #endif
 
         init_worker(0); // init master
-
         lace_time_event(workers[0], 1);
+    }
+}
+
+void
+lace_init_static(int workers, size_t dqsize)
+{
+    dq_size = dqsize;
+    _lace_init(workers);
+}
+
+void
+lace_init_worker(int idx)
+{
+    long i = idx;
+    if (idx != 0) {
+        worker_thread((void *)i);
+    } else {
+        init_worker(idx);
     }
 }
 
@@ -375,7 +391,8 @@ void
 lace_init(int workers, size_t dqsize, size_t stacksize)
 {
     dq_size = dqsize;
-    _lace_init(workers, stacksize, NULL);
+    _lace_init(workers);
+    _lace_spawn_workers(workers, stacksize, NULL);
 }
 
 #if LACE_COUNT_EVENTS
@@ -509,8 +526,10 @@ void lace_exit()
     more_work = 0;
     inited = 0;
 
-    int i;
-    for(i=0; i<n_workers-1; i++) pthread_join(ts[i], NULL);
+    if (ts != NULL) {
+        int i;
+        for(i=0; i<n_workers-1; i++) pthread_join(ts[i], NULL);
+    }
 
     barrier_destroy(&bar);
 
@@ -523,7 +542,8 @@ void
 lace_boot(int workers, size_t dqsize, size_t stack_size, void (*f)(void))
 {
     dq_size = dqsize;
-    _lace_init(workers, stack_size, f);
+    _lace_init(workers);
+    _lace_spawn_workers(workers, stack_size, f);
     lace_exit();
 }
 
