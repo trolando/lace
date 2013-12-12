@@ -22,6 +22,7 @@
 
 #include <barrier.h>
 #include <lace.h>
+#include <ticketlock.h>
 
 #ifndef USE_NUMA
 #define USE_NUMA 0 // by default, don't use special numa handling code
@@ -74,6 +75,10 @@ us_elapsed(void)
 }
 #endif
 
+#if USE_NUMA
+ticketlock_t lock = {0};
+#endif
+
 static void
 init_worker(int worker)
 {
@@ -82,8 +87,10 @@ init_worker(int worker)
 #if USE_NUMA
     size_t node;
     numa_worker_info(worker, &node, 0, 0, 0);
+    ticketlock_lock(&lock);
     w = (Worker *)numa_alloc_onnode(sizeof(Worker), node);
     w->dq = (Task*)numa_alloc_onnode(dq_size * sizeof(Task), node);
+    ticketlock_unlock(&lock);
 #else
     posix_memalign((void**)&w, LINE_SIZE, sizeof(Worker));
     posix_memalign((void**)&w->dq, LINE_SIZE, dq_size * sizeof(Task));
@@ -128,11 +135,11 @@ rng(uint32_t *seed, int max)
 static void*
 lace_boot_wrapper(void *arg)
 {
-    init_worker(0); // init master
-
 #if USE_NUMA
     numa_bind_me(0);
 #endif
+
+    init_worker(0); // init master
 
 #if LACE_PIE_TIMES
     self->time = gethrtime();
@@ -154,6 +161,11 @@ static void*
 worker_thread( void *arg )
 {
     long self_id = (long) arg;
+
+#if USE_NUMA
+    numa_bind_me(self_id);
+#endif
+
     init_worker(self_id); // init slave
 
     Worker **self = &workers[self_id];
@@ -162,10 +174,6 @@ worker_thread( void *arg )
     uint32_t seed = worker_id;
     unsigned int n = n_workers;
     int i=0;
-
-#if USE_NUMA
-    numa_bind_me((*self)->worker);
-#endif
 
 #if LACE_PIE_TIMES
     (*self)->time = gethrtime();
@@ -266,6 +274,7 @@ _lace_create_thread(int worker, size_t stacksize, void* (*f)(void*), void *arg)
         // Allocate memory for the program stack on the NUMA nodes
         size_t node;
         numa_worker_info(worker, &node, 0, 0, 0);
+        ticketlock_lock(&lock);
         void *stack_location = numa_alloc_onnode(stacksize + pagesize, node);
         if (stack_location == 0) {
             fprintf(stderr, "Error: Unable to allocate memory for the pthread stack!\n");
@@ -280,6 +289,7 @@ _lace_create_thread(int worker, size_t stacksize, void* (*f)(void*), void *arg)
             fprintf(stderr, "Error: Unable to set the pthread stack in Lace!\n");
             exit(1);
         }
+        ticketlock_unlock(&lock);
     }
 #endif
 
@@ -325,7 +335,7 @@ _lace_init(int n)
 }
 
 static void
-_lace_spawn_workers (int n, size_t stacksize, void (*f)(void))
+_lace_spawn_workers(int n, size_t stacksize, void (*f)(void))
 {
     pthread_attr_init(&worker_attr);
     pthread_attr_setscope(&worker_attr, PTHREAD_SCOPE_SYSTEM);
