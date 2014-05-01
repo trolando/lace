@@ -254,6 +254,17 @@ static const int __lace_in_task = 0;
 #define CALL(f, ...)      ( CALL_DISPATCH_##f((Worker *)__lace_worker, (Task *)__lace_dq_head, __lace_in_task, ##__VA_ARGS__) )
 #define LACE_WORKER_ID    ( (int16_t) (__lace_worker == NULL ? lace_get_worker()->worker : __lace_worker->worker) )
 
+/* Use LACE_ME to initialize Lace variables, in case you want to call multiple Lace tasks */
+#define LACE_ME Worker *__lace_worker = lace_get_worker(); Task *__lace_dq_head = lace_get_head(); int __lace_in_task = 1;
+
+typedef void* (*lace_callback_f)(Worker *, Task *, int, void *);
+#define LACE_DECL_CALLBACK(f) void *f(Worker *, Task *, int, void *); \
+            static inline __attribute__((always_inline)) __attribute__((unused)) void* \
+            CALL_DISPATCH_##f(Worker *w, Task *t, int i, void *a) { if (i) { return f(w, t, 1, a); } else { LACE_ME; return f(__lace_worker, __lace_dq_head, 1, a); } }
+#define LACE_IMPL_CALLBACK(f) void *f(__attribute__((unused)) Worker *__lace_worker, __attribute__((unused)) Task *__lace_dq_head, __attribute__((unused)) int __lace_in_task, __attribute__((unused)) void *arg)        
+#define LACE_CALLBACK(f) LACE_DECL_CALLBACK(f) LACE_IMPL_CALLBACK(f)
+#define CALL_CALLBACK(f, arg) ( f(__lace_worker, __lace_dq_head, __lace_in_task, arg) )
+
 #if LACE_PIE_TIMES
 static void lace_time_event( Worker *w, int event )
 {
@@ -612,21 +623,21 @@ $RTYPE NAME##_SYNC_FAST(Worker *w, Task *__dq_head)
     return NAME##_SYNC_SLOW(w, __dq_head);
 }
 
-static inline __attribute__((always_inline))
+static inline __attribute__((always_inline)) __attribute__((unused))
 void SPAWN_DISPATCH_##NAME(Worker *w, Task *__dq_head, int __intask $FUN_ARGS)
 {
     if (__intask) return NAME##_SPAWN(w, __dq_head $CALL_ARGS);
     else return NAME##_SPAWN(lace_get_worker(), lace_get_head() $CALL_ARGS);
 }
 
-static inline __attribute__((always_inline))
+static inline __attribute__((always_inline)) __attribute__((unused))
 $RTYPE SYNC_DISPATCH_##NAME(Worker *w, Task *__dq_head, int __intask)
 {
     if (__intask) return NAME##_SYNC_FAST(w, __dq_head);
     else return NAME##_SYNC_FAST(lace_get_worker(), lace_get_head());
 }
 
-static inline __attribute__((always_inline))
+static inline __attribute__((always_inline)) __attribute__((unused))
 $RTYPE CALL_DISPATCH_##NAME(Worker *w, Task *__dq_head, int __intask $FUN_ARGS)
 {
     if (__intask) return NAME##_CALL(w, __dq_head $CALL_ARGS);
