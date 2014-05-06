@@ -76,11 +76,6 @@ set_target_properties(fib-lace PROPERTIES COMPILE_FLAGS "-I.")
 set_target_properties(fib-lace PROPERTIES COMPILE_DEFINITIONS "${lace_flags}")
 target_link_libraries(fib-lace pthread m ${NUMA_LIB})
 
-add_executable(fib-boot benchmarks/fib/fib-boot.c lace-1.c lace-1.h barrier.c barrier.h ticketlock.h ${numa_tools})
-set_target_properties(fib-boot PROPERTIES COMPILE_FLAGS "-I.")
-set_target_properties(fib-boot PROPERTIES COMPILE_DEFINITIONS "${lace_flags}")
-target_link_libraries(fib-boot pthread m ${NUMA_LIB})
-
 # add_executable(fib-lace-prof benchmarks/fib/fib-lace.c lace-1.c lace-1.h barrier.c barrier.h ticketlock.h ${numa_tools})
 # set_target_properties(fib-lace-prof PROPERTIES COMPILE_FLAGS "-I. -g -fno-inline")
 # set_target_properties(fib-lace-prof PROPERTIES COMPILE_DEFINITIONS "${lace_flags}")
