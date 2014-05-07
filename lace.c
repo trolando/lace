@@ -16,11 +16,12 @@
 
 #include <stdio.h>  // for fprintf
 #include <stdlib.h> // for memalign, malloc
+#include <string.h> // for memset
 #include <sys/mman.h> // for mprotect
 #include <sys/time.h> // for gettimeofday
 #include <pthread.h>
+#include <assert.h>
 
-#include <barrier.h>
 #include <lace.h>
 #include <ticketlock.h>
 
@@ -43,7 +44,6 @@ static volatile int more_work = 1;
 
 static pthread_attr_t worker_attr;
 static pthread_key_t worker_key;
-static barrier_t bar;
 
 static pthread_cond_t wait_until_done = PTHREAD_COND_INITIALIZER;
 static pthread_mutex_t wait_until_done_mutex = PTHREAD_MUTEX_INITIALIZER;
@@ -107,6 +107,92 @@ us_elapsed(void)
 // Lock used only during parallel lace_init_worker...
 ticketlock_t lock = {0};
 #endif
+
+/* Barrier */
+#define BARRIER_MAX_THREADS 128
+
+typedef union __attribute__((__packed__)) asize_u
+{
+    volatile size_t val;
+    char            pad[LINE_SIZE - sizeof(size_t)];
+} asize_t;
+
+typedef struct barrier_s {
+    size_t __attribute__((aligned(LINE_SIZE))) ids;
+    size_t __attribute__((aligned(LINE_SIZE))) threads;
+    size_t __attribute__((aligned(LINE_SIZE))) count;
+    size_t __attribute__((aligned(LINE_SIZE))) wait;
+    /* the following is needed only for destroy: */
+    asize_t             entered[BARRIER_MAX_THREADS];
+    pthread_key_t       tls_key;
+} barrier_t;
+
+static inline size_t
+barrier_get_next_id(barrier_t *b)
+{
+    size_t val, new_val;
+    do { // cas is faster than __sync_fetch_and_inc / __sync_inc_and_fetch
+        val = ATOMIC_READ (b->ids);
+        new_val = val + 1;
+    } while (!cas(&b->ids, val, new_val));
+    return val;
+}
+
+static inline int
+barrier_get_id(barrier_t *b)
+{
+    int *id = (int*)pthread_getspecific(b->tls_key);
+    if (id == NULL) {
+        id = (int*)malloc(sizeof(int));
+        *id = barrier_get_next_id(b);
+        pthread_setspecific(b->tls_key, id);
+    }
+    return *id;
+}
+
+static int
+barrier_wait(barrier_t *b)
+{
+    // get id ( only needed for destroy :( )
+    int id = barrier_get_id(b);
+
+    // signal entry
+    ATOMIC_WRITE (b->entered[id].val, 1);
+
+    size_t wait = ATOMIC_READ(b->wait);
+    if (b->threads == add_fetch(b->count, 1)) {
+        ATOMIC_WRITE(b->count, 0); // reset counter
+        ATOMIC_WRITE(b->wait, 1 - wait); // flip wait
+        ATOMIC_WRITE(b->entered[id].val, 0); // signal exit
+        return PTHREAD_BARRIER_SERIAL_THREAD; // master return value
+    } else {
+        while (wait == ATOMIC_READ(b->wait)) {} // wait
+        ATOMIC_WRITE(b->entered[id].val, 0); // signal exit
+        return 0; // slave return value
+    }
+}
+
+static void
+barrier_init(barrier_t *b, unsigned count)
+{
+    assert(count <= BARRIER_MAX_THREADS);
+    memset(b, 0, sizeof(barrier_t));
+    pthread_key_create(&b->tls_key, NULL);
+    b->threads = count;
+}
+
+static void
+barrier_destroy(barrier_t *b)
+{
+    // wait for all to exit
+    size_t i;
+    for (i=0; i<b->threads; i++)
+        while (1 == b->entered[i].val) {}
+    pthread_key_delete(b->tls_key);
+}
+
+static size_t default_stacksize;
+static barrier_t bar;
 
 void
 lace_init_worker(int worker, size_t dq_size)
