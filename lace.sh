@@ -29,6 +29,10 @@ echo '
 
 /* Some flags */
 
+#ifndef LACE_LEAP_RANDOM
+#define LACE_LEAP_RANDOM 1
+#endif
+
 #ifndef LACE_PIE_TIMES
 #define LACE_PIE_TIMES 0
 #endif
@@ -583,11 +587,13 @@ NAME##_leapfrog(WorkerP *w, Task *__dq_head)
         __dq_head += 1;
 
         /* Now leapfrog */
+        int attempts = 32;
         while (thief != THIEF_COMPLETED) {
             PR_COUNTSTEALS(w, CTR_leap_tries);
             Worker *res = lace_steal(w, __dq_head, thief);
             if (res == LACE_NOWORK) {
-                lace_cb_stealing();
+                if ((LACE_LEAP_RANDOM) && (--attempts == 0)) { lace_steal_random(w, __dq_head); attempts = 32; }
+                else lace_cb_stealing();
             } else if (res == LACE_STOLEN) {
                 PR_COUNTSTEALS(w, CTR_leaps);
             } else if (res == LACE_BUSY) {
