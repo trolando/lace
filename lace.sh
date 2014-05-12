@@ -136,15 +136,15 @@ typedef enum {
     CTR_MAX
 } CTR_index;
 
+struct _WorkerP;
 struct _Worker;
 struct _Task;
-typedef struct _Worker* Worker_p;
 
 #define THIEF_COMPLETED ((struct _Worker*)0x1)
 
 #define TASK_COMMON_FIELDS(type)                               \
-    void (*f)(struct _Worker *, struct _Task *, struct type *);  \
-    struct _Worker *thief;
+    void (*f)(struct _WorkerP *, struct _Task *, struct type *);  \
+    struct _Worker * volatile thief;
 
 struct __lace_common_fields_only { TASK_COMMON_FIELDS(_Task) };
 #define LACE_COMMON_FIELD_SIZE sizeof(struct __lace_common_fields_only)
@@ -165,25 +165,22 @@ typedef union __attribute__((packed)) {
 } TailSplit;
 
 typedef struct _Worker {
-    // Thief cache line
     Task *dq;
     TailSplit ts;
     uint8_t allstolen;
 
     char pad1[PAD(P_SZ+sizeof(TailSplit)+1, LINE_SIZE)];
 
-    // Owner cache line
-    Task *o_dq;        // same as dq
-    Task *o_split;     // same as dq+ts.ts.split
-    Task *o_end;       // dq+dq_size
-    int16_t worker;     // what is my worker id?
-    uint8_t o_allstolen; // my allstolen
-
-    char pad2[PAD(3*P_SZ+2+1, LINE_SIZE)];
-
     uint8_t movesplit;
+} Worker;
 
-    char pad3[PAD(1, LINE_SIZE)];
+typedef struct _WorkerP {
+    Task *dq;        // same as dq
+    Task *split;     // same as dq+ts.ts.split
+    Task *end;       // dq+dq_size
+    Worker *public;
+    int16_t worker;     // what is my worker id?
+    uint8_t allstolen; // my allstolen
 
 #if LACE_COUNT_EVENTS
     uint64_t ctr[CTR_MAX]; // counters
@@ -192,7 +189,9 @@ typedef struct _Worker {
 #endif
 
     uint32_t seed; // my random seed (for lace_steal_random)
-} Worker;
+} WorkerP;
+
+typedef void* (*lace_callback_f)(WorkerP *, Task *, int, void *);
 
 /**
  * Initialize master structures for Lace with <n_workers> workers
@@ -244,17 +243,17 @@ size_t lace_workers();
 /**
  * Retrieve current worker. (for lace_steal_random)
  */
-Worker *lace_get_worker();
+WorkerP *lace_get_worker();
 
 /**
  * Retrieve the current head of the deque
  */
-Task *lace_get_head(Worker *);
+Task *lace_get_head(WorkerP *);
 
 /**
  * Steal a random task.
  */
-void lace_steal_random(Worker *self, Task *head);
+void lace_steal_random(WorkerP *self, Task *head);
 
 /**
  * Exit Lace. Automatically called when started with cb,arg.
@@ -285,30 +284,29 @@ void lace_set_callback(void (*cb)(void));
  */
 
 __attribute__((unused))
-static const Worker *__lace_worker = NULL;
+static const WorkerP *__lace_worker = NULL;
 __attribute__((unused))
 static const Task *__lace_dq_head = NULL;
 __attribute__((unused))
 static const int __lace_in_task = 0;
 
-#define SYNC(f)           ( __lace_dq_head--, SYNC_DISPATCH_##f((Worker *)__lace_worker, (Task *)__lace_dq_head, __lace_in_task))
-#define SPAWN(f, ...)     ( SPAWN_DISPATCH_##f((Worker *)__lace_worker, (Task *)__lace_dq_head, __lace_in_task, ##__VA_ARGS__), __lace_dq_head++ )
-#define CALL(f, ...)      ( CALL_DISPATCH_##f((Worker *)__lace_worker, (Task *)__lace_dq_head, __lace_in_task, ##__VA_ARGS__) )
+#define SYNC(f)           ( __lace_dq_head--, SYNC_DISPATCH_##f((WorkerP *)__lace_worker, (Task *)__lace_dq_head, __lace_in_task))
+#define SPAWN(f, ...)     ( SPAWN_DISPATCH_##f((WorkerP *)__lace_worker, (Task *)__lace_dq_head, __lace_in_task, ##__VA_ARGS__), __lace_dq_head++ )
+#define CALL(f, ...)      ( CALL_DISPATCH_##f((WorkerP *)__lace_worker, (Task *)__lace_dq_head, __lace_in_task, ##__VA_ARGS__) )
 #define LACE_WORKER_ID    ( (int16_t) (__lace_worker == NULL ? lace_get_worker()->worker : __lace_worker->worker) )
 
 /* Use LACE_ME to initialize Lace variables, in case you want to call multiple Lace tasks */
-#define LACE_ME Worker *__lace_worker = lace_get_worker(); Task *__lace_dq_head = lace_get_head(__lace_worker); int __lace_in_task = 1;
+#define LACE_ME WorkerP *__lace_worker = lace_get_worker(); Task *__lace_dq_head = lace_get_head(__lace_worker); int __lace_in_task = 1;
 
-typedef void* (*lace_callback_f)(Worker *, Task *, int, void *);
-#define LACE_DECL_CALLBACK(f) void *f(Worker *, Task *, int, void *); \
+#define LACE_DECL_CALLBACK(f) void *f(WorkerP *, Task *, int, void *); \
             static inline __attribute__((always_inline)) __attribute__((unused)) void* \
-            CALL_DISPATCH_##f(Worker *w, Task *t, int i, void *a) { if (i) { return f(w, t, 1, a); } else { LACE_ME; return f(__lace_worker, __lace_dq_head, 1, a); } }
-#define LACE_IMPL_CALLBACK(f) void *f(__attribute__((unused)) Worker *__lace_worker, __attribute__((unused)) Task *__lace_dq_head, __attribute__((unused)) int __lace_in_task, __attribute__((unused)) void *arg)        
+            CALL_DISPATCH_##f(WorkerP *w, Task *t, int i, void *a) { if (i) { return f(w, t, 1, a); } else { LACE_ME; return f(__lace_worker, __lace_dq_head, 1, a); } }
+#define LACE_IMPL_CALLBACK(f) void *f(__attribute__((unused)) WorkerP *__lace_worker, __attribute__((unused)) Task *__lace_dq_head, __attribute__((unused)) int __lace_in_task, __attribute__((unused)) void *arg)        
 #define LACE_CALLBACK(f) LACE_DECL_CALLBACK(f) LACE_IMPL_CALLBACK(f)
 #define CALL_CALLBACK(f, arg) ( f(__lace_worker, __lace_dq_head, __lace_in_task, arg) )
 
 #if LACE_PIE_TIMES
-static void lace_time_event( Worker *w, int event )
+static void lace_time_event( WorkerP *w, int event )
 {
     uint64_t now = gethrtime(),
              prev = w->time;
@@ -399,7 +397,7 @@ static void lace_time_event( Worker *w, int event )
 #endif
 
 static int __attribute__((noinline))
-lace_steal(Worker *self, Task *__dq_head, Worker *victim)
+lace_steal(WorkerP *self, Task *__dq_head, Worker *victim)
 {
     if (!victim->allstolen) {
         /* Must be a volatile. In GCC 4.8, if it is not declared volatile, the
@@ -415,7 +413,7 @@ lace_steal(Worker *self, Task *__dq_head, Worker *victim)
             if (cas(&victim->ts.v, ts.v, ts_new.v)) {
                 // Stolen
                 Task *t = &victim->dq[ts.ts.tail];
-                t->thief = self;
+                t->thief = self->public;
                 lace_time_event(self, 1);
                 t->f(self, __dq_head, t);
                 lace_time_event(self, 2);
@@ -498,13 +496,13 @@ typedef struct _TD_##NAME {
 /* If this line generates an error, please manually set the define LACE_TASKSIZE to a higher value */
 typedef char assertion_failed_task_descriptor_out_of_bounds_##NAME[(sizeof(TD_##NAME)<=sizeof(Task)) ? 0 : -1];
 
-void NAME##_WRAP(Worker *, Task *, TD_##NAME *);
-$RTYPE NAME##_CALL(Worker *, Task * $FUN_ARGS);
-static inline $RTYPE NAME##_SYNC_FAST(Worker *, Task *);
-static $RTYPE NAME##_SYNC_SLOW(Worker *, Task *);
+void NAME##_WRAP(WorkerP *, Task *, TD_##NAME *);
+$RTYPE NAME##_CALL(WorkerP *, Task * $FUN_ARGS);
+static inline $RTYPE NAME##_SYNC_FAST(WorkerP *, Task *);
+static $RTYPE NAME##_SYNC_SLOW(WorkerP *, Task *);
 
 static inline
-void NAME##_SPAWN(Worker *w, Task *__dq_head $FUN_ARGS)
+void NAME##_SPAWN(WorkerP *w, Task *__dq_head $FUN_ARGS)
 {
     PR_COUNTTASK(w);
 
@@ -512,7 +510,7 @@ void NAME##_SPAWN(Worker *w, Task *__dq_head $FUN_ARGS)
     TailSplit ts;
     uint32_t head, split, newsplit;
 
-    /* assert(__dq_head < w->o_end); */ /* Assuming to be true */
+    /* assert(__dq_head < w->end); */ /* Assuming to be true */
 
     t = (TD_##NAME *)__dq_head;
     t->f = &NAME##_WRAP;
@@ -520,64 +518,66 @@ void NAME##_SPAWN(Worker *w, Task *__dq_head $FUN_ARGS)
     $TASK_INIT
     compiler_barrier();
 
-    if (unlikely(w->o_allstolen)) {
-        if (w->movesplit) w->movesplit = 0;
-        head = __dq_head - w->o_dq;
+    Worker *wt = w->public;
+    if (unlikely(w->allstolen)) {
+        if (wt->movesplit) wt->movesplit = 0;
+        head = __dq_head - w->dq;
         ts = (TailSplit){{head,head+1}};
-        w->ts.v = ts.v;
+        wt->ts.v = ts.v;
         compiler_barrier();
+        wt->allstolen = 0;
+        w->split = __dq_head+1;
         w->allstolen = 0;
-        w->o_split = __dq_head+1;
-        w->o_allstolen = 0;
-    } else if (unlikely(w->movesplit)) {
-        head = __dq_head - w->o_dq;
-        split = w->o_split - w->o_dq;
+    } else if (unlikely(wt->movesplit)) {
+        head = __dq_head - w->dq;
+        split = w->split - w->dq;
         newsplit = (split + head + 2)/2;
-        w->ts.ts.split = newsplit;
-        w->o_split = w->o_dq + newsplit;
+        wt->ts.ts.split = newsplit;
+        w->split = w->dq + newsplit;
         compiler_barrier();
-        w->movesplit = 0;
+        wt->movesplit = 0;
         PR_COUNTSPLITS(w, CTR_split_grow);
     }
 }
 
 static int
-NAME##_shrink_shared(Worker *w)
+NAME##_shrink_shared(WorkerP *w)
 {
+    Worker *wt = w->public;
     TailSplit ts;
-    ts.v = w->ts.v; /* Force in 1 memory read */
+    ts.v = wt->ts.v; /* Force in 1 memory read */
     uint32_t tail = ts.ts.tail;
     uint32_t split = ts.ts.split;
 
     if (tail != split) {
         uint32_t newsplit = (tail + split)/2;
-        w->ts.ts.split = newsplit;
+        wt->ts.ts.split = newsplit;
         mfence();
-        tail = *(volatile uint32_t *)&(w->ts.ts.tail);
+        tail = *(volatile uint32_t *)&(wt->ts.ts.tail);
         if (tail != split) {
             if (unlikely(tail > newsplit)) {
                 newsplit = (tail + split) / 2;
-                w->ts.ts.split = newsplit;
+                wt->ts.ts.split = newsplit;
             }
-            w->o_split = w->o_dq + newsplit;
+            w->split = w->dq + newsplit;
             PR_COUNTSPLITS(w, CTR_split_shrink);
             return 0;
         }
     }
 
+    wt->allstolen = 1;
     w->allstolen = 1;
-    w->o_allstolen = 1;
     return 1;
 }
 
 static inline void
-NAME##_leapfrog(Worker *w, Task *__dq_head)
+NAME##_leapfrog(WorkerP *w, Task *__dq_head)
 {
     lace_time_event(w, 3);
     TD_##NAME *t = (TD_##NAME *)__dq_head;
     Worker *thief = t->thief;
     if (thief != THIEF_COMPLETED) {
-        while (thief == 0) thief = *(volatile Worker_p *)&(t->thief);
+        while (thief == 0) thief = t->thief;
 
         /* PRE-LEAP: increase head again */
         __dq_head += 1;
@@ -599,17 +599,18 @@ NAME##_leapfrog(Worker *w, Task *__dq_head)
                 break;
             }
             compiler_barrier();
-            thief = *(volatile Worker_p *)&(t->thief);
+            thief = t->thief;
         }
 
         /* POST-LEAP: really pop the finished task */
         /*            no need to decrease __dq_head, since it is a local variable */
         compiler_barrier();
-        if (w->o_allstolen == 0) {
+        if (w->allstolen == 0) {
             /* Assume: tail = split = head (pre-pop) */
             /* Now we do a 'real pop' ergo either decrease tail,split,head or declare allstolen */
+            Worker *wt = w->public;
+            wt->allstolen = 1;
             w->allstolen = 1;
-            w->o_allstolen = 1;
         }
     }
 
@@ -619,11 +620,11 @@ NAME##_leapfrog(Worker *w, Task *__dq_head)
 }
 
 static __attribute__((noinline))
-$RTYPE NAME##_SYNC_SLOW(Worker *w, Task *__dq_head)
+$RTYPE NAME##_SYNC_SLOW(WorkerP *w, Task *__dq_head)
 {
     TD_##NAME *t;
 
-    if ((w->o_allstolen) || (w->o_split > __dq_head && NAME##_shrink_shared(w))) {
+    if ((w->allstolen) || (w->split > __dq_head && NAME##_shrink_shared(w))) {
         NAME##_leapfrog(w, __dq_head);
         t = (TD_##NAME *)__dq_head;
         return $RETURN_RES;
@@ -631,14 +632,15 @@ $RTYPE NAME##_SYNC_SLOW(Worker *w, Task *__dq_head)
 
     compiler_barrier();
 
-    if ((w->movesplit)) {
-        Task *t = w->o_split;
+    Worker *wt = w->public;
+    if (wt->movesplit) {
+        Task *t = w->split;
         size_t diff = __dq_head - t;
         diff = (diff + 1) / 2;
-        w->o_split = t + diff;
-        w->ts.ts.split += diff;
+        w->split = t + diff;
+        wt->ts.ts.split += diff;
         compiler_barrier();
-        w->movesplit = 0;
+        wt->movesplit = 0;
         PR_COUNTSPLITS(w, CTR_split_grow);
     }
 
@@ -650,12 +652,12 @@ $RTYPE NAME##_SYNC_SLOW(Worker *w, Task *__dq_head)
 }
 
 static inline
-$RTYPE NAME##_SYNC_FAST(Worker *w, Task *__dq_head)
+$RTYPE NAME##_SYNC_FAST(WorkerP *w, Task *__dq_head)
 {
     /* assert (__dq_head > 0); */  /* Commented out because we assume contract */
 
-    if (likely(0 == w->movesplit)) {
-        if (likely(w->o_split <= __dq_head)) {
+    if (likely(0 == w->public->movesplit)) {
+        if (likely(w->split <= __dq_head)) {
             TD_##NAME *t = (TD_##NAME *)__dq_head;
             t->f = 0;
             return NAME##_CALL(w, __dq_head $TASK_GET_FROM_t);
@@ -666,21 +668,21 @@ $RTYPE NAME##_SYNC_FAST(Worker *w, Task *__dq_head)
 }
 
 static inline __attribute__((always_inline)) __attribute__((unused))
-void SPAWN_DISPATCH_##NAME(Worker *w, Task *__dq_head, int __intask $FUN_ARGS)
+void SPAWN_DISPATCH_##NAME(WorkerP *w, Task *__dq_head, int __intask $FUN_ARGS)
 {
     if (__intask) { NAME##_SPAWN(w, __dq_head $CALL_ARGS); }
     else { w = lace_get_worker(); NAME##_SPAWN(w, lace_get_head(w) $CALL_ARGS); }
 }
 
 static inline __attribute__((always_inline)) __attribute__((unused))
-$RTYPE SYNC_DISPATCH_##NAME(Worker *w, Task *__dq_head, int __intask)
+$RTYPE SYNC_DISPATCH_##NAME(WorkerP *w, Task *__dq_head, int __intask)
 {
     if (__intask) { return NAME##_SYNC_FAST(w, __dq_head); }
     else { w = lace_get_worker(); return NAME##_SYNC_FAST(w, lace_get_head(w)); }
 }
 
 static inline __attribute__((always_inline)) __attribute__((unused))
-$RTYPE CALL_DISPATCH_##NAME(Worker *w, Task *__dq_head, int __intask $FUN_ARGS)
+$RTYPE CALL_DISPATCH_##NAME(WorkerP *w, Task *__dq_head, int __intask $FUN_ARGS)
 {
     if (__intask) { return NAME##_CALL(w, __dq_head $CALL_ARGS); }
     else { w = lace_get_worker(); return NAME##_CALL(w, lace_get_head(w) $CALL_ARGS); }
@@ -694,22 +696,22 @@ echo " "
 
 (\
 echo "$IMPL_MACRO
-void NAME##_WRAP(Worker *w, Task *__dq_head, TD_##NAME *t)
+void NAME##_WRAP(WorkerP *w, Task *__dq_head, TD_##NAME *t)
 {
     $SAVE_RVAL NAME##_CALL(w, __dq_head $TASK_GET_FROM_t);
 }
 
 static inline __attribute__((always_inline))
-$RTYPE NAME##_WORK(Worker *__lace_worker, Task *__lace_dq_head, int __lace_in_task $DECL_ARGS);
+$RTYPE NAME##_WORK(WorkerP *__lace_worker, Task *__lace_dq_head, int __lace_in_task $DECL_ARGS);
 
 /* NAME##_WORK is inlined in NAME##_CALL and the parameter __lace_in_task will disappear */
-$RTYPE NAME##_CALL(Worker *w, Task *__dq_head $FUN_ARGS)
+$RTYPE NAME##_CALL(WorkerP *w, Task *__dq_head $FUN_ARGS)
 {
     return NAME##_WORK(w, __dq_head, 1 $CALL_ARGS);
 }
 
 static inline __attribute__((always_inline))
-$RTYPE NAME##_WORK(Worker *__lace_worker, Task *__lace_dq_head, int __lace_in_task $WORK_ARGS)" \
+$RTYPE NAME##_WORK(WorkerP *__lace_worker, Task *__lace_dq_head, int __lace_in_task $WORK_ARGS)" \
 ) | awk '{printf "%-86s\\\n", $0 }'
 
 echo " "
