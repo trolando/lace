@@ -160,31 +160,26 @@ typedef struct _Task {
     char p2[PAD(ROUND(LACE_COMMON_FIELD_SIZE, P_SZ) + LACE_TASKSIZE, LINE_SIZE)];
 } Task;
 
-typedef union __attribute__((packed)) {
-    struct {
-        uint32_t tail;
-        uint32_t split;
-    } ts;
-    uint64_t v;
-} TailSplit;
+#define LACE_NO_REQUEST ((Worker*)0)
+#define LACE_BLOCKED ((Worker*)1)
+#define LACE_NO_RESPONSE ((Task*)1)
 
 typedef struct _Worker {
-    Task *dq;
-    TailSplit ts;
-    uint8_t allstolen;
-
-    char pad1[PAD(P_SZ+sizeof(TailSplit)+1, LINE_SIZE)];
-
-    uint8_t movesplit;
+    volatile int a;
+    struct _Worker * volatile *r;
+    Task * volatile *t;
+    char pad[PAD(3*P_SZ, LINE_SIZE)];
 } Worker;
 
 typedef struct _WorkerP {
-    Task *dq;        // same as dq
-    Task *split;     // same as dq+ts.ts.split
-    Task *end;       // dq+dq_size
+    Task *dq;
+    volatile int *a;
+    struct _Worker * volatile *r;
+    Task * volatile *t;
+    Task *stolen;
     Worker *public;
-    int16_t worker;     // what is my worker id?
-    uint8_t allstolen; // my allstolen
+    Task *end;
+    int16_t worker;
 
 #if LACE_COUNT_EVENTS
     uint64_t ctr[CTR_MAX]; // counters
@@ -401,40 +396,48 @@ static void lace_time_event( WorkerP *w, int event )
 #define lace_time_event( w, e ) /* Empty */
 #endif
 
+static void
+lace_reject(WorkerP *self)
+{
+    // prevent stealing
+    Worker * volatile *r = self->r;
+    Worker *j = *r;
+    if (j != LACE_BLOCKED) {
+        if (likely(j == LACE_NO_REQUEST)) {
+            if (cas(r, LACE_NO_REQUEST, LACE_BLOCKED)) return;
+            j = *r;
+        }
+        *(j->t) = 0;
+        *r = LACE_BLOCKED;
+    }
+}
+
 static Worker* __attribute__((noinline))
 lace_steal(WorkerP *self, Task *__dq_head, Worker *victim)
 {
-    if (!victim->allstolen) {
-        /* Must be a volatile. In GCC 4.8, if it is not declared volatile, the
-           compiler will 'optimize' extra memory accesses to victim->ts instead
-           of comparing the local values ts.ts.tail and ts.ts.split, causing
-           thieves to steal non existent tasks! */
-        register TailSplit ts;
-        ts.v = *(volatile uint64_t *)&victim->ts.v;
-        if (ts.ts.tail < ts.ts.split) {
-            register TailSplit ts_new;
-            ts_new.v = ts.v;
-            ts_new.ts.tail++;
-            if (cas(&victim->ts.v, ts.v, ts_new.v)) {
-                // Stolen
-                Task *t = &victim->dq[ts.ts.tail];
-                t->thief = self->public;
-                lace_time_event(self, 1);
-                t->f(self, __dq_head, t);
-                lace_time_event(self, 2);
-                t->thief = THIEF_COMPLETED;
-                lace_time_event(self, 8);
-                return LACE_STOLEN;
+    lace_reject(self);
+    *(self->t) = LACE_NO_RESPONSE;
+    if ((victim->a)) {
+        if (*(victim->r) == LACE_NO_REQUEST) {
+            Worker *me = self->public;
+            if (cas(victim->r, LACE_NO_REQUEST, me)) {
+                Task *t = *(self->t);
+                while (t == LACE_NO_RESPONSE) t = *(self->t);
+                if (t != 0) {
+                    t->thief = me;
+                    *(self->r) = LACE_NO_REQUEST; // unblock
+                    lace_time_event(self, 1);
+                    t->f(self, __dq_head, t);
+                    compiler_barrier();
+                    lace_time_event(self, 2);
+                    t->thief = THIEF_COMPLETED;
+                    lace_time_event(self, 8);
+                    return LACE_STOLEN;
+                }
             }
-
-            lace_time_event(self, 7);
-            return LACE_BUSY;
         }
-
-        if (victim->movesplit == 0) {
-            victim->movesplit = 1;
-            PR_COUNTSPLITS(self, CTR_split_req);
-        }
+        lace_time_event(self, 7);
+        return LACE_BUSY;
     }
 
     lace_time_event(self, 7);
@@ -503,8 +506,7 @@ typedef char assertion_failed_task_descriptor_out_of_bounds_##NAME[(sizeof(TD_##
 
 void NAME##_WRAP(WorkerP *, Task *, TD_##NAME *);
 $RTYPE NAME##_CALL(WorkerP *, Task * $FUN_ARGS);
-static inline $RTYPE NAME##_SYNC_FAST(WorkerP *, Task *);
-static $RTYPE NAME##_SYNC_SLOW(WorkerP *, Task *);
+static inline $RTYPE NAME##_SYNC(WorkerP *, Task *);
 
 static inline
 void NAME##_SPAWN(WorkerP *w, Task *__dq_head $FUN_ARGS)
@@ -512,8 +514,6 @@ void NAME##_SPAWN(WorkerP *w, Task *__dq_head $FUN_ARGS)
     PR_COUNTTASK(w);
 
     TD_##NAME *t;
-    TailSplit ts;
-    uint32_t head, split, newsplit;
 
     /* assert(__dq_head < w->end); */ /* Assuming to be true */
 
@@ -523,56 +523,16 @@ void NAME##_SPAWN(WorkerP *w, Task *__dq_head $FUN_ARGS)
     $TASK_INIT
     compiler_barrier();
 
-    Worker *wt = w->public;
-    if (unlikely(w->allstolen)) {
-        if (wt->movesplit) wt->movesplit = 0;
-        head = __dq_head - w->dq;
-        ts = (TailSplit){{head,head+1}};
-        wt->ts.v = ts.v;
-        compiler_barrier();
-        wt->allstolen = 0;
-        w->split = __dq_head+1;
-        w->allstolen = 0;
-    } else if (unlikely(wt->movesplit)) {
-        head = __dq_head - w->dq;
-        split = w->split - w->dq;
-        newsplit = (split + head + 2)/2;
-        wt->ts.ts.split = newsplit;
-        w->split = w->dq + newsplit;
-        compiler_barrier();
-        wt->movesplit = 0;
-        PR_COUNTSPLITS(w, CTR_split_grow);
-    }
-}
-
-static int
-NAME##_shrink_shared(WorkerP *w)
-{
-    Worker *wt = w->public;
-    TailSplit ts;
-    ts.v = wt->ts.v; /* Force in 1 memory read */
-    uint32_t tail = ts.ts.tail;
-    uint32_t split = ts.ts.split;
-
-    if (tail != split) {
-        uint32_t newsplit = (tail + split)/2;
-        wt->ts.ts.split = newsplit;
-        mfence();
-        tail = *(volatile uint32_t *)&(wt->ts.ts.tail);
-        if (tail != split) {
-            if (unlikely(tail > newsplit)) {
-                newsplit = (tail + split) / 2;
-                wt->ts.ts.split = newsplit;
-            }
-            w->split = w->dq + newsplit;
-            PR_COUNTSPLITS(w, CTR_split_shrink);
-            return 0;
-        }
+    if (*(w->a) == 0) {
+        *(w->a) = 1;
     }
 
-    wt->allstolen = 1;
-    w->allstolen = 1;
-    return 1;
+    Worker *j = *(w->r);
+    if (j == LACE_BLOCKED) *(w->r) = LACE_NO_REQUEST;
+    else if (unlikely(j != LACE_NO_REQUEST)) {
+        *(j->t) = w->stolen++;
+        *(w->r) = LACE_NO_REQUEST;
+    }
 }
 
 static inline void
@@ -603,17 +563,6 @@ NAME##_leapfrog(WorkerP *w, Task *__dq_head)
             compiler_barrier();
             thief = t->thief;
         }
-
-        /* POST-LEAP: really pop the finished task */
-        /*            no need to decrease __dq_head, since it is a local variable */
-        compiler_barrier();
-        if (w->allstolen == 0) {
-            /* Assume: tail = split = head (pre-pop) */
-            /* Now we do a 'real pop' ergo either decrease tail,split,head or declare allstolen */
-            Worker *wt = w->public;
-            wt->allstolen = 1;
-            w->allstolen = 1;
-        }
     }
 
     compiler_barrier();
@@ -621,29 +570,31 @@ NAME##_leapfrog(WorkerP *w, Task *__dq_head)
     lace_time_event(w, 4);
 }
 
-static __attribute__((noinline))
-$RTYPE NAME##_SYNC_SLOW(WorkerP *w, Task *__dq_head)
+static inline
+$RTYPE NAME##_SYNC(WorkerP *w, Task *__dq_head)
 {
     TD_##NAME *t;
 
-    if ((w->allstolen) || (w->split > __dq_head && NAME##_shrink_shared(w))) {
+    if (unlikely(__dq_head < w->stolen)) {
+        /* it is stolen */
         NAME##_leapfrog(w, __dq_head);
+        w->stolen--;
         t = (TD_##NAME *)__dq_head;
         return $RETURN_RES;
     }
 
-    compiler_barrier();
-
-    Worker *wt = w->public;
-    if (wt->movesplit) {
-        Task *t = w->split;
-        size_t diff = __dq_head - t;
-        diff = (diff + 1) / 2;
-        w->split = t + diff;
-        wt->ts.ts.split += diff;
-        compiler_barrier();
-        wt->movesplit = 0;
-        PR_COUNTSPLITS(w, CTR_split_grow);
+    if (likely(__dq_head > w->stolen)) {
+        if (*(w->a) == 0) {
+            /* update status */
+            *(w->a) = 1;
+        } else {
+            /* communicate */
+            Worker *j = *(w->r);
+            if (j != LACE_NO_REQUEST) {
+                *(j->t) = w->stolen++;
+                *(w->r) = LACE_NO_REQUEST;
+            }
+        }
     }
 
     compiler_barrier();
@@ -651,22 +602,6 @@ $RTYPE NAME##_SYNC_SLOW(WorkerP *w, Task *__dq_head)
     t = (TD_##NAME *)__dq_head;
     t->f = 0;
     return NAME##_CALL(w, __dq_head $TASK_GET_FROM_t);
-}
-
-static inline
-$RTYPE NAME##_SYNC_FAST(WorkerP *w, Task *__dq_head)
-{
-    /* assert (__dq_head > 0); */  /* Commented out because we assume contract */
-
-    if (likely(0 == w->public->movesplit)) {
-        if (likely(w->split <= __dq_head)) {
-            TD_##NAME *t = (TD_##NAME *)__dq_head;
-            t->f = 0;
-            return NAME##_CALL(w, __dq_head $TASK_GET_FROM_t);
-        }
-    }
-
-    return NAME##_SYNC_SLOW(w, __dq_head);
 }
 
 static inline __attribute__((always_inline)) __attribute__((unused))
@@ -679,8 +614,8 @@ void SPAWN_DISPATCH_##NAME(WorkerP *w, Task *__dq_head, int __intask $FUN_ARGS)
 static inline __attribute__((always_inline)) __attribute__((unused))
 $RTYPE SYNC_DISPATCH_##NAME(WorkerP *w, Task *__dq_head, int __intask)
 {
-    if (__intask) { return NAME##_SYNC_FAST(w, __dq_head); }
-    else { w = lace_get_worker(); return NAME##_SYNC_FAST(w, lace_get_head(w)); }
+    if (__intask) { return NAME##_SYNC(w, __dq_head); }
+    else { w = lace_get_worker(); return NAME##_SYNC(w, lace_get_head(w)); }
 }
 
 static inline __attribute__((always_inline)) __attribute__((unused))

@@ -230,6 +230,8 @@ lace_init_worker(int worker, size_t dq_size)
     // Allocate memory on our NUMA node...
     lock_acquire();
     wt = (Worker *)numa_alloc_onnode(sizeof(Worker), node);
+    wt->r = (Worker **)numa_alloc_onnode(sizeof(Worker*), node);
+    wt->t = (Task **)numa_alloc_onnode(sizeof(Task*), node);
     w = (WorkerP *)numa_alloc_onnode(sizeof(WorkerP), node);
     if (wt == NULL || w == NULL || (w->dq = (Task*)numa_alloc_onnode(dq_size * sizeof(Task), node)) == NULL) {
         fprintf(stderr, "Lace error: Unable to allocate memory for the Lace worker!\n");
@@ -239,6 +241,8 @@ lace_init_worker(int worker, size_t dq_size)
 #else
     // Allocate memory...
     if (posix_memalign((void**)&wt, LINE_SIZE, sizeof(Worker)) ||
+        posix_memalign((void**)&wt->r, LINE_SIZE, sizeof(Worker*)) ||
+        posix_memalign((void**)&wt->t, LINE_SIZE, sizeof(Task*)) ||
         posix_memalign((void**)&w, LINE_SIZE, sizeof(WorkerP)) || 
         posix_memalign((void**)&w->dq, LINE_SIZE, dq_size * sizeof(Task))) {
             fprintf(stderr, "Lace error: Unable to allocate memory for the Lace worker!\n");
@@ -246,17 +250,13 @@ lace_init_worker(int worker, size_t dq_size)
     }
 #endif
 
-    // Initialize public worker data
-    wt->dq = w->dq;
-    wt->ts.v = 0;
-    wt->allstolen = 0;
-    wt->movesplit = 0;
+    w->a = &wt->a;
+    w->r = wt->r;
+    w->t = wt->t;
 
-    /// Initialize private worker data
+    w->stolen = w->dq;
     w->public = wt;
     w->end = w->dq + dq_size;
-    w->split = w->dq;
-    w->allstolen = 0;
     w->worker = worker;
 
 #if LACE_COUNT_EVENTS
