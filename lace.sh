@@ -263,9 +263,9 @@ void lace_exit();
 extern void (*lace_cb_stealing)(void);
 void lace_set_callback(void (*cb)(void));
 
-#define LACE_STOLEN   0
-#define LACE_BUSY     1
-#define LACE_NOWORK   2
+#define LACE_STOLEN   ((Worker*)0)
+#define LACE_BUSY     ((Worker*)1)
+#define LACE_NOWORK   ((Worker*)2)
 
 /*
  * The DISPATCH functions are a trick to allow using
@@ -396,7 +396,7 @@ static void lace_time_event( WorkerP *w, int event )
 #define lace_time_event( w, e ) /* Empty */
 #endif
 
-static int __attribute__((noinline))
+static Worker* __attribute__((noinline))
 lace_steal(WorkerP *self, Task *__dq_head, Worker *victim)
 {
     if (!victim->allstolen) {
@@ -585,18 +585,13 @@ NAME##_leapfrog(WorkerP *w, Task *__dq_head)
         /* Now leapfrog */
         while (thief != THIEF_COMPLETED) {
             PR_COUNTSTEALS(w, CTR_leap_tries);
-            switch (lace_steal(w, __dq_head, thief)) {
-            case LACE_NOWORK:
+            Worker *res = lace_steal(w, __dq_head, thief);
+            if (res == LACE_NOWORK) {
                 lace_cb_stealing();
-                break;
-            case LACE_STOLEN:
+            } else if (res == LACE_STOLEN) {
                 PR_COUNTSTEALS(w, CTR_leaps);
-                break;
-            case LACE_BUSY:
+            } else if (res == LACE_BUSY) {
                 PR_COUNTSTEALS(w, CTR_leap_busy);
-                break;
-            default:
-                break;
             }
             compiler_barrier();
             thief = t->thief;

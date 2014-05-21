@@ -276,18 +276,13 @@ lace_steal_random(WorkerP *self, Task *head)
     Worker *victim = workers[(self->worker + 1 + rng(&self->seed, n_workers-1)) % n_workers];
 
     PR_COUNTSTEALS(self, CTR_steal_tries);
-    switch (lace_steal(self, head, victim)) {
-    case LACE_NOWORK:
+    Worker *res = lace_steal(self, head, victim);
+    if (res == LACE_NOWORK) {
         lace_cb_stealing();
-        break;
-    case LACE_STOLEN:
+    } else if (res == LACE_STOLEN) {
         PR_COUNTSTEALS(self, CTR_steals);
-        break;
-    case LACE_BUSY:
+    } else if (res == LACE_BUSY) {
         PR_COUNTSTEALS(self, CTR_steal_busy);
-        break;
-    default:
-        break;
     }
 }
 
@@ -353,18 +348,13 @@ lace_steal_loop()
         }
 
         PR_COUNTSTEALS(me, CTR_steal_tries);
-        switch (lace_steal(me, me->dq, *victim)) {
-        case LACE_NOWORK:
+        Worker *res = lace_steal(me, me->dq, *victim);
+        if (res == LACE_NOWORK) {
             lace_cb_stealing();
-            break;
-        case LACE_STOLEN:
+        } else if (res == LACE_STOLEN) {
             PR_COUNTSTEALS(me, CTR_steals);
-            break;
-        case LACE_BUSY:
+        } else if (res == LACE_BUSY) {
             PR_COUNTSTEALS(me, CTR_steal_busy);
-            break;
-        default:
-            break;
         }
     }
 }
