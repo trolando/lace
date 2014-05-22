@@ -68,7 +68,8 @@ int main(int argc, char **argv)
     }
 
     int d, m;
-    lace_init(workers, dqsize, 0);
+    lace_init(workers, dqsize);
+    lace_startup(0, 0, 0);
 
     LACE_ME;
 

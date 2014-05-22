@@ -155,7 +155,8 @@ int main(int argc, char *argv[])
     zero(C1, n);
     zero(C2, n);
 
-    lace_init(workers, dqsize, 0);
+    lace_init(workers, dqsize);
+    lace_startup(0, 0, 0);
 
     LACE_ME;
 

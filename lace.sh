@@ -195,22 +195,33 @@ typedef struct _Worker {
 } Worker;
 
 /**
- * Allow Lace callee to initiate worker threads by itself.
- * It should call lace_init_static once, and after starting the worker threads,
- * each thread should call lace_init_worker, from which only the master thread
- * returns immediately (idx == 0).
+ * Initialize master structures for Lace with <n_workers> workers
+ * and default deque size of <dqsize>.
+ * Does not create new threads.
+ * If compiled with NUMA support and NUMA is not available, program quits.
  */
-extern void lace_init_static(int workers, size_t dqsize);
-extern void lace_init_worker(int worker, size_t dqsize);
+void lace_init(int n_workers, size_t dqsize);
 
 /**
- * Either use lace_init and lace_exit, or use lace_boot with a callback function.
- * lace_init will start w-1 workers, lace_boot will start w workers and run the callback function in a worker.
- * Use lace_boot is recommended because there is more control over the program stack allocation then.
+ * After lace_init, start all worker threads.
+ * If cb,arg are set, suspend this thread, call cb(arg) in a new thread
+ * and exit Lace upon return
+ * Otherwise, the current thread is initialized as a Lace thread.
  */
-void lace_boot(int workers, size_t dq_size, size_t stack_size, void (*function)(void));
-void lace_init(int workers, size_t dq_size, size_t stack_size);
-int lace_inited();
+void lace_startup(size_t stacksize, lace_callback_f cb, void* arg);
+
+/**
+ * Manually spawn worker <idx> with (optional) program stack size <stacksize>.
+ * If fun,arg are set, overrides default startup method.
+ * Typically: for workers 1...(n_workers-1): lace_spawn_worker(i, stack_size, 0, 0);
+ */
+pthread_t lace_spawn_worker(int idx, size_t stacksize, void *(*fun)(void*), void* arg);
+
+/**
+ * Initialize current thread as worker <idx> and allocate a deque with size <dqsize>.
+ * Use this when manually creating worker threads.
+ */
+void lace_init_worker(int idx, size_t dqsize);
 
 /**
  * Manually spawn worker <idx> with (optional) program stack size <stacksize>.

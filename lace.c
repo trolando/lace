@@ -337,12 +337,12 @@ lace_spawn_worker(int worker, size_t stacksize, void* (*fun)(void*), void* arg)
     return res;
 }
 
-static void
-_lace_init(int n)
+void
+lace_init(int n, size_t dqsize)
 {
     // Initialize globals
     n_workers = n;
-
+    if (dqsize != 0) default_dqsize = dqsize;
     more_work = 1;
     lace_cb_stealing = &lace_default_cb;
 
@@ -408,21 +408,6 @@ lace_startup(size_t stacksize, lace_callback_f cb, void *arg)
         lace_init_worker(0, 0);
         lace_time_event(workers[0], 1);
     }
-}
-
-void
-lace_init_static(int workers, size_t dqsize)
-{
-    default_dqsize = dqsize;
-    _lace_init(workers);
-}
-
-void
-lace_init(int workers, size_t dqsize, size_t stacksize)
-{
-    default_dqsize = dqsize;
-    _lace_init(workers);
-    lace_startup(stacksize, NULL, NULL);
 }
 
 #if LACE_COUNT_EVENTS
@@ -563,15 +548,6 @@ void lace_exit()
 #if LACE_COUNT_EVENTS
     lace_count_report_file(stderr);
 #endif
-}
-
-void
-lace_boot(int workers, size_t dqsize, size_t stack_size, void (*f)(void))
-{
-    default_dqsize = dqsize;
-    _lace_init(workers);
-    lace_startup(workers, NULL, NULL); // TODO: f
-    lace_exit();
 }
 
 void (*lace_cb_stealing)(void);

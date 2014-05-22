@@ -745,7 +745,8 @@ int main(int argc, char *argv[])
 
     int n = atoi(argv[optind]);
 
-    lace_init(workers, dqsize, 0);
+    lace_init(workers, dqsize);
+    lace_startup(0, 0, 0);
 
     REAL *A, *B, *C1, *C2;
 

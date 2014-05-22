@@ -147,7 +147,9 @@ int main(int argc, char *argv[]) {
   uts_printParams();
   uts_initRoot(&root, type);
   
-  lace_init(_lace_workers, _lace_dqsize, 32*1024*1024);
+  lace_init(_lace_workers, _lace_dqsize);
+  lace_startup(32*1024*1024, 0, 0);
+
   printf("Initialized Lace with %d workers, dqsize=%d\n", _lace_workers, _lace_dqsize);
 
   LACE_ME;
