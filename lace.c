@@ -224,9 +224,6 @@ lace_boot_wrapper(void *arg)
     return NULL;
 }
 
-// By default, scan sequentially for 0..39 attempts
-#define rand_interval 40
-
 void
 lace_steal_loop()
 {
@@ -246,19 +243,16 @@ lace_steal_loop()
     unsigned int n = n_workers;
     int i=0;
 
-    do {
-        // Computing a random number for every steal is too slow, so we do some amount of
-        // sequential scanning of the workers and only randomize once in a while, just
-        // to be sure.
-
+    while(more_work) {
+        // Select victim
         if( i>0 ) {
             i--;
-            victim ++;
-            // A couple of if's is faster than a %...
-            if( victim == self ) victim++;
-            if( victim >= workers + n ) victim = workers;
+            victim++;
+            if (victim == self) victim++;
+            if (victim >= workers + n) victim = workers;
+            if (victim == self) victim++;
         } else {
-            i = rng(&seed, rand_interval);
+            i = rng(&seed, 40); // compute random i 0..40
             victim = workers + (rng(&seed, n-1) + worker_id + 1) % n;
         }
 
@@ -276,10 +270,7 @@ lace_steal_loop()
         default:
             break;
         }
-
-        if (!more_work) break;
-
-    } while(1);
+    }
 }
 
 static void*
