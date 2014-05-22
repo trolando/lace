@@ -39,7 +39,6 @@ static size_t default_dqsize = 100000;
 
 static int n_workers = 0;
 
-static pthread_t *ts = NULL;
 static volatile int more_work = 1;
 
 static pthread_attr_t worker_attr;
@@ -206,19 +205,21 @@ lace_steal_random_loop()
     while (more_work) lace_steal_random(me, head);
 }
 
+static lace_callback_f main_cb;
+
 static void*
-lace_boot_wrapper(void *arg)
+lace_main_wrapper(void *arg)
 {
-    lace_init_worker(0, 0); // init master
+    lace_init_worker(0, 0);
+    Worker *self = workers[0];
 
 #if LACE_PIE_TIMES
     self->time = gethrtime();
 #endif
 
-    lace_time_event(workers[0], 1);
-
-    ((void (*)())arg)();
-
+    lace_time_event(self, 1);
+    main_cb(self, self->o_dq, 1, arg);
+    lace_exit();
     pthread_cond_broadcast(&wait_until_done);
 
     return NULL;
@@ -348,6 +349,18 @@ _lace_init(int n)
     posix_memalign((void**)&workers, LINE_SIZE, n*sizeof(Worker*));
     pthread_key_create(&worker_key, NULL);
 
+    // Prepare structures for thread creation
+    pthread_attr_init(&worker_attr);
+
+    // Set contention scope to system (instead of process)
+    pthread_attr_setscope(&worker_attr, PTHREAD_SCOPE_SYSTEM);
+
+    // Get default stack size
+    if (pthread_attr_getstacksize(&worker_attr, &default_stacksize) != 0) {
+        fprintf(stderr, "Lace warning: pthread_attr_getstacksize returned error!\n");
+        default_stacksize = 0;
+    }
+
 #if USE_NUMA
     if (numa_available() != 0) {
         fprintf(stderr, "Error: NUMA not available!\n");
@@ -367,47 +380,24 @@ _lace_init(int n)
 #endif
 }
 
-static void
-_lace_spawn_workers(int n, size_t stacksize, void (*f)(void))
+void
+lace_startup(size_t stacksize, lace_callback_f cb, void *arg)
 {
-    pthread_attr_init(&worker_attr);
-    pthread_attr_setscope(&worker_attr, PTHREAD_SCOPE_SYSTEM);
+    /* Spawn workers */
+    int i;
+    for (i=1; i<n_workers; i++) lace_spawn_worker(i, stacksize, 0, 0);
 
-    if (stacksize == 0) {
-        pthread_attr_getstacksize(&worker_attr, &stacksize);
-    } else {
-        if (0 != pthread_attr_setstacksize(&worker_attr, stacksize)) {
-            fprintf(stderr, "Error: Cannot set stacksize for new pthreads in Lace!\n");
-            exit(1);
-            pthread_attr_getstacksize(&worker_attr, &stacksize);
-        }
-    }
+    if (cb != 0) {
+        main_cb = cb;
+        lace_spawn_worker(0, stacksize, lace_main_wrapper, arg);
 
-    if (stacksize == 0) {
-        fprintf(stderr, "Error: Unable to get stacksize for new pthreads in Lace!\n");
-        exit(1);
-    }
-
-    long i;
-    ts = (pthread_t *)malloc((n-1) * sizeof(pthread_t));
-    for (i=1; i<n; i++) {
-        *(ts+i-1) = lace_spawn_worker(i, stacksize, &lace_default_worker, (void*)i);
-    }
-
-    if (f != NULL) {
-        lace_spawn_worker(0, stacksize, &lace_boot_wrapper, (void*)f);
-
-        // Wait on condition until done
+        // Suspend this thread until cb returns
         pthread_mutex_lock(&wait_until_done_mutex);
         pthread_cond_wait(&wait_until_done, &wait_until_done_mutex);
         pthread_mutex_unlock(&wait_until_done_mutex);
     } else {
-#if USE_NUMA
-        // Pin ourself
-        numa_bind_me(0);
-#endif
-
-        lace_init_worker(0, 0); // init master
+        // use this thread as worker and return control
+        lace_init_worker(0, 0);
         lace_time_event(workers[0], 1);
     }
 }
@@ -424,7 +414,7 @@ lace_init(int workers, size_t dqsize, size_t stacksize)
 {
     default_dqsize = dqsize;
     _lace_init(workers);
-    _lace_spawn_workers(workers, stacksize, NULL);
+    lace_startup(stacksize, NULL, NULL);
 }
 
 #if LACE_COUNT_EVENTS
@@ -572,7 +562,7 @@ lace_boot(int workers, size_t dqsize, size_t stack_size, void (*f)(void))
 {
     default_dqsize = dqsize;
     _lace_init(workers);
-    _lace_spawn_workers(workers, stack_size, f);
+    lace_startup(workers, NULL, NULL); // TODO: f
     lace_exit();
 }
 
