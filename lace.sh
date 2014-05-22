@@ -189,6 +189,8 @@ typedef struct _Worker {
     volatile uint64_t time;
     volatile int level;
 #endif
+
+    uint32_t seed; // my random seed (for lace_steal_random)
 } Worker;
 
 /**
@@ -210,6 +212,11 @@ void lace_init(int workers, size_t dq_size, size_t stack_size);
 int lace_inited();
 
 /**
+ * Steal random tasks until Lace exits.
+ */
+void lace_steal_random_loop();
+
+/**
  * Retrieve number of Lace workers
  */
 size_t lace_workers();
@@ -223,6 +230,11 @@ Worker *lace_get_worker();
  * Retrieve the current head of the deque
  */
 Task *lace_get_head(Worker *);
+
+/**
+ * Steal a random task.
+ */
+void lace_steal_random(Worker *self, Task *head);
 
 /**
  * Exit Lace. Automatically called when started with cb,arg.

@@ -162,6 +162,36 @@ rng(uint32_t *seed, int max)
     return next % max;
 }
 
+void
+lace_steal_random(Worker *self, Task *head)
+{
+    Worker *victim = workers[(self->worker + 1 + rng(&self->seed, n_workers-1)) % n_workers];
+
+    PR_COUNTSTEALS(self, CTR_steal_tries);
+    switch (lace_steal(self, head, victim)) {
+    case LACE_NOWORK:
+        lace_cb_stealing();
+        break;
+    case LACE_STOLEN:
+        PR_COUNTSTEALS(self, CTR_steals);
+        break;
+    case LACE_BUSY:
+        PR_COUNTSTEALS(self, CTR_steal_busy);
+        break;
+    default:
+        break;
+    }
+}
+
+void
+lace_steal_random_loop()
+{
+    // Determine who I am
+    Worker * const me = lace_get_worker();
+    Task * const head = me->o_dq;
+    while (more_work) lace_steal_random(me, head);
+}
+
 static void*
 lace_boot_wrapper(void *arg)
 {
