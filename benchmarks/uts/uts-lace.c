@@ -150,6 +150,8 @@ int main(int argc, char *argv[]) {
   lace_init(_lace_workers, _lace_dqsize, 32*1024*1024);
   printf("Initialized Lace with %d workers, dqsize=%d\n", _lace_workers, _lace_dqsize);
 
+  LACE_ME;
+
   t1 = uts_wctime();
   Result r = CALL(parTreeSearch, 0, &root);
   t2 = uts_wctime();

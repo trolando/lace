@@ -157,6 +157,8 @@ int main(int argc, char *argv[])
 
     lace_init(workers, dqsize, 0);
 
+    LACE_ME;
+
     double t1 = wctime();
     CALL(rec_matmul, A, B, C2, n, n, n, n, 0); 
     double t2 = wctime();

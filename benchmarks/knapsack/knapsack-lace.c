@@ -143,6 +143,8 @@ int main(int argc, char *argv[])
 
     lace_init(workers, dqsize, 0);
 
+    LACE_ME;
+
     struct item items[MAX_ITEMS];	/* array of items */
     int n, capacity, sol;
 

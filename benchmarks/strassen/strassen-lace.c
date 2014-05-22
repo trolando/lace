@@ -763,6 +763,8 @@ int main(int argc, char *argv[])
     init_matrix(n, A, n);
     init_matrix(n, B, n);
 
+    LACE_ME;
+
     double t1=wctime();
     CALL(OptimizedStrassenMultiply, C2, A, B, n, n, n, n);
     double t2=wctime();

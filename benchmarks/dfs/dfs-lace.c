@@ -70,6 +70,8 @@ int main(int argc, char **argv)
     int d, m;
     lace_init(workers, dqsize, 0);
 
+    LACE_ME;
+
     d = atoi(argv[optind]);
     w = atoi(argv[optind+1]);
     n = atoi(argv[optind+2]);

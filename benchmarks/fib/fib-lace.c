@@ -58,6 +58,8 @@ int main(int argc, char **argv)
 
     lace_init(workers, dqsize, 0);
 
+    LACE_ME;
+
     int n = atoi(argv[optind]);
 
     double t1 = wctime();
