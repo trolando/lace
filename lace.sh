@@ -58,17 +58,12 @@ echo '
    The value must be greater than or equal to the maximum size of your tasks.
    The task size is the maximum of the size of the result or of the sum of the parameter sizes. */
 #ifndef LACE_TASKSIZE
-#define LACE_TASKSIZE ('$1'+1)*8
-#endif
-
-#if LACE_COUNT_EVENTS
-typedef uint64_t hrtime_t;
+#define LACE_TASKSIZE ('$1'+1)*P_SZ
 #endif
 
 #if LACE_PIE_TIMES
-/* Some code for event counters and timers */
-
-static inline hrtime_t gethrtime()
+/* High resolution timer */
+static inline uint64_t gethrtime()
 {
     uint32_t hi, lo;
     asm volatile ("rdtsc" : "=a"(lo), "=d"(hi) :: "memory");
@@ -191,7 +186,7 @@ typedef struct _Worker {
 
 #if LACE_COUNT_EVENTS
     uint64_t ctr[CTR_MAX]; // counters
-    volatile hrtime_t time;
+    volatile uint64_t time;
     volatile int level;
 #endif
 } Worker;
@@ -212,15 +207,30 @@ extern void lace_init_worker(int idx);
  */
 void lace_boot(int workers, size_t dq_size, size_t stack_size, void (*function)(void));
 void lace_init(int workers, size_t dq_size, size_t stack_size);
-void lace_exit();
 int lace_inited();
+
+/**
+ * Retrieve number of Lace workers
+ */
 size_t lace_workers();
+
+/**
+ * Retrieve current worker. (for lace_steal_random)
+ */
+Worker *lace_get_worker();
+
+/**
+ * Retrieve the current head of the deque
+ */
+Task *lace_get_head(Worker *);
+
+/**
+ * Exit Lace. Automatically called when started with cb,arg.
+ */
+void lace_exit();
 
 extern void (*lace_cb_stealing)(void);
 void lace_set_callback(void (*cb)(void));
-
-Task *lace_get_head(Worker *);
-Worker *lace_get_worker();
 
 #define LACE_STOLEN   0
 #define LACE_BUSY     1
@@ -268,7 +278,7 @@ typedef void* (*lace_callback_f)(Worker *, Task *, int, void *);
 #if LACE_PIE_TIMES
 static void lace_time_event( Worker *w, int event )
 {
-    hrtime_t now = gethrtime(),
+    uint64_t now = gethrtime(),
              prev = w->time;
 
     switch( event ) {

@@ -39,8 +39,8 @@ static size_t dq_size = -1;
 
 static int n_workers = 0;
 
-static int more_work = 1;
 static pthread_t *ts = NULL;
+static volatile int more_work = 1;
 
 static pthread_attr_t worker_attr;
 static pthread_key_t worker_key;
@@ -105,6 +105,7 @@ us_elapsed(void)
 #endif
 
 #if USE_NUMA
+// Lock used only during parallel lace_init_worker...
 ticketlock_t lock = {0};
 #endif
 
