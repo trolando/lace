@@ -34,6 +34,7 @@
 #endif
 
 static Worker **workers;
+static size_t default_stacksize = 4*1024*1024; // 4 megabytes
 static size_t default_dqsize = 100000;
 
 static int n_workers = 0;
@@ -295,9 +296,12 @@ lace_default_cb()
 {
 }
 
-static pthread_t
-_lace_create_thread(int worker, size_t stacksize, void* (*f)(void*), void *arg)
+pthread_t
+lace_spawn_worker(int worker, size_t stacksize, void* (*fun)(void*), void* arg)
 {
+    // Determine stack size
+    if (stacksize == 0) stacksize = default_stacksize;
+
 #if USE_NUMA
     if (stacksize != 0) {
         size_t pagesize = numa_pagesize();
@@ -323,15 +327,21 @@ _lace_create_thread(int worker, size_t stacksize, void* (*f)(void*), void *arg)
         }
         ticketlock_unlock(&lock);
     }
+#else
+    if (pthread_attr_setstacksize(&worker_attr, stacksize) != 0) {
+        fprintf(stderr, "Lace warning: Cannot set stacksize for new pthreads!\n");
+    }
+    (void)worker;
 #endif
 
+    if (fun == 0) {
+        fun = lace_default_worker;
+        arg = (void*)(size_t)worker;
+    }
+
     pthread_t res;
-    pthread_create(&res, &worker_attr, f, arg);
+    pthread_create(&res, &worker_attr, fun, arg);
     return res;
-#if ! USE_NUMA
-    (void)worker;
-    (void)stacksize;
-#endif
 }
 
 static void
@@ -389,11 +399,11 @@ _lace_spawn_workers(int n, size_t stacksize, void (*f)(void))
     long i;
     ts = (pthread_t *)malloc((n-1) * sizeof(pthread_t));
     for (i=1; i<n; i++) {
-        *(ts+i-1) = _lace_create_thread(i, stacksize, &lace_default_worker, (void*)i);
+        *(ts+i-1) = lace_spawn_worker(i, stacksize, &lace_default_worker, (void*)i);
     }
 
     if (f != NULL) {
-        _lace_create_thread(0, stacksize, &lace_boot_wrapper, (void*)f);
+        lace_spawn_worker(0, stacksize, &lace_boot_wrapper, (void*)f);
 
         // Wait on condition until done
         pthread_mutex_lock(&wait_until_done_mutex);

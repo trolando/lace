@@ -22,6 +22,7 @@ echo '
 #include <stdint.h>
 #include <stdio.h>
 #include <atomics.h>
+#include <pthread.h> /* for pthread_t */
 
 #ifndef __LACE_H__
 #define __LACE_H__
@@ -210,6 +211,13 @@ extern void lace_init_worker(int worker, size_t dqsize);
 void lace_boot(int workers, size_t dq_size, size_t stack_size, void (*function)(void));
 void lace_init(int workers, size_t dq_size, size_t stack_size);
 int lace_inited();
+
+/**
+ * Manually spawn worker <idx> with (optional) program stack size <stacksize>.
+ * If fun,arg are set, overrides default startup method.
+ * Typically: for workers 1...(n_workers-1): lace_spawn_worker(i, stack_size, 0, 0);
+ */
+pthread_t lace_spawn_worker(int idx, size_t stacksize, void *(*fun)(void*), void* arg);
 
 /**
  * Steal random tasks until Lace exits.
