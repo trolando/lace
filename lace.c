@@ -115,17 +115,25 @@ init_worker(int worker)
     Worker *w;
 
 #if USE_NUMA
+    // Retrieve our NUMA node...
     size_t node;
     numa_worker_info(worker, &node, 0, 0, 0);
+
+    // Pin our thread...
+    numa_run_on_node(node);
+
+    // Allocate memory on our NUMA node...
     ticketlock_lock(&lock);
     w = (Worker *)numa_alloc_onnode(sizeof(Worker), node);
     w->dq = (Task*)numa_alloc_onnode(dq_size * sizeof(Task), node);
     ticketlock_unlock(&lock);
 #else
+    // Allocate memory...
     posix_memalign((void**)&w, LINE_SIZE, sizeof(Worker));
     posix_memalign((void**)&w->dq, LINE_SIZE, dq_size * sizeof(Task));
 #endif
 
+    // Initialize worker data
     w->ts.v = 0;
     w->allstolen = 0;
     w->o_dq = w->dq;
@@ -136,6 +144,7 @@ init_worker(int worker)
     w->worker = worker;
 
 #if LACE_COUNT_EVENTS
+    // Reset counters
     { int k; for (k=0; k<CTR_MAX; k++) w->ctr[k] = 0; }
 #endif
 
@@ -195,10 +204,6 @@ lace_steal_random_loop()
 static void*
 lace_boot_wrapper(void *arg)
 {
-#if USE_NUMA
-    numa_bind_me(0);
-#endif
-
     init_worker(0); // init master
 
 #if LACE_PIE_TIMES
@@ -221,10 +226,6 @@ static void*
 worker_thread( void *arg )
 {
     long self_id = (long) arg;
-
-#if USE_NUMA
-    numa_bind_me(self_id);
-#endif
 
     init_worker(self_id); // init slave
 
