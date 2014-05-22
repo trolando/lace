@@ -49,6 +49,18 @@ static barrier_t bar;
 static pthread_cond_t wait_until_done = PTHREAD_COND_INITIALIZER;
 static pthread_mutex_t wait_until_done_mutex = PTHREAD_MUTEX_INITIALIZER;
 
+Worker*
+lace_get_worker()
+{
+    return (Worker*)pthread_getspecific(worker_key);
+}
+
+size_t
+lace_workers()
+{
+    return n_workers;
+}
+
 #if LACE_PIE_TIMES
 static hrtime_t count_at_start, count_at_end;
 static long long unsigned us_elapsed_timer;
@@ -240,12 +252,6 @@ lace_get_head()
     return low;
 }
 
-Worker*
-lace_get_worker()
-{
-    return (Worker*)pthread_getspecific(worker_key);
-}
-
 static void
 lace_default_cb()
 {
@@ -255,12 +261,6 @@ int
 lace_inited()
 {
     return inited;
-}
-
-size_t
-lace_workers()
-{
-    return n_workers;
 }
 
 static pthread_t
