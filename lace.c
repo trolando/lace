@@ -148,14 +148,17 @@ init_worker(int worker)
     { int k; for (k=0; k<CTR_MAX; k++) w->ctr[k] = 0; }
 #endif
 
+    // Set pointers
+    pthread_setspecific(worker_key, w);
+    workers[worker] = w;
+
+    // Synchronize with others
+    barrier_wait(&bar);
+
 #if LACE_PIE_TIMES
     w->time = gethrtime();
     w->level = 0;
 #endif
-
-    pthread_setspecific(worker_key, w);
-    workers[worker] = w;
-    barrier_wait(&bar);
 }
 
 static inline uint32_t
