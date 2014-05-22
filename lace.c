@@ -55,6 +55,23 @@ lace_get_worker()
     return (Worker*)pthread_getspecific(worker_key);
 }
 
+Task*
+lace_get_head(Worker *self)
+{
+    Task *low = self->o_dq;
+    Task *high = self->o_end;
+
+    if (low->f == 0) return low;
+
+    while (low < high) {
+        Task *mid = low + (high-low)/2;
+        if (mid->f == 0) high = mid;
+        else low = mid + 1;
+    }
+
+    return low;
+}
+
 size_t
 lace_workers()
 {
@@ -231,25 +248,6 @@ worker_thread( void *arg )
     lace_time_event(*self, 9);
 
     return NULL;
-}
-
-Task*
-lace_get_head()
-{
-    Worker *self = (Worker*)pthread_getspecific(worker_key);
-
-    Task *low = self->o_dq;
-    Task *high = self->o_end;
-
-    if (low->f == 0) return low;
-
-    while (low < high) {
-        Task *mid = low + (high-low)/2;
-        if (mid->f == 0) high = mid;
-        else low = mid + 1;
-    }
-
-    return low;
 }
 
 static void

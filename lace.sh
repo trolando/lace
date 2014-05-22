@@ -219,7 +219,7 @@ size_t lace_workers();
 extern void (*lace_cb_stealing)(void);
 void lace_set_callback(void (*cb)(void));
 
-Task *lace_get_head();
+Task *lace_get_head(Worker *);
 Worker *lace_get_worker();
 
 #define LACE_STOLEN   0
@@ -255,7 +255,7 @@ static const int __lace_in_task = 0;
 #define LACE_WORKER_ID    ( (int16_t) (__lace_worker == NULL ? lace_get_worker()->worker : __lace_worker->worker) )
 
 /* Use LACE_ME to initialize Lace variables, in case you want to call multiple Lace tasks */
-#define LACE_ME Worker *__lace_worker = lace_get_worker(); Task *__lace_dq_head = lace_get_head(); int __lace_in_task = 1;
+#define LACE_ME Worker *__lace_worker = lace_get_worker(); Task *__lace_dq_head = lace_get_head(__lace_worker); int __lace_in_task = 1;
 
 typedef void* (*lace_callback_f)(Worker *, Task *, int, void *);
 #define LACE_DECL_CALLBACK(f) void *f(Worker *, Task *, int, void *); \
@@ -626,22 +626,22 @@ $RTYPE NAME##_SYNC_FAST(Worker *w, Task *__dq_head)
 static inline __attribute__((always_inline)) __attribute__((unused))
 void SPAWN_DISPATCH_##NAME(Worker *w, Task *__dq_head, int __intask $FUN_ARGS)
 {
-    if (__intask) return NAME##_SPAWN(w, __dq_head $CALL_ARGS);
-    else return NAME##_SPAWN(lace_get_worker(), lace_get_head() $CALL_ARGS);
+    if (__intask) { NAME##_SPAWN(w, __dq_head $CALL_ARGS); }
+    else { w = lace_get_worker(); NAME##_SPAWN(w, lace_get_head(w) $CALL_ARGS); }
 }
 
 static inline __attribute__((always_inline)) __attribute__((unused))
 $RTYPE SYNC_DISPATCH_##NAME(Worker *w, Task *__dq_head, int __intask)
 {
-    if (__intask) return NAME##_SYNC_FAST(w, __dq_head);
-    else return NAME##_SYNC_FAST(lace_get_worker(), lace_get_head());
+    if (__intask) { return NAME##_SYNC_FAST(w, __dq_head); }
+    else { w = lace_get_worker(); return NAME##_SYNC_FAST(w, lace_get_head(w)); }
 }
 
 static inline __attribute__((always_inline)) __attribute__((unused))
 $RTYPE CALL_DISPATCH_##NAME(Worker *w, Task *__dq_head, int __intask $FUN_ARGS)
 {
-    if (__intask) return NAME##_CALL(w, __dq_head $CALL_ARGS);
-    else return NAME##_CALL(lace_get_worker(), lace_get_head() $CALL_ARGS);
+    if (__intask) { return NAME##_CALL(w, __dq_head $CALL_ARGS); }
+    else { w = lace_get_worker(); return NAME##_CALL(w, lace_get_head(w) $CALL_ARGS); }
 }
 
 
