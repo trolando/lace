@@ -340,13 +340,19 @@ lace_spawn_worker(int worker, size_t stacksize, void* (*fun)(void*), void* arg)
 static void
 _lace_init(int n)
 {
+    // Initialize globals
     n_workers = n;
 
     more_work = 1;
     lace_cb_stealing = &lace_default_cb;
 
-    barrier_init(&bar, lace_workers());
+    // Create barrier for all workers
+    barrier_init(&bar, n);
+
+    // Allocate array with all workers
     posix_memalign((void**)&workers, LINE_SIZE, n*sizeof(Worker*));
+
+    // Create pthread key
     pthread_key_create(&worker_key, NULL);
 
     // Prepare structures for thread creation
@@ -362,19 +368,21 @@ _lace_init(int n)
     }
 
 #if USE_NUMA
+    // If we have NUMA, initialize it
     if (numa_available() != 0) {
         fprintf(stderr, "Error: NUMA not available!\n");
         exit(1);
-    }
-    else fprintf(stderr, "Initializing Lace with NUMA support.\n");
-
-    if (numa_distribute(n) != 0) {
-        fprintf(stderr, "Error: no suitable NUMA configuration found!\n");
-        exit(1);
+    } else {
+        fprintf(stderr, "Initializing Lace with NUMA support.\n");
+        if (numa_distribute(n) != 0) {
+            fprintf(stderr, "Error: no suitable NUMA configuration found!\n");
+            exit(1);
+        }
     }
 #endif
 
 #if LACE_PIE_TIMES
+    // Initialize counters for pie times
     us_elapsed_start();
     count_at_start = gethrtime();
 #endif
