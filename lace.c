@@ -34,7 +34,6 @@
 #endif
 
 static Worker **workers;
-static int inited = 0;
 static size_t default_dqsize = 100000;
 
 static int n_workers = 0;
@@ -296,12 +295,6 @@ lace_default_cb()
 {
 }
 
-int
-lace_inited()
-{
-    return inited;
-}
-
 static pthread_t
 _lace_create_thread(int worker, size_t stacksize, void* (*f)(void*), void *arg)
 {
@@ -347,7 +340,6 @@ _lace_init(int n)
     n_workers = n;
 
     more_work = 1;
-    inited = 1;
     lace_cb_stealing = &lace_default_cb;
 
     barrier_init(&bar, lace_workers());
@@ -562,7 +554,6 @@ void lace_exit()
     lace_time_event(workers[0], 2);
 
     more_work = 0;
-    inited = 0;
 
     if (ts != NULL) {
         int i;
