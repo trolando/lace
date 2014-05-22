@@ -35,7 +35,7 @@
 
 static Worker **workers;
 static int inited = 0;
-static size_t dq_size = -1;
+static size_t default_dqsize = 100000;
 
 static int n_workers = 0;
 
@@ -109,10 +109,12 @@ us_elapsed(void)
 ticketlock_t lock = {0};
 #endif
 
-static void
-init_worker(int worker)
+void
+lace_init_worker(int worker, size_t dq_size)
 {
     Worker *w;
+
+    if (dq_size == 0) dq_size = default_dqsize;
 
 #if USE_NUMA
     // Retrieve our NUMA node...
@@ -207,7 +209,7 @@ lace_steal_random_loop()
 static void*
 lace_boot_wrapper(void *arg)
 {
-    init_worker(0); // init master
+    lace_init_worker(0, 0); // init master
 
 #if LACE_PIE_TIMES
     self->time = gethrtime();
@@ -283,7 +285,7 @@ lace_steal_loop()
 static void*
 lace_default_worker(void* arg)
 {
-    init_worker((size_t)arg);
+    lace_init_worker((size_t)arg, 0);
     lace_steal_loop();
     lace_time_event(*self, 9);
     return NULL;
@@ -411,7 +413,7 @@ _lace_spawn_workers(int n, size_t stacksize, void (*f)(void))
         numa_bind_me(0);
 #endif
 
-        init_worker(0); // init master
+        lace_init_worker(0, 0); // init master
         lace_time_event(workers[0], 1);
     }
 }
@@ -419,25 +421,14 @@ _lace_spawn_workers(int n, size_t stacksize, void (*f)(void))
 void
 lace_init_static(int workers, size_t dqsize)
 {
-    dq_size = dqsize;
+    default_dqsize = dqsize;
     _lace_init(workers);
-}
-
-void
-lace_init_worker(int idx)
-{
-    long i = idx;
-    if (idx != 0) {
-        lace_default_worker((void *)i);
-    } else {
-        init_worker(idx);
-    }
 }
 
 void
 lace_init(int workers, size_t dqsize, size_t stacksize)
 {
-    dq_size = dqsize;
+    default_dqsize = dqsize;
     _lace_init(workers);
     _lace_spawn_workers(workers, stacksize, NULL);
 }
@@ -588,7 +579,7 @@ void lace_exit()
 void
 lace_boot(int workers, size_t dqsize, size_t stack_size, void (*f)(void))
 {
-    dq_size = dqsize;
+    default_dqsize = dqsize;
     _lace_init(workers);
     _lace_spawn_workers(workers, stack_size, f);
     lace_exit();

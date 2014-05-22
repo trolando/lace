@@ -200,7 +200,7 @@ typedef struct _Worker {
  * returns immediately (idx == 0).
  */
 extern void lace_init_static(int workers, size_t dqsize);
-extern void lace_init_worker(int idx);
+extern void lace_init_worker(int worker, size_t dqsize);
 
 /**
  * Either use lace_init and lace_exit, or use lace_boot with a callback function.
