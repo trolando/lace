@@ -222,25 +222,24 @@ lace_boot_wrapper(void *arg)
 // By default, scan sequentially for 0..39 attempts
 #define rand_interval 40
 
-static void*
-worker_thread( void *arg )
+void
+lace_steal_loop()
 {
-    long self_id = (long) arg;
+    // Determine who I am
+    Worker * const me = lace_get_worker();
+    const int worker_id = me->worker;
 
-    init_worker(self_id); // init slave
-
-    Worker **self = &workers[self_id];
-    Worker **victim = NULL;
-    int worker_id = (*self)->worker;
-    uint32_t seed = worker_id;
-    unsigned int n = n_workers;
-    int i=0;
+    // Prepare self, victim
+    Worker ** const self = &workers[worker_id];
+    Worker **victim = self;
 
 #if LACE_PIE_TIMES
     (*self)->time = gethrtime();
 #endif
 
-    victim = self;
+    uint32_t seed = worker_id;
+    unsigned int n = n_workers;
+    int i=0;
 
     do {
         // Computing a random number for every steal is too slow, so we do some amount of
@@ -276,9 +275,14 @@ worker_thread( void *arg )
         if (!more_work) break;
 
     } while(1);
+}
 
+static void*
+lace_default_worker(void* arg)
+{
+    init_worker((size_t)arg);
+    lace_steal_loop();
     lace_time_event(*self, 9);
-
     return NULL;
 }
 
@@ -388,7 +392,7 @@ _lace_spawn_workers(int n, size_t stacksize, void (*f)(void))
     long i;
     ts = (pthread_t *)malloc((n-1) * sizeof(pthread_t));
     for (i=1; i<n; i++) {
-        *(ts+i-1) = _lace_create_thread(i, stacksize, &worker_thread, (void*)i);
+        *(ts+i-1) = _lace_create_thread(i, stacksize, &lace_default_worker, (void*)i);
     }
 
     if (f != NULL) {
@@ -421,7 +425,7 @@ lace_init_worker(int idx)
 {
     long i = idx;
     if (idx != 0) {
-        worker_thread((void *)i);
+        lace_default_worker((void *)i);
     } else {
         init_worker(idx);
     }

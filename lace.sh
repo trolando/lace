@@ -215,6 +215,7 @@ int lace_inited();
  * Steal random tasks until Lace exits.
  */
 void lace_steal_random_loop();
+void lace_steal_loop();
 
 /**
  * Retrieve number of Lace workers
