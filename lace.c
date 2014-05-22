@@ -288,6 +288,7 @@ lace_default_worker(void* arg)
     lace_init_worker((size_t)arg, 0);
     lace_steal_loop();
     lace_time_event(*self, 9);
+    barrier_wait(&bar);
     return NULL;
 }
 
@@ -565,10 +566,8 @@ void lace_exit()
 
     more_work = 0;
 
-    if (ts != NULL) {
-        int i;
-        for(i=0; i<n_workers-1; i++) pthread_join(ts[i], NULL);
-    }
+    // Wait for others
+    barrier_wait(&bar);
 
     barrier_destroy(&bar);
 
