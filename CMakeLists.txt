@@ -85,6 +85,11 @@ add_executable(uts-seq ${uts_sources} benchmarks/uts/uts-seq.c)
 set_target_properties(uts-seq PROPERTIES COMPILE_DEFINITIONS "BRG_C99_TYPES;BRG_RNG")
 target_link_libraries(uts-seq m)
 
+add_executable(uts2-lace ${uts_sources} benchmarks/uts/uts2-lace.c lace-2.c lace-2.h ticketlock.h ${numa_tools})
+set_target_properties(uts2-lace PROPERTIES COMPILE_FLAGS "-I.")
+set_target_properties(uts2-lace PROPERTIES COMPILE_DEFINITIONS "${lace_flags};BRG_C99_TYPES;BRG_RNG")
+target_link_libraries(uts2-lace m pthread ${NUMA_LIB})
+
 add_executable(uts-lace ${uts_sources} benchmarks/uts/uts-lace.c lace-2.c lace-2.h ticketlock.h ${numa_tools})
 set_target_properties(uts-lace PROPERTIES COMPILE_FLAGS "-I.")
 set_target_properties(uts-lace PROPERTIES COMPILE_DEFINITIONS "${lace_flags};BRG_C99_TYPES;BRG_RNG")
