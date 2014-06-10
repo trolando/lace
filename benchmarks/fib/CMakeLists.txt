@@ -1,0 +1,20 @@
+cmake_minimum_required(VERSION 2.6)
+project(castest C)
+enable_language(ASM)
+
+set (CMAKE_ASM_FLAGS "-g")
+set (CMAKE_C_FLAGS "-g -O3 -Wall")
+
+add_executable(fib fib2.c wool.c)
+add_executable(fib-seq fib-seq.c)
+add_executable(fib-ll fib-ll.c wool-ll.c)
+add_executable(fib-ll2 fib-ll2.c wool-ll2.c)
+add_executable(fib-ll3 fib-ll3.c wool-ll3.c)
+add_executable(fib-lace fib-lace.c lace.c)
+
+target_link_libraries(fib pthread m numa)
+target_link_libraries(fib-ll pthread m numa)
+target_link_libraries(fib-ll2 pthread m numa)
+target_link_libraries(fib-ll3 pthread m numa)
+target_link_libraries(fib-seq m)
+target_link_libraries(fib-lace pthread m numa)
