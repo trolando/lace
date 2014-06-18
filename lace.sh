@@ -300,7 +300,7 @@ static const int __lace_in_task = 0;
 #define LACE_WORKER_ID    ( (int16_t) (__lace_worker == NULL ? lace_get_worker()->worker : __lace_worker->worker) )
 
 /* Use LACE_ME to initialize Lace variables, in case you want to call multiple Lace tasks */
-#define LACE_ME WorkerP *__attribute__((unused)) __lace_worker = lace_get_worker(); Task *__attribute__((unused)) __lace_dq_head = lace_get_head(__lace_worker); int __attribute__((unused)) __lace_in_task = 1;
+#define LACE_ME WorkerP * __attribute__((unused)) __lace_worker = lace_get_worker(); Task * __attribute__((unused)) __lace_dq_head = lace_get_head(__lace_worker); int __attribute__((unused)) __lace_in_task = 1;
 
 #define LACE_DECL_CALLBACK(f) void *f(WorkerP *, Task *, int, void *); \
             static inline __attribute__((always_inline)) __attribute__((unused)) void* \
@@ -712,7 +712,7 @@ $RTYPE NAME##_CALL(WorkerP *w, Task *__dq_head $FUN_ARGS)
 }
 
 static inline __attribute__((always_inline))
-$RTYPE NAME##_WORK(WorkerP *__lace_worker, Task *__lace_dq_head, int __lace_in_task $WORK_ARGS)" \
+$RTYPE NAME##_WORK(WorkerP *__lace_worker __attribute__((unused)), Task *__lace_dq_head __attribute__((unused)), int __lace_in_task __attribute__((unused)) $WORK_ARGS)" \
 ) | awk '{printf "%-86s\\\n", $0 }'
 
 echo " "
