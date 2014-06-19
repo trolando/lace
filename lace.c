@@ -14,12 +14,14 @@
  * limitations under the License.
  */
 
+#include <sched.h> // for sched_getaffinity
 #include <stdio.h>  // for fprintf
 #include <stdlib.h> // for memalign, malloc
 #include <string.h> // for memset
 #include <sys/mman.h> // for mprotect
 #include <sys/time.h> // for gettimeofday
 #include <pthread.h>
+#include <unistd.h>
 #include <assert.h>
 
 #include <lace.h>
@@ -422,11 +424,31 @@ lace_spawn_worker(int worker, size_t stacksize, void* (*fun)(void*), void* arg)
     return res;
 }
 
+static int
+get_cpu_count()
+{
+#ifdef sched_getaffinity
+    /* Best solution: find actual available cpus */
+    cpu_set_t cs;
+    CPU_ZERO(&cs);
+    sched_getaffinity(0, sizeof(cs), &cs);
+    int count = CPU_COUNT(&cs);
+#elif defined(_SC_NPROCESSORS_ONLN)
+    /* Fallback */
+    int count = sysconf(_SC_NPROCESSORS_ONLN);
+#else
+    /* Okay... */
+    int count = 1;
+#endif
+    return count < 1 ? 1 : count;
+}
+
 void
 lace_init(int n, size_t dqsize)
 {
     // Initialize globals
     n_workers = n;
+    if (n_workers == 0) n_workers = get_cpu_count();
     if (dqsize != 0) default_dqsize = dqsize;
     more_work = 1;
     lace_cb_stealing = &lace_default_cb;
