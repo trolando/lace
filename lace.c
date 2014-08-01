@@ -1,4 +1,4 @@
-/* 
+/*
  * Copyright 2013-2014 Formal Methods and Tools, University of Twente
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
