@@ -64,11 +64,11 @@ lace_get_head(WorkerP *self)
     Task *low = self->dq;
     Task *high = self->end;
 
-    if (low->f == 0) return low;
+    if (low->thief == 0) return low;
 
     while (low < high) {
         Task *mid = low + (high-low)/2;
-        if (mid->f == 0) high = mid;
+        if (mid->thief == 0) high = mid;
         else low = mid + 1;
     }
 
