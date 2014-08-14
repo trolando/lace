@@ -174,6 +174,16 @@ if __name__ == "__main__":
         if os.path.isfile('matmul-lace'):
             experiments.append(("matmul",("./matmul-lace", "-w", str(w), "4096"), w))
 
+        if os.path.isfile('fib-lace-ri'):
+            experiments.append(("fib-ri",("./fib-lace-ri", "-w", str(w), "50"), w))
+        if os.path.isfile('uts-lace-ri'):
+            experiments.append(("uts-t2l-ri",["./uts-lace-ri", "-w", str(w)] + globals()["T2L"].split(), w))
+            experiments.append(("uts-t3l-ri",["./uts-lace-ri", "-w", str(w)] + globals()["T3L"].split(), w))
+        if os.path.isfile('queens-lace-ri'):
+            experiments.append(("queens-ri",("./queens-lace-ri", "-w", str(w), "15"), w))
+        if os.path.isfile('matmul-lace-ri'):
+            experiments.append(("matmul-ri",("./matmul-lace-ri", "-w", str(w), "4096"), w))
+
     if os.path.isfile('fib-seq'):
         experiments.append(("fib-seq",("./fib-seq", "50"), 1))
     if os.path.isfile('uts-seq'):
