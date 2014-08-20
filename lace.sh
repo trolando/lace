@@ -144,7 +144,9 @@ struct _WorkerP;
 struct _Worker;
 struct _Task;
 
-#define THIEF_COMPLETED ((struct _Worker*)0x1)
+#define THIEF_EMPTY     ((struct _Worker*)0x0)
+#define THIEF_TASK      ((struct _Worker*)0x1)
+#define THIEF_COMPLETED ((struct _Worker*)0x2)
 
 #define TASK_COMMON_FIELDS(type)                               \
     void (*f)(struct _WorkerP *, struct _Task *, struct type *);  \
@@ -304,6 +306,10 @@ static const int __lace_in_task = 0;
 #define LACE_IMPL_CALLBACK(f) void *f(__attribute__((unused)) WorkerP *__lace_worker, __attribute__((unused)) Task *__lace_dq_head, __attribute__((unused)) int __lace_in_task, __attribute__((unused)) void *arg)        
 #define LACE_CALLBACK(f) LACE_DECL_CALLBACK(f) LACE_IMPL_CALLBACK(f)
 #define CALL_CALLBACK(f, arg) ( f(__lace_worker, __lace_dq_head, __lace_in_task, arg) )
+
+#define TASK_IS_STOLEN(t) ((size_t)t->thief > 1)
+#define TASK_IS_COMPLETED(t) ((size_t)t->thief == 2)
+#define TASK_RESULT(t) (&t->d[0])
 
 #if LACE_PIE_TIMES
 static void lace_time_event( WorkerP *w, int event )
@@ -519,7 +525,7 @@ void NAME##_SPAWN(WorkerP *w, Task *__dq_head $FUN_ARGS)
 
     t = (TD_##NAME *)__dq_head;
     t->f = &NAME##_WRAP;
-    t->thief = 0;
+    t->thief = THIEF_TASK;
     $TASK_INIT
     compiler_barrier();
 
@@ -542,7 +548,7 @@ NAME##_leapfrog(WorkerP *w, Task *__dq_head)
     TD_##NAME *t = (TD_##NAME *)__dq_head;
     Worker *thief = t->thief;
     if (thief != THIEF_COMPLETED) {
-        while (thief == 0) thief = t->thief;
+        while ((size_t)thief <= 1) thief = t->thief;
 
         /* PRE-LEAP: increase head again */
         __dq_head += 1;
@@ -566,7 +572,7 @@ NAME##_leapfrog(WorkerP *w, Task *__dq_head)
     }
 
     compiler_barrier();
-    t->f = 0;
+    t->thief = THIEF_EMPTY;
     lace_time_event(w, 4);
 }
 
@@ -600,7 +606,7 @@ $RTYPE NAME##_SYNC(WorkerP *w, Task *__dq_head)
     compiler_barrier();
 
     t = (TD_##NAME *)__dq_head;
-    t->f = 0;
+    t->thief = THIEF_EMPTY;
     return NAME##_CALL(w, __dq_head $TASK_GET_FROM_t);
 }
 

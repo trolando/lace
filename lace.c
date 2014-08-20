@@ -1,4 +1,4 @@
-/* 
+/*
  * Copyright 2013-2014 Formal Methods and Tools, University of Twente
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -42,6 +42,9 @@ static size_t default_dqsize = 100000;
 
 static int n_workers = 0;
 
+// private Worker data (just for stats at end )
+static WorkerP **workers_p;
+
 // set to 0 when quitting
 static volatile int more_work = 1;
 
@@ -64,11 +67,11 @@ lace_get_head(WorkerP *self)
     Task *low = self->dq;
     Task *high = self->end;
 
-    if (low->f == 0) return low;
+    if (low->thief == 0) return low;
 
     while (low < high) {
         Task *mid = low + (high-low)/2;
-        if (mid->f == 0) high = mid;
+        if (mid->thief == 0) high = mid;
         else low = mid + 1;
     }
 
@@ -82,7 +85,7 @@ lace_workers()
 }
 
 #if LACE_PIE_TIMES
-static hrtime_t count_at_start, count_at_end;
+static uint64_t count_at_start, count_at_end;
 static long long unsigned us_elapsed_timer;
 
 static void
@@ -267,6 +270,7 @@ lace_init_worker(int worker, size_t dq_size)
     // Set pointers
     pthread_setspecific(worker_key, w);
     workers[worker] = wt;
+    workers_p[worker] = w;
 
     // Synchronize with others
     barrier_wait(&bar);
@@ -347,7 +351,7 @@ lace_steal_loop()
     Worker **victim = self;
 
 #if LACE_PIE_TIMES
-    (*self)->time = gethrtime();
+    me->time = gethrtime();
 #endif
 
     uint32_t seed = worker_id;
@@ -475,7 +479,8 @@ lace_init(int n, size_t dqsize)
     barrier_init(&bar, n_workers);
 
     // Allocate array with all workers
-    if (posix_memalign((void**)&workers, LINE_SIZE, n_workers*sizeof(Worker*)) != 0) {
+    if (posix_memalign((void**)&workers, LINE_SIZE, n_workers*sizeof(Worker*)) != 0 ||
+        posix_memalign((void**)&workers_p, LINE_SIZE, n_workers*sizeof(WorkerP*)) != 0) {
         fprintf(stderr, "Lace error: unable to allocate memory!\n");
         exit(1);
     }
@@ -546,18 +551,19 @@ void
 lace_count_reset()
 {
 #if LACE_COUNT_EVENTS
-    size_t i, j;
+    int i;
+    size_t j;
 
     for (i=0;i<n_workers;i++) {
         for (j=0;j<CTR_MAX;j++) {
-            workers[i]->ctr[j] = 0;
+            workers_p[i]->ctr[j] = 0;
         }
     }
 
 #if LACE_PIE_TIMES
     for (i=0;i<n_workers;i++) {
-        workers[i]->time = gethrtime();
-        if (i != 0) workers[i]->level = 0;
+        workers_p[i]->time = gethrtime();
+        if (i != 0) workers_p[i]->level = 0;
     }
 
     us_elapsed_start();
@@ -570,11 +576,12 @@ void
 lace_count_report_file(FILE *file)
 {
 #if LACE_COUNT_EVENTS
-    size_t i, j;
+    int i;
+    size_t j;
 
     for (j=0;j<CTR_MAX;j++) ctr_all[j] = 0;
     for (i=0;i<n_workers;i++) {
-        uint64_t *wctr = workers[i]->ctr;
+        uint64_t *wctr = workers_p[i]->ctr;
         for (j=0;j<CTR_MAX;j++) {
             ctr_all[j] += wctr[j];
         }
@@ -582,7 +589,7 @@ lace_count_report_file(FILE *file)
 
 #if LACE_COUNT_TASKS
     for (i=0;i<n_workers;i++) {
-        fprintf(file, "Tasks (%zu): %zu\n", i, workers[i]->ctr[CTR_tasks]);
+        fprintf(file, "Tasks (%d): %zu\n", i, workers_p[i]->ctr[CTR_tasks]);
     }
     fprintf(file, "Tasks (sum): %zu\n", ctr_all[CTR_tasks]);
     fprintf(file, "\n");
@@ -590,22 +597,22 @@ lace_count_report_file(FILE *file)
 
 #if LACE_COUNT_STEALS
     for (i=0;i<n_workers;i++) {
-        fprintf(file, "Steals (%zu): %zu good/%zu busy of %zu tries; leaps: %zu good/%zu busy of %zu tries\n", i,
-            workers[i]->ctr[CTR_steals], workers[i]->ctr[CTR_steal_busy],
-            workers[i]->ctr[CTR_steal_tries], workers[i]->ctr[CTR_leaps], 
-            workers[i]->ctr[CTR_leap_busy], workers[i]->ctr[CTR_leap_tries]);
+        fprintf(file, "Steals (%d): %zu good/%zu busy of %zu tries; leaps: %zu good/%zu busy of %zu tries\n", i,
+            workers_p[i]->ctr[CTR_steals], workers_p[i]->ctr[CTR_steal_busy],
+            workers_p[i]->ctr[CTR_steal_tries], workers_p[i]->ctr[CTR_leaps],
+            workers_p[i]->ctr[CTR_leap_busy], workers_p[i]->ctr[CTR_leap_tries]);
     }
     fprintf(file, "Steals (sum): %zu good/%zu busy of %zu tries; leaps: %zu good/%zu busy of %zu tries\n", 
         ctr_all[CTR_steals], ctr_all[CTR_steal_busy],
-        ctr_all[CTR_steal_tries], ctr_all[CTR_leaps], 
+        ctr_all[CTR_steal_tries], ctr_all[CTR_leaps],
         ctr_all[CTR_leap_busy], ctr_all[CTR_leap_tries]);
     fprintf(file, "\n");
 #endif
 
 #if LACE_COUNT_STEALS && LACE_COUNT_TASKS
     for (i=0;i<n_workers;i++) {
-        fprintf(file, "Tasks per steal (%zu): %zu\n", i, 
-            workers[i]->ctr[CTR_tasks]/(workers[i]->ctr[CTR_steals]+workers[i]->ctr[CTR_leaps]));
+        fprintf(file, "Tasks per steal (%d): %zu\n", i,
+            workers_p[i]->ctr[CTR_tasks]/(workers_p[i]->ctr[CTR_steals]+workers_p[i]->ctr[CTR_leaps]));
     }
     fprintf(file, "Tasks per steal (sum): %zu\n", ctr_all[CTR_tasks]/(ctr_all[CTR_steals]+ctr_all[CTR_leaps]));
     fprintf(file, "\n");
@@ -613,8 +620,8 @@ lace_count_report_file(FILE *file)
 
 #if LACE_COUNT_SPLITS
     for (i=0;i<n_workers;i++) {
-        fprintf(file, "Splits (%zu): %zu shrinks, %zu grows, %zu outgoing requests\n", i,
-            workers[i]->ctr[CTR_split_shrink], workers[i]->ctr[CTR_split_grow], workers[i]->ctr[CTR_split_req]);
+        fprintf(file, "Splits (%d): %zu shrinks, %zu grows, %zu outgoing requests\n", i,
+            workers_p[i]->ctr[CTR_split_shrink], workers_p[i]->ctr[CTR_split_grow], workers_p[i]->ctr[CTR_split_req]);
     }
     fprintf(file, "Splits (sum): %zu shrinks, %zu grows, %zu outgoing requests\n",
         ctr_all[CTR_split_shrink], ctr_all[CTR_split_grow], ctr_all[CTR_split_req]);
@@ -636,14 +643,14 @@ lace_count_report_file(FILE *file)
     fprintf(file, "Aggregated time per pie slice, total time: %.2f CPU seconds\n\n", sum_count / (1000*dcpm));
 
     for (i=0;i<n_workers;i++) {
-        fprintf(file, "Startup time (%zu):    %10.2f ms\n", i, workers[i]->ctr[CTR_init] / dcpm);
-        fprintf(file, "Steal work (%zu):      %10.2f ms\n", i, workers[i]->ctr[CTR_wapp] / dcpm);
-        fprintf(file, "Leap work (%zu):       %10.2f ms\n", i, workers[i]->ctr[CTR_lapp] / dcpm);
-        fprintf(file, "Steal overhead (%zu):  %10.2f ms\n", i, (workers[i]->ctr[CTR_wstealsucc]+workers[i]->ctr[CTR_wsignal]) / dcpm);
-        fprintf(file, "Leap overhead (%zu):   %10.2f ms\n", i, (workers[i]->ctr[CTR_lstealsucc]+workers[i]->ctr[CTR_lsignal]) / dcpm);
-        fprintf(file, "Steal search (%zu):    %10.2f ms\n", i, (workers[i]->ctr[CTR_wsteal]-workers[i]->ctr[CTR_wstealsucc]-workers[i]->ctr[CTR_wsignal]) / dcpm);
-        fprintf(file, "Leap search (%zu):     %10.2f ms\n", i, (workers[i]->ctr[CTR_lsteal]-workers[i]->ctr[CTR_lstealsucc]-workers[i]->ctr[CTR_lsignal]) / dcpm);
-        fprintf(file, "Exit time (%zu):       %10.2f ms\n", i, workers[i]->ctr[CTR_close] / dcpm);
+        fprintf(file, "Startup time (%d):    %10.2f ms\n", i, workers_p[i]->ctr[CTR_init] / dcpm);
+        fprintf(file, "Steal work (%d):      %10.2f ms\n", i, workers_p[i]->ctr[CTR_wapp] / dcpm);
+        fprintf(file, "Leap work (%d):       %10.2f ms\n", i, workers_p[i]->ctr[CTR_lapp] / dcpm);
+        fprintf(file, "Steal overhead (%d):  %10.2f ms\n", i, (workers_p[i]->ctr[CTR_wstealsucc]+workers_p[i]->ctr[CTR_wsignal]) / dcpm);
+        fprintf(file, "Leap overhead (%d):   %10.2f ms\n", i, (workers_p[i]->ctr[CTR_lstealsucc]+workers_p[i]->ctr[CTR_lsignal]) / dcpm);
+        fprintf(file, "Steal search (%d):    %10.2f ms\n", i, (workers_p[i]->ctr[CTR_wsteal]-workers_p[i]->ctr[CTR_wstealsucc]-workers_p[i]->ctr[CTR_wsignal]) / dcpm);
+        fprintf(file, "Leap search (%d):     %10.2f ms\n", i, (workers_p[i]->ctr[CTR_lsteal]-workers_p[i]->ctr[CTR_lstealsucc]-workers_p[i]->ctr[CTR_lsignal]) / dcpm);
+        fprintf(file, "Exit time (%d):       %10.2f ms\n", i, workers_p[i]->ctr[CTR_close] / dcpm);
         fprintf(file, "\n");
     }
 
@@ -664,7 +671,7 @@ lace_count_report_file(FILE *file)
 
 void lace_exit()
 {
-    lace_time_event(workers[0], 2);
+    lace_time_event(lace_get_worker(), 2);
 
     more_work = 0;
 
