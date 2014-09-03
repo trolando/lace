@@ -276,38 +276,15 @@ void lace_set_callback(lace_nowork_cb cb);
 #define LACE_BUSY     ((Worker*)1)
 #define LACE_NOWORK   ((Worker*)2)
 
-/*
- * The DISPATCH functions are a trick to allow using
- * the macros SPAWN, SYNC, CALL in code outside Lace code.
- * Note that using SPAWN and SYNC outside Lace code is probably
- * not something you really want.
- *
- * The __lace_worker, __lace_dq_head and __lace_in_task variables
- * are usually set to appropriate values in Lace functions.
- * If using SYNC, SPAWN and CALL outside Lace functions, the default
- * values below are used and the value of __lace_in_task triggers the
- * special behavior from outside Lace functions.
- *
- * The DISPATCH functions are always inlined and due to compiler
- * optimization they do not generate any overhead.
- */
-
-__attribute__((unused))
-static const WorkerP *__lace_worker = NULL;
-__attribute__((unused))
-static const Task *__lace_dq_head = NULL;
-__attribute__((unused))
-static const int __lace_in_task = 0;
-
 #define TASK(f)           ( f##_CALL )
-#define WRAP(f, ...)      ( f((WorkerP *)__lace_worker, (Task *)__lace_dq_head, __lace_in_task, ##__VA_ARGS__) )
-#define SYNC(f)           ( __lace_dq_head--, WRAP(SYNC_DISPATCH_##f) )
-#define SPAWN(f, ...)     ( WRAP(SPAWN_DISPATCH_##f, ##__VA_ARGS__), __lace_dq_head++ )
-#define CALL(f, ...)      ( WRAP(CALL_DISPATCH_##f, ##__VA_ARGS__) )
-#define LACE_WORKER_ID    ( (int16_t) (__lace_in_task ? __lace_worker->worker : lace_get_worker()->worker) )
+#define WRAP(f, ...)      ( f((WorkerP *)__lace_worker, (Task *)__lace_dq_head, ##__VA_ARGS__) )
+#define SYNC(f)           ( __lace_dq_head--, WRAP(f##_SYNC) )
+#define SPAWN(f, ...)     ( WRAP(f##_SPAWN, ##__VA_ARGS__), __lace_dq_head++ )
+#define CALL(f, ...)      ( WRAP(f##_CALL, ##__VA_ARGS__) )
+#define LACE_WORKER_ID    ( __lace_worker->worker )
 
 /* Use LACE_ME to initialize Lace variables, in case you want to call multiple Lace tasks */
-#define LACE_ME WorkerP * __attribute__((unused)) __lace_worker = lace_get_worker(); Task * __attribute__((unused)) __lace_dq_head = lace_get_head(__lace_worker); int __attribute__((unused)) __lace_in_task = 1;
+#define LACE_ME WorkerP * __attribute__((unused)) __lace_worker = lace_get_worker(); Task * __attribute__((unused)) __lace_dq_head = lace_get_head(__lace_worker);
 
 #define TASK_IS_STOLEN(t) ((size_t)t->thief > 1)
 #define TASK_IS_COMPLETED(t) ((size_t)t->thief == 2)
@@ -506,7 +483,7 @@ typedef char assertion_failed_task_descriptor_out_of_bounds_##NAME[(sizeof(TD_##
 
 void NAME##_WRAP(WorkerP *, Task *, TD_##NAME *);
 $RTYPE NAME##_CALL(WorkerP *, Task * $FUN_ARGS);
-static inline $RTYPE NAME##_SYNC_FAST(WorkerP *, Task *);
+static inline $RTYPE NAME##_SYNC(WorkerP *, Task *);
 static $RTYPE NAME##_SYNC_SLOW(WorkerP *, Task *);
 
 static inline
@@ -657,7 +634,7 @@ $RTYPE NAME##_SYNC_SLOW(WorkerP *w, Task *__dq_head)
 }
 
 static inline
-$RTYPE NAME##_SYNC_FAST(WorkerP *w, Task *__dq_head)
+$RTYPE NAME##_SYNC(WorkerP *w, Task *__dq_head)
 {
     /* assert (__dq_head > 0); */  /* Commented out because we assume contract */
 
@@ -672,28 +649,6 @@ $RTYPE NAME##_SYNC_FAST(WorkerP *w, Task *__dq_head)
     return NAME##_SYNC_SLOW(w, __dq_head);
 }
 
-static inline __attribute__((always_inline)) __attribute__((unused))
-void SPAWN_DISPATCH_##NAME(WorkerP *w, Task *__dq_head, int __intask $FUN_ARGS)
-{
-    if (__intask) { NAME##_SPAWN(w, __dq_head $CALL_ARGS); }
-    else { w = lace_get_worker(); NAME##_SPAWN(w, lace_get_head(w) $CALL_ARGS); }
-}
-
-static inline __attribute__((always_inline)) __attribute__((unused))
-$RTYPE SYNC_DISPATCH_##NAME(WorkerP *w, Task *__dq_head, int __intask)
-{
-    if (__intask) { return NAME##_SYNC_FAST(w, __dq_head); }
-    else { w = lace_get_worker(); return NAME##_SYNC_FAST(w, lace_get_head(w)); }
-}
-
-static inline __attribute__((always_inline)) __attribute__((unused))
-$RTYPE CALL_DISPATCH_##NAME(WorkerP *w, Task *__dq_head, int __intask $FUN_ARGS)
-{
-    if (__intask) { return NAME##_CALL(w, __dq_head $CALL_ARGS); }
-    else { w = lace_get_worker(); return NAME##_CALL(w, lace_get_head(w) $CALL_ARGS); }
-}
-
-
 "\
 ) | awk '{printf "%-86s\\\n", $0 }'
 
@@ -707,16 +662,16 @@ void NAME##_WRAP(WorkerP *w, Task *__dq_head, TD_##NAME *t)
 }
 
 static inline __attribute__((always_inline))
-$RTYPE NAME##_WORK(WorkerP *__lace_worker, Task *__lace_dq_head, int __lace_in_task $DECL_ARGS);
+$RTYPE NAME##_WORK(WorkerP *__lace_worker, Task *__lace_dq_head $DECL_ARGS);
 
 /* NAME##_WORK is inlined in NAME##_CALL and the parameter __lace_in_task will disappear */
 $RTYPE NAME##_CALL(WorkerP *w, Task *__dq_head $FUN_ARGS)
 {
-    return NAME##_WORK(w, __dq_head, 1 $CALL_ARGS);
+    return NAME##_WORK(w, __dq_head $CALL_ARGS);
 }
 
 static inline __attribute__((always_inline))
-$RTYPE NAME##_WORK(WorkerP *__lace_worker __attribute__((unused)), Task *__lace_dq_head __attribute__((unused)), int __lace_in_task __attribute__((unused)) $WORK_ARGS)" \
+$RTYPE NAME##_WORK(WorkerP *__lace_worker __attribute__((unused)), Task *__lace_dq_head __attribute__((unused)) $WORK_ARGS)" \
 ) | awk '{printf "%-86s\\\n", $0 }'
 
 echo " "
