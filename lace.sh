@@ -486,7 +486,7 @@ $RTYPE NAME##_CALL(WorkerP *, Task * $FUN_ARGS);
 static inline $RTYPE NAME##_SYNC(WorkerP *, Task *);
 static $RTYPE NAME##_SYNC_SLOW(WorkerP *, Task *);
 
-static inline
+static inline __attribute__((unused))
 void NAME##_SPAWN(WorkerP *w, Task *__dq_head $FUN_ARGS)
 {
     PR_COUNTTASK(w);
@@ -633,7 +633,7 @@ $RTYPE NAME##_SYNC_SLOW(WorkerP *w, Task *__dq_head)
     return NAME##_CALL(w, __dq_head $TASK_GET_FROM_t);
 }
 
-static inline
+static inline __attribute__((unused))
 $RTYPE NAME##_SYNC(WorkerP *w, Task *__dq_head)
 {
     /* assert (__dq_head > 0); */  /* Commented out because we assume contract */
@@ -656,7 +656,7 @@ echo " "
 
 (\
 echo "$IMPL_MACRO
-void NAME##_WRAP(WorkerP *w, Task *__dq_head, TD_##NAME *t)
+void NAME##_WRAP(WorkerP *w, Task *__dq_head, TD_##NAME *t __attribute__((unused)))
 {
     $SAVE_RVAL NAME##_CALL(w, __dq_head $TASK_GET_FROM_t);
 }
