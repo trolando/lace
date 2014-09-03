@@ -197,7 +197,8 @@ typedef struct _WorkerP {
     uint32_t seed; // my random seed (for lace_steal_random)
 } WorkerP;
 
-typedef void* (*lace_callback_f)(WorkerP *, Task *, int, void *);
+#define LACE_TYPEDEF_CB(f, ...) typedef void* (*f)(WorkerP *, Task *, ##__VA_ARGS__);
+LACE_TYPEDEF_CB(lace_startup_cb, void*);
 
 /**
  * Initialize master structures for Lace with <n_workers> workers
@@ -214,7 +215,7 @@ void lace_init(int n_workers, size_t dqsize);
  * and exit Lace upon return
  * Otherwise, the current thread is initialized as a Lace thread.
  */
-void lace_startup(size_t stacksize, lace_callback_f cb, void* arg);
+void lace_startup(size_t stacksize, lace_startup_cb, void* arg);
 
 /**
  * Manually spawn worker <idx> with (optional) program stack size <stacksize>.
@@ -267,8 +268,9 @@ void lace_steal_random(WorkerP *self, Task *head);
  */
 void lace_exit();
 
-extern void (*lace_cb_stealing)(void);
-void lace_set_callback(void (*cb)(void));
+LACE_TYPEDEF_CB(lace_nowork_cb);
+extern lace_nowork_cb lace_cb_stealing;
+void lace_set_callback(lace_nowork_cb cb);
 
 #define LACE_STOLEN   ((Worker*)0)
 #define LACE_BUSY     ((Worker*)1)
@@ -297,20 +299,15 @@ static const Task *__lace_dq_head = NULL;
 __attribute__((unused))
 static const int __lace_in_task = 0;
 
-#define SYNC(f)           ( __lace_dq_head--, SYNC_DISPATCH_##f((WorkerP *)__lace_worker, (Task *)__lace_dq_head, __lace_in_task))
-#define SPAWN(f, ...)     ( SPAWN_DISPATCH_##f((WorkerP *)__lace_worker, (Task *)__lace_dq_head, __lace_in_task, ##__VA_ARGS__), __lace_dq_head++ )
-#define CALL(f, ...)      ( CALL_DISPATCH_##f((WorkerP *)__lace_worker, (Task *)__lace_dq_head, __lace_in_task, ##__VA_ARGS__) )
+#define TASK(f)           ( f##_CALL )
+#define WRAP(f, ...)      ( f((WorkerP *)__lace_worker, (Task *)__lace_dq_head, __lace_in_task, ##__VA_ARGS__) )
+#define SYNC(f)           ( __lace_dq_head--, WRAP(SYNC_DISPATCH_##f) )
+#define SPAWN(f, ...)     ( WRAP(SPAWN_DISPATCH_##f, ##__VA_ARGS__), __lace_dq_head++ )
+#define CALL(f, ...)      ( WRAP(CALL_DISPATCH_##f, ##__VA_ARGS__) )
 #define LACE_WORKER_ID    ( (int16_t) (__lace_in_task ? __lace_worker->worker : lace_get_worker()->worker) )
 
 /* Use LACE_ME to initialize Lace variables, in case you want to call multiple Lace tasks */
 #define LACE_ME WorkerP * __attribute__((unused)) __lace_worker = lace_get_worker(); Task * __attribute__((unused)) __lace_dq_head = lace_get_head(__lace_worker); int __attribute__((unused)) __lace_in_task = 1;
-
-#define LACE_DECL_CALLBACK(f) void *f(WorkerP *, Task *, int, void *); \
-            static inline __attribute__((always_inline)) __attribute__((unused)) void* \
-            CALL_DISPATCH_##f(WorkerP *w, Task *t, int i, void *a) { if (i) { return f(w, t, 1, a); } else { LACE_ME; return f(__lace_worker, __lace_dq_head, 1, a); } }
-#define LACE_IMPL_CALLBACK(f) void *f(__attribute__((unused)) WorkerP *__lace_worker, __attribute__((unused)) Task *__lace_dq_head, __attribute__((unused)) int __lace_in_task, __attribute__((unused)) void *arg)        
-#define LACE_CALLBACK(f) LACE_DECL_CALLBACK(f) LACE_IMPL_CALLBACK(f)
-#define CALL_CALLBACK(f, arg) ( f(__lace_worker, __lace_dq_head, __lace_in_task, arg) )
 
 #define TASK_IS_STOLEN(t) ((size_t)t->thief > 1)
 #define TASK_IS_COMPLETED(t) ((size_t)t->thief == 2)
@@ -600,7 +597,7 @@ NAME##_leapfrog(WorkerP *w, Task *__dq_head)
             Worker *res = lace_steal(w, __dq_head, thief);
             if (res == LACE_NOWORK) {
                 if ((LACE_LEAP_RANDOM) && (--attempts == 0)) { lace_steal_random(w, __dq_head); attempts = 32; }
-                else lace_cb_stealing();
+                else lace_cb_stealing(w, __dq_head);
             } else if (res == LACE_STOLEN) {
                 PR_COUNTSTEALS(w, CTR_leaps);
             } else if (res == LACE_BUSY) {
