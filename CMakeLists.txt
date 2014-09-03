@@ -81,6 +81,17 @@ target_link_libraries(fib-lace-ri pthread m ${NUMA_LIB})
 # set_target_properties(fib-lace-prof PROPERTIES COMPILE_DEFINITIONS "${lace_flags}")
 # target_link_libraries(fib-lace-prof pthread m profiler ${NUMA_LIB})
 
+add_executable(pi-lace-ri benchmarks/pi/pi-lace.c lace-2.c lace-2.h ${numa_tools})
+set_target_properties(pi-lace-ri PROPERTIES COMPILE_FLAGS "-I.")
+set_target_properties(pi-lace-ri PROPERTIES COMPILE_DEFINITIONS "${lace_flags}")
+target_link_libraries(pi-lace-ri pthread m ${NUMA_LIB})
+
+add_executable(pi-seq benchmarks/pi/pi-seq.c)
+target_link_libraries(pi-seq m)
+
+add_executable(pi-seq2 benchmarks/pi/pi-seq2.c)
+target_link_libraries(pi-seq2 m)
+
 add_executable(uts-seq ${uts_sources} benchmarks/uts/uts-seq.c)
 set_target_properties(uts-seq PROPERTIES COMPILE_DEFINITIONS "BRG_C99_TYPES;BRG_RNG")
 target_link_libraries(uts-seq m)

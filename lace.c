@@ -302,7 +302,7 @@ lace_steal_random(WorkerP *self, Task *head)
     PR_COUNTSTEALS(self, CTR_steal_tries);
     Worker *res = lace_steal(self, head, victim);
     if (res == LACE_NOWORK) {
-        lace_cb_stealing();
+        lace_cb_stealing(self, head);
     } else if (res == LACE_STOLEN) {
         PR_COUNTSTEALS(self, CTR_steals);
     } else if (res == LACE_BUSY) {
@@ -319,7 +319,7 @@ lace_steal_random_loop()
     while (more_work) lace_steal_random(me, head);
 }
 
-static lace_callback_f main_cb;
+static lace_startup_cb main_cb;
 
 static void*
 lace_main_wrapper(void *arg)
@@ -332,7 +332,7 @@ lace_main_wrapper(void *arg)
 #endif
 
     lace_time_event(self, 1);
-    main_cb(self, self->dq, 1, arg);
+    main_cb(self, self->dq, arg);
     lace_exit();
     pthread_cond_broadcast(&wait_until_done);
 
@@ -374,7 +374,7 @@ lace_steal_loop()
         PR_COUNTSTEALS(me, CTR_steal_tries);
         Worker *res = lace_steal(me, me->dq, *victim);
         if (res == LACE_NOWORK) {
-            lace_cb_stealing();
+            lace_cb_stealing(me, me->dq);
         } else if (res == LACE_STOLEN) {
             PR_COUNTSTEALS(me, CTR_steals);
         } else if (res == LACE_BUSY) {
@@ -393,9 +393,10 @@ lace_default_worker(void* arg)
     return NULL;
 }
 
-static void
+static void*
 lace_default_cb()
 {
+    return 0;
 }
 
 pthread_t
@@ -522,7 +523,7 @@ lace_init(int n, size_t dqsize)
 }
 
 void
-lace_startup(size_t stacksize, lace_callback_f cb, void *arg)
+lace_startup(size_t stacksize, lace_startup_cb cb, void *arg)
 {
     /* Spawn workers */
     int i;
@@ -685,9 +686,9 @@ void lace_exit()
 #endif
 }
 
-void (*lace_cb_stealing)(void);
+lace_nowork_cb lace_cb_stealing;
 
-void lace_set_callback(void (*cb)(void))
+void lace_set_callback(lace_nowork_cb cb)
 {
     lace_cb_stealing = cb;
 }
