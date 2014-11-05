@@ -115,18 +115,9 @@ void usage(char *s)
 
 int main(int argc, char *argv[])
 {
-    int workers = 1;
-    int dqsize = 100000;
-
     char c;
     while ((c=getopt(argc, argv, "w:q:h")) != -1) {
         switch (c) {
-            case 'w':
-                workers = atoi(optarg);
-                break;
-            case 'q':
-                dqsize = atoi(optarg);
-                break;
             case 'h':
                 usage(argv[0]);
                 break;

@@ -47,7 +47,7 @@ int  impl_paramsToStr(char *strBuf, int ind) {
 }
 
 // Not using UTS command line params, return non-success
-int  impl_parseParam(char *param, char *value) { return 1; }
+int  impl_parseParam(char *param, char *value) { return 1; (void)param; (void)value; }
 
 void impl_helpMessage() {
   printf("   none.\n");
