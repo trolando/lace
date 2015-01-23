@@ -517,12 +517,14 @@ lace_init(int n, size_t dqsize)
         fprintf(stderr, "Lace error: NUMA not available!\n");
         exit(1);
     } else {
-        fprintf(stderr, "Initializing Lace with NUMA support.\n");
+        fprintf(stderr, "Initializing Lace with NUMA support, %d workers.\n", n_workers);
         if (numa_distribute(n_workers) != 0) {
             fprintf(stderr, "Lace error: no suitable NUMA configuration found!\n");
             exit(1);
         }
     }
+#else
+    fprintf(stderr, "Initializing Lace without NUMA support, %d workers.\n", n_workers);
 #endif
 
 #if LACE_PIE_TIMES
@@ -535,6 +537,16 @@ lace_init(int n, size_t dqsize)
 void
 lace_startup(size_t stacksize, lace_startup_cb cb, void *arg)
 {
+    if (stacksize == 0) stacksize = default_stacksize;
+
+    if (cb != 0) {
+        fprintf(stderr, "Lace startup, creating %d worker threads with program stack %zu bytes.\n", n_workers, stacksize);
+    } else if (n_workers == 1) {
+        fprintf(stderr, "Lace startup, creating 0 worker threads.\n");
+    } else {
+        fprintf(stderr, "Lace startup, creating %d worker threads with program stack %zu bytes.\n", n_workers-1, stacksize);
+    }
+
     /* Spawn workers */
     int i;
     for (i=1; i<n_workers; i++) lace_spawn_worker(i, stacksize, 0, 0);
