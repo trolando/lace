@@ -662,7 +662,6 @@ $RTYPE NAME##_SYNC_SLOW(WorkerP *w, Task *__dq_head)
 static inline __attribute__((unused))
 $RTYPE NAME##_SYNC(WorkerP *w, Task *__dq_head)
 {
-    CHECKSTACK(w);
     /* assert (__dq_head > 0); */  /* Commented out because we assume contract */
 
     if (likely(0 == w->public->movesplit)) {
