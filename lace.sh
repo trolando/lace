@@ -29,23 +29,27 @@ echo '
 
 /* Some flags */
 
-#ifndef LACE_LEAP_RANDOM
+#ifndef LACE_DEBUG_PROGRAMSTACK /* Write to stderr when 95% program stack reached */
+#define LACE_DEBUG_PROGRAMSTACK 0
+#endif
+
+#ifndef LACE_LEAP_RANDOM /* Use random leaping when leapfrogging fails */
 #define LACE_LEAP_RANDOM 1
 #endif
 
-#ifndef LACE_PIE_TIMES
+#ifndef LACE_PIE_TIMES /* Record time spent stealing and leapfrogging */
 #define LACE_PIE_TIMES 0
 #endif
 
-#ifndef LACE_COUNT_TASKS
+#ifndef LACE_COUNT_TASKS /* Count number of tasks executed */
 #define LACE_COUNT_TASKS 0
 #endif
 
-#ifndef LACE_COUNT_STEALS
+#ifndef LACE_COUNT_STEALS /* Count number of steals performed */
 #define LACE_COUNT_STEALS 0
 #endif
 
-#ifndef LACE_COUNT_SPLITS
+#ifndef LACE_COUNT_SPLITS /* Count number of times the split point is moved */
 #define LACE_COUNT_SPLITS 0
 #endif
 
@@ -181,6 +185,7 @@ typedef struct _WorkerP {
     Task *stolen;
     Worker *public;
     Task *end;
+    size_t stack_trigger; // for stack overflow detection
     int16_t worker;
 
 #if LACE_COUNT_EVENTS
@@ -289,6 +294,22 @@ void lace_set_callback(lace_nowork_cb cb);
 #define TASK_IS_STOLEN(t) ((size_t)t->thief > 1)
 #define TASK_IS_COMPLETED(t) ((size_t)t->thief == 2)
 #define TASK_RESULT(t) (&t->d[0])
+
+#if LACE_DEBUG_PROGRAMSTACK
+static inline void CHECKSTACK(WorkerP *w)
+{
+    if (w->stack_trigger != 0) {
+        register size_t rsp;
+        asm volatile("movq %%rsp, %0" : "+r"(rsp) : : "cc");
+        if (rsp < w->stack_trigger) {
+            fputs("Warning: program stack 95% used!\n", stderr);
+            w->stack_trigger = 0;
+        }
+    }
+}
+#else
+#define CHECKSTACK(w) {}
+#endif
 
 #if LACE_PIE_TIMES
 static void lace_time_event( WorkerP *w, int event )
@@ -607,6 +628,7 @@ $RTYPE NAME##_WORK(WorkerP *__lace_worker, Task *__lace_dq_head $DECL_ARGS);
 /* NAME##_WORK is inlined in NAME##_CALL and the parameter __lace_in_task will disappear */
 $RTYPE NAME##_CALL(WorkerP *w, Task *__dq_head $FUN_ARGS)
 {
+    CHECKSTACK(w);
     return NAME##_WORK(w, __dq_head $CALL_ARGS);
 }
 
