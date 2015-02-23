@@ -408,6 +408,7 @@ lace_default_worker(void* arg)
     lace_init_worker((size_t)arg, 0);
     lace_steal_loop();
     lace_time_event(lace_get_worker(), 9);
+    lace_reject(lace_get_worker());
     barrier_wait(&bar);
     return NULL;
 }
@@ -719,6 +720,7 @@ void lace_exit()
     more_work = 0;
 
     // Wait for others
+    lace_reject(lace_get_worker());
     barrier_wait(&bar);
 
     barrier_destroy(&bar);
