@@ -583,49 +583,49 @@ NAME##_shrink_shared(WorkerP *w)
 }
 
 static inline void
-NAME##_leapfrog(WorkerP *w, Task *__dq_head)
+NAME##_leapfrog(WorkerP *__lace_worker, Task *__lace_dq_head)
 {
-    lace_time_event(w, 3);
-    TD_##NAME *t = (TD_##NAME *)__dq_head;
+    lace_time_event(__lace_worker, 3);
+    TD_##NAME *t = (TD_##NAME *)__lace_dq_head;
     Worker *thief = t->thief;
     if (thief != THIEF_COMPLETED) {
         while ((size_t)thief <= 1) thief = t->thief;
 
         /* PRE-LEAP: increase head again */
-        __dq_head += 1;
+        __lace_dq_head += 1;
 
         /* Now leapfrog */
         int attempts = 32;
         while (thief != THIEF_COMPLETED) {
-            PR_COUNTSTEALS(w, CTR_leap_tries);
-            Worker *res = lace_steal(w, __dq_head, thief);
+            PR_COUNTSTEALS(__lace_worker, CTR_leap_tries);
+            Worker *res = lace_steal(__lace_worker, __lace_dq_head, thief);
             if (res == LACE_NOWORK) {
-                if ((LACE_LEAP_RANDOM) && (--attempts == 0)) { lace_steal_random(w, __dq_head); attempts = 32; }
-                else lace_cb_stealing(w, __dq_head);
+                if ((LACE_LEAP_RANDOM) && (--attempts == 0)) { lace_steal_random(__lace_worker, __lace_dq_head); attempts = 32; }
+                else lace_cb_stealing(__lace_worker, __lace_dq_head);
             } else if (res == LACE_STOLEN) {
-                PR_COUNTSTEALS(w, CTR_leaps);
+                PR_COUNTSTEALS(__lace_worker, CTR_leaps);
             } else if (res == LACE_BUSY) {
-                PR_COUNTSTEALS(w, CTR_leap_busy);
+                PR_COUNTSTEALS(__lace_worker, CTR_leap_busy);
             }
             compiler_barrier();
             thief = t->thief;
         }
 
         /* POST-LEAP: really pop the finished task */
-        /*            no need to decrease __dq_head, since it is a local variable */
+        /*            no need to decrease __lace_dq_head, since it is a local variable */
         compiler_barrier();
-        if (w->allstolen == 0) {
+        if (__lace_worker->allstolen == 0) {
             /* Assume: tail = split = head (pre-pop) */
             /* Now we do a 'real pop' ergo either decrease tail,split,head or declare allstolen */
-            Worker *wt = w->public;
+            Worker *wt = __lace_worker->public;
             wt->allstolen = 1;
-            w->allstolen = 1;
+            __lace_worker->allstolen = 1;
         }
     }
 
     compiler_barrier();
     t->thief = THIEF_EMPTY;
-    lace_time_event(w, 4);
+    lace_time_event(__lace_worker, 4);
 }
 
 static __attribute__((noinline))
