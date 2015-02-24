@@ -362,15 +362,16 @@ void
 lace_steal_loop()
 {
     // Determine who I am
-    WorkerP * const me = lace_get_worker();
-    const int worker_id = me->worker;
+    WorkerP * const __lace_worker = lace_get_worker();
+    Task *__lace_dq_head = __lace_worker->dq;
+    const int worker_id = __lace_worker->worker;
 
     // Prepare self, victim
     Worker ** const self = &workers[worker_id];
     Worker **victim = self;
 
 #if LACE_PIE_TIMES
-    me->time = gethrtime();
+    __lace_worker->time = gethrtime();
 #endif
 
     uint32_t seed = worker_id;
@@ -390,14 +391,14 @@ lace_steal_loop()
             victim = workers + (rng(&seed, n-1) + worker_id + 1) % n;
         }
 
-        PR_COUNTSTEALS(me, CTR_steal_tries);
-        Worker *res = lace_steal(me, me->dq, *victim);
+        PR_COUNTSTEALS(__lace_worker, CTR_steal_tries);
+        Worker *res = lace_steal(__lace_worker, __lace_dq_head, *victim);
         if (res == LACE_NOWORK) {
-            lace_cb_stealing(me, me->dq);
+            lace_cb_stealing(__lace_worker, __lace_dq_head);
         } else if (res == LACE_STOLEN) {
-            PR_COUNTSTEALS(me, CTR_steals);
+            PR_COUNTSTEALS(__lace_worker, CTR_steals);
         } else if (res == LACE_BUSY) {
-            PR_COUNTSTEALS(me, CTR_steal_busy);
+            PR_COUNTSTEALS(__lace_worker, CTR_steal_busy);
         }
     }
 }
