@@ -243,10 +243,10 @@ void lace_init_worker(int idx, size_t dqsize);
 pthread_t lace_spawn_worker(int idx, size_t stacksize, void *(*fun)(void*), void* arg);
 
 /**
- * Steal random tasks until Lace exits.
+ * Steal random tasks until parameter *quit is set
  */
-void lace_steal_random_loop();
-void lace_steal_loop();
+void lace_steal_random_loop(int *quit);
+void lace_steal_loop(int *quit);
 
 /**
  * Retrieve number of Lace workers
