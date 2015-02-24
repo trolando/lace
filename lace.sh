@@ -291,6 +291,7 @@ void lace_set_callback(lace_nowork_cb cb);
 #define SYNC(f)           ( __lace_dq_head--, WRAP(f##_SYNC) )
 #define SPAWN(f, ...)     ( WRAP(f##_SPAWN, ##__VA_ARGS__), __lace_dq_head++ )
 #define CALL(f, ...)      ( WRAP(f##_CALL, ##__VA_ARGS__) )
+#define STEAL_RANDOM()    ( lace_steal_random(__lace_worker, __lace_dq_head) )
 #define LACE_WORKER_ID    ( __lace_worker->worker )
 
 /* Use LACE_ME to initialize Lace variables, in case you want to call multiple Lace tasks */
