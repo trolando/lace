@@ -47,7 +47,7 @@ static int n_workers = 0;
 static WorkerP **workers_p;
 
 // set to 0 when quitting
-static volatile int more_work = 1;
+static volatile int lace_quits = 0;
 
 // for storing private Worker data
 static pthread_attr_t worker_attr;
@@ -335,7 +335,7 @@ lace_steal_random_loop()
     // Determine who I am
     WorkerP * const me = lace_get_worker();
     Task * const head = me->dq;
-    while (more_work) lace_steal_random(me, head);
+    while (!lace_quits) lace_steal_random(me, head);
 }
 
 static lace_startup_cb main_cb;
@@ -377,7 +377,7 @@ lace_steal_loop()
     unsigned int n = n_workers;
     int i=0;
 
-    while(more_work) {
+    while(!lace_quits) {
         // Select victim
         if( i>0 ) {
             i--;
@@ -500,7 +500,7 @@ lace_init(int n, size_t dqsize)
     n_workers = n;
     if (n_workers == 0) n_workers = get_cpu_count();
     if (dqsize != 0) default_dqsize = dqsize;
-    more_work = 1;
+    lace_quits = 0;
     lace_cb_stealing = &lace_default_cb;
 
     // Create barrier for all workers
@@ -716,7 +716,7 @@ void lace_exit()
 {
     lace_time_event(lace_get_worker(), 2);
 
-    more_work = 0;
+    lace_quits = 1;
 
     // Wait for others
     barrier_wait(&bar);
