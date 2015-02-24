@@ -313,8 +313,7 @@ rng(uint32_t *seed, int max)
     return next % max;
 }
 
-void
-lace_steal_random(WorkerP *__lace_worker, Task *__lace_dq_head)
+VOID_TASK_IMPL_0(lace_steal_random)
 {
     Worker *victim = workers[(__lace_worker->worker + 1 + rng(&__lace_worker->seed, n_workers-1)) % n_workers];
 
@@ -329,13 +328,9 @@ lace_steal_random(WorkerP *__lace_worker, Task *__lace_dq_head)
     }
 }
 
-void
-lace_steal_random_loop(int* quit)
+VOID_TASK_IMPL_1(lace_steal_random_loop, int*, quit)
 {
-    // Determine who I am
-    WorkerP * const me = lace_get_worker();
-    Task * const head = me->dq;
-    while (!(*(volatile int*)quit)) lace_steal_random(me, head);
+    while (!(*(volatile int*)quit)) STEAL_RANDOM();
 }
 
 static lace_startup_cb main_cb;
@@ -358,12 +353,9 @@ lace_main_wrapper(void *arg)
     return NULL;
 }
 
-void
-lace_steal_loop(int* quit)
+VOID_TASK_IMPL_1(lace_steal_loop, int*, quit)
 {
     // Determine who I am
-    WorkerP * const __lace_worker = lace_get_worker();
-    Task *__lace_dq_head = __lace_worker->dq;
     const int worker_id = __lace_worker->worker;
 
     // Prepare self, victim
@@ -407,8 +399,10 @@ static void*
 lace_default_worker(void* arg)
 {
     lace_init_worker((size_t)arg, 0);
+    WorkerP *__lace_worker = lace_get_worker();
+    Task *__lace_dq_head = __lace_worker->dq;
     lace_steal_loop(&lace_quits);
-    lace_time_event(lace_get_worker(), 9);
+    lace_time_event(__lace_worker, 9);
     barrier_wait(&bar);
     return NULL;
 }

@@ -243,10 +243,16 @@ void lace_init_worker(int idx, size_t dqsize);
 pthread_t lace_spawn_worker(int idx, size_t stacksize, void *(*fun)(void*), void* arg);
 
 /**
- * Steal random tasks until parameter *quit is set
+ * Steal a random task.
  */
-void lace_steal_random_loop(int *quit);
-void lace_steal_loop(int *quit);
+#define lace_steal_random() CALL(lace_steal_random)
+
+/**
+ * Steal random tasks until parameter *quit is set
+ * Note: task declarations at end; quit is of type int*
+ */
+#define lace_steal_random_loop(quit) CALL(lace_steal_random_loop, quit)
+#define lace_steal_loop(quit) CALL(lace_steal_loop, quit)
 
 /**
  * Retrieve number of Lace workers
@@ -259,7 +265,7 @@ size_t lace_workers();
 size_t lace_default_stacksize();
 
 /**
- * Retrieve current worker. (for lace_steal_random)
+ * Retrieve current worker.
  */
 WorkerP *lace_get_worker();
 
@@ -267,11 +273,6 @@ WorkerP *lace_get_worker();
  * Retrieve the current head of the deque
  */
 Task *lace_get_head(WorkerP *);
-
-/**
- * Steal a random task.
- */
-void lace_steal_random(WorkerP *self, Task *head);
 
 /**
  * Exit Lace. Automatically called when started with cb,arg.
@@ -291,7 +292,7 @@ void lace_set_callback(lace_nowork_cb cb);
 #define SYNC(f)           ( __lace_dq_head--, WRAP(f##_SYNC) )
 #define SPAWN(f, ...)     ( WRAP(f##_SPAWN, ##__VA_ARGS__), __lace_dq_head++ )
 #define CALL(f, ...)      ( WRAP(f##_CALL, ##__VA_ARGS__) )
-#define STEAL_RANDOM()    ( lace_steal_random(__lace_worker, __lace_dq_head) )
+#define STEAL_RANDOM()    ( CALL(lace_steal_random) )
 #define LACE_WORKER_ID    ( __lace_worker->worker )
 
 /* Use LACE_ME to initialize Lace variables, in case you want to call multiple Lace tasks */
@@ -600,7 +601,7 @@ NAME##_leapfrog(WorkerP *__lace_worker, Task *__lace_dq_head)
             PR_COUNTSTEALS(__lace_worker, CTR_leap_tries);
             Worker *res = lace_steal(__lace_worker, __lace_dq_head, thief);
             if (res == LACE_NOWORK) {
-                if ((LACE_LEAP_RANDOM) && (--attempts == 0)) { lace_steal_random(__lace_worker, __lace_dq_head); attempts = 32; }
+                if ((LACE_LEAP_RANDOM) && (--attempts == 0)) { lace_steal_random(); attempts = 32; }
                 else lace_cb_stealing(__lace_worker, __lace_dq_head);
             } else if (res == LACE_STOLEN) {
                 PR_COUNTSTEALS(__lace_worker, CTR_leaps);
@@ -711,5 +712,11 @@ echo ""
 done
 
 done
+
+echo "
+VOID_TASK_DECL_0(lace_steal_random);
+VOID_TASK_DECL_1(lace_steal_random_loop, int*);
+VOID_TASK_DECL_1(lace_steal_loop, int*);
+"
 
 echo "#endif"
