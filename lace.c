@@ -314,18 +314,18 @@ rng(uint32_t *seed, int max)
 }
 
 void
-lace_steal_random(WorkerP *self, Task *head)
+lace_steal_random(WorkerP *__lace_worker, Task *__lace_dq_head)
 {
-    Worker *victim = workers[(self->worker + 1 + rng(&self->seed, n_workers-1)) % n_workers];
+    Worker *victim = workers[(__lace_worker->worker + 1 + rng(&__lace_worker->seed, n_workers-1)) % n_workers];
 
-    PR_COUNTSTEALS(self, CTR_steal_tries);
-    Worker *res = lace_steal(self, head, victim);
+    PR_COUNTSTEALS(__lace_worker, CTR_steal_tries);
+    Worker *res = lace_steal(__lace_worker, __lace_dq_head, victim);
     if (res == LACE_NOWORK) {
-        lace_cb_stealing(self, head);
+        lace_cb_stealing(__lace_worker, __lace_dq_head);
     } else if (res == LACE_STOLEN) {
-        PR_COUNTSTEALS(self, CTR_steals);
+        PR_COUNTSTEALS(__lace_worker, CTR_steals);
     } else if (res == LACE_BUSY) {
-        PR_COUNTSTEALS(self, CTR_steal_busy);
+        PR_COUNTSTEALS(__lace_worker, CTR_steal_busy);
     }
 }
 
