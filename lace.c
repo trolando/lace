@@ -64,6 +64,8 @@ struct lace_worker_init
 
 static struct lace_worker_init *workers_init;
 
+lace_newframe_t lace_newframe;
+
 WorkerP*
 lace_get_worker()
 {
@@ -320,6 +322,7 @@ VOID_TASK_IMPL_0(lace_steal_random)
     PR_COUNTSTEALS(__lace_worker, CTR_steal_tries);
     Worker *res = lace_steal(__lace_worker, __lace_dq_head, victim);
     if (res == LACE_NOWORK) {
+        YIELD_NEWFRAME();
         lace_cb_stealing(__lace_worker, __lace_dq_head);
     } else if (res == LACE_STOLEN) {
         PR_COUNTSTEALS(__lace_worker, CTR_steals);
@@ -386,6 +389,7 @@ VOID_TASK_IMPL_1(lace_steal_loop, int*, quit)
         PR_COUNTSTEALS(__lace_worker, CTR_steal_tries);
         Worker *res = lace_steal(__lace_worker, __lace_dq_head, *victim);
         if (res == LACE_NOWORK) {
+            YIELD_NEWFRAME();
             lace_cb_stealing(__lace_worker, __lace_dq_head);
         } else if (res == LACE_STOLEN) {
             PR_COUNTSTEALS(__lace_worker, CTR_steals);
@@ -542,6 +546,8 @@ lace_init(int n, size_t dqsize)
 
     // Prepare lace_init structure
     workers_init = (struct lace_worker_init*)calloc(1, sizeof(struct lace_worker_init) * n_workers);
+
+    lace_newframe.t = NULL;
 
 #if LACE_PIE_TIMES
     // Initialize counters for pie times
@@ -730,4 +736,104 @@ lace_nowork_cb lace_cb_stealing;
 void lace_set_callback(lace_nowork_cb cb)
 {
     lace_cb_stealing = cb;
+}
+
+void
+lace_exec_in_new_frame(WorkerP *__lace_worker, Task *__lace_dq_head, Task *root)
+{
+    // save old_stolen and initiate new frame
+    Task *old_stolen = __lace_worker->stolen;
+    __lace_worker->stolen = __lace_dq_head;
+    *(__lace_worker->a) = 0;
+    lace_reject(__lace_worker);
+
+    // wait until all workers are ready
+    barrier_wait(&bar);
+
+    // execute task
+    root->f(__lace_worker, __lace_dq_head, root);
+    compiler_barrier();
+
+    // wait until all workers are back (else they may steal from previous frame)
+    barrier_wait(&bar);
+
+    // restore stolen
+    if (old_stolen != __lace_dq_head) {
+        __lace_worker->stolen = old_stolen;
+        if (*(__lace_worker->a) == 0) *(__lace_worker->a) = 1;
+        if (*(__lace_worker->r) == LACE_BLOCKED) *(__lace_worker->r) = LACE_NO_REQUEST;
+    }
+}
+
+VOID_TASK_IMPL_2(lace_steal_loop_root, Task*, t, int*, done)
+{
+    t->f(__lace_worker, __lace_dq_head, t);
+    *done = 1;
+}
+
+void
+lace_do_together(WorkerP *__lace_worker, Task *__lace_dq_head, Task *root)
+{
+    if (root != NULL) {
+        // wait until other workers have made a local copy
+        barrier_wait(&bar);
+
+        // one worker sets t to 0 again
+        if (LACE_WORKER_ID == 0) lace_newframe.t = 0;
+        // else while (*(volatile Task**)&lace_newframe.t != 0) {}
+
+        // the above line is commented out since lace_exec_in_new_frame includes
+        // a barrier_wait before the task is executed
+
+        lace_exec_in_new_frame(__lace_worker, __lace_dq_head, root);
+    } else {
+        // make a local copy of the task
+        Task _t;
+        memcpy(&_t, lace_newframe.t, sizeof(Task));
+
+        // wait until all workers have made a local copy
+        barrier_wait(&bar);
+
+        // one worker sets t to 0 again
+        if (LACE_WORKER_ID == 0) lace_newframe.t = 0;
+        // else while (*(volatile Task**)&lace_newframe.t != 0) {}
+
+        // the above line is commented out since lace_exec_in_new_frame includes
+        // a barrier_wait before the task is executed
+
+        lace_exec_in_new_frame(__lace_worker, __lace_dq_head, &_t);
+    }
+}
+
+void
+lace_do_newframe(WorkerP *__lace_worker, Task *__lace_dq_head, Task *t)
+{
+    /* synchronization integer */
+    int done = 0;
+
+    /* wrap task in lace_steal_loop_root */
+    Task _t2;
+    TD_lace_steal_loop_root *t2 = (TD_lace_steal_loop_root *)&_t2;
+    t2->f = lace_steal_loop_root_WRAP;
+    t2->thief = THIEF_TASK;
+    t2->d.args.arg_1 = t;
+    t2->d.args.arg_2 = &done;
+
+    /* and create the lace_steal_loop task for other workers */
+    Task _s;
+    TD_lace_steal_loop *s = (TD_lace_steal_loop *)&_s;
+    s->f = &lace_steal_loop_WRAP;
+    s->thief = THIEF_TASK;
+    s->d.args.arg_1 = &done;
+
+    compiler_barrier();
+
+    for (;;) {
+        if (cas(&lace_newframe.t, 0, (Task *)s)) {
+            lace_do_together(__lace_worker, __lace_dq_head, (Task*)t2);
+            return;
+        } else {
+            lace_do_together(__lace_worker, __lace_dq_head, NULL);
+        }
+    }
 }

@@ -1,5 +1,8 @@
 #! /bin/bash
 
+# Minimum number of task parameters: 2
+if [ "$1" -le 1 ] ; then k=2; else k=$1; fi
+
 # Copyright notice:
 echo "/* 
  * Copyright 2013-2014 Formal Methods and Tools, University of Twente
@@ -67,7 +70,7 @@ echo '
    The value must be greater than or equal to the maximum size of your tasks.
    The task size is the maximum of the size of the result or of the sum of the parameter sizes. */
 #ifndef LACE_TASKSIZE
-#define LACE_TASKSIZE ('$1'+1)*P_SZ
+#define LACE_TASKSIZE ('$k'+1)*P_SZ
 #endif
 
 #if LACE_PIE_TIMES
@@ -287,6 +290,8 @@ void lace_set_callback(lace_nowork_cb cb);
 #define SYNC(f)           ( __lace_dq_head--, WRAP(f##_SYNC) )
 #define SPAWN(f, ...)     ( WRAP(f##_SPAWN, ##__VA_ARGS__), __lace_dq_head++ )
 #define CALL(f, ...)      ( WRAP(f##_CALL, ##__VA_ARGS__) )
+#define TOGETHER(f, ...)  ( WRAP(f##_TOGETHER, ##__VA_ARGS__) )
+#define NEWFRAME(f, ...)  ( WRAP(f##_NEWFRAME, ##__VA_ARGS__) )
 #define STEAL_RANDOM()    ( CALL(lace_steal_random) )
 #define LACE_WORKER_ID    ( __lace_worker->worker )
 
@@ -312,6 +317,24 @@ static inline void CHECKSTACK(WorkerP *w)
 #else
 #define CHECKSTACK(w) {}
 #endif
+
+typedef struct
+{
+    Task *t;
+    uint8_t all;
+    char pad[64-sizeof(Task *)-sizeof(uint8_t)];
+} lace_newframe_t;
+
+extern lace_newframe_t lace_newframe;
+
+/**
+ * Internal function to start participating on a task in a new frame
+ * Usually, <root> is set to NULL and the task is copied from lace_newframe.t
+ * It is possible to override the start task by setting <root>.
+ */
+void lace_do_together(WorkerP *__lace_worker, Task *__lace_dq_head, Task *root);
+void lace_do_newframe(WorkerP *__lace_worker, Task *__lace_dq_head, Task *task);
+#define YIELD_NEWFRAME() { if (unlikely(lace_newframe.t != NULL)) { lace_do_together(__lace_worker, __lace_dq_head, NULL); } }
 
 #if LACE_PIE_TIMES
 static void lace_time_event( WorkerP *w, int event )
@@ -457,7 +480,7 @@ lace_steal(WorkerP *self, Task *__dq_head, Worker *victim)
 # Create macros for each arity
 #
 
-for(( r = 0; r <= $1; r++ )) do
+for(( r = 0; r <= $k; r++ )) do
 
 # Extend various argument lists
 if ((r)); then
@@ -543,6 +566,40 @@ void NAME##_SPAWN(WorkerP *w, Task *__dq_head $FUN_ARGS)
     }
 }
 
+static inline __attribute__((unused))
+$RTYPE NAME##_NEWFRAME(WorkerP *w, Task *__dq_head $FUN_ARGS)
+{
+    /* create task */
+    Task _t;
+    TD_##NAME *t = (TD_##NAME *)&_t;
+    t->f = &NAME##_WRAP;
+    t->thief = THIEF_TASK;
+    $TASK_INIT
+
+    lace_do_newframe(w, __dq_head, &_t);
+    return $RETURN_RES;
+}
+
+static inline __attribute__((unused))
+int NAME##_TOGETHER(WorkerP *w, Task *__dq_head $FUN_ARGS)
+{
+    Task _t;
+    TD_##NAME *t = (TD_##NAME *)&_t;
+    t->f = &NAME##_WRAP;
+    t->thief = THIEF_TASK;
+    $TASK_INIT
+
+    compiler_barrier();
+
+    if (cas(&lace_newframe.t, 0, (Task *)t)) {
+        lace_do_together(w, __dq_head, NULL);
+        return 1;
+    } else {
+        lace_do_together(w, __dq_head, NULL);
+        return 0;
+    }
+}
+
 static inline void
 NAME##_leapfrog(WorkerP *__lace_worker, Task *__lace_dq_head)
 {
@@ -561,6 +618,7 @@ NAME##_leapfrog(WorkerP *__lace_worker, Task *__lace_dq_head)
             PR_COUNTSTEALS(__lace_worker, CTR_leap_tries);
             Worker *res = lace_steal(__lace_worker, __lace_dq_head, thief);
             if (res == LACE_NOWORK) {
+                YIELD_NEWFRAME();
                 if ((LACE_LEAP_RANDOM) && (--attempts == 0)) { lace_steal_random(); attempts = 32; }
                 else lace_cb_stealing(__lace_worker, __lace_dq_head);
             } else if (res == LACE_STOLEN) {
@@ -652,6 +710,7 @@ echo "
 VOID_TASK_DECL_0(lace_steal_random);
 VOID_TASK_DECL_1(lace_steal_random_loop, int*);
 VOID_TASK_DECL_1(lace_steal_loop, int*);
+VOID_TASK_DECL_2(lace_steal_loop_root, Task *, int*);
 "
 
 echo "#endif"
