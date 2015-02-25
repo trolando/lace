@@ -47,7 +47,7 @@ static int n_workers = 0;
 static WorkerP **workers_p;
 
 // set to 0 when quitting
-static volatile int more_work = 1;
+static int lace_quits = 0;
 
 // for storing private Worker data
 static pthread_attr_t worker_attr;
@@ -313,29 +313,24 @@ rng(uint32_t *seed, int max)
     return next % max;
 }
 
-void
-lace_steal_random(WorkerP *self, Task *head)
+VOID_TASK_IMPL_0(lace_steal_random)
 {
-    Worker *victim = workers[(self->worker + 1 + rng(&self->seed, n_workers-1)) % n_workers];
+    Worker *victim = workers[(__lace_worker->worker + 1 + rng(&__lace_worker->seed, n_workers-1)) % n_workers];
 
-    PR_COUNTSTEALS(self, CTR_steal_tries);
-    Worker *res = lace_steal(self, head, victim);
+    PR_COUNTSTEALS(__lace_worker, CTR_steal_tries);
+    Worker *res = lace_steal(__lace_worker, __lace_dq_head, victim);
     if (res == LACE_NOWORK) {
-        lace_cb_stealing(self, head);
+        lace_cb_stealing(__lace_worker, __lace_dq_head);
     } else if (res == LACE_STOLEN) {
-        PR_COUNTSTEALS(self, CTR_steals);
+        PR_COUNTSTEALS(__lace_worker, CTR_steals);
     } else if (res == LACE_BUSY) {
-        PR_COUNTSTEALS(self, CTR_steal_busy);
+        PR_COUNTSTEALS(__lace_worker, CTR_steal_busy);
     }
 }
 
-void
-lace_steal_random_loop()
+VOID_TASK_IMPL_1(lace_steal_random_loop, int*, quit)
 {
-    // Determine who I am
-    WorkerP * const me = lace_get_worker();
-    Task * const head = me->dq;
-    while (more_work) lace_steal_random(me, head);
+    while (!(*(volatile int*)quit)) STEAL_RANDOM();
 }
 
 static lace_startup_cb main_cb;
@@ -358,26 +353,24 @@ lace_main_wrapper(void *arg)
     return NULL;
 }
 
-void
-lace_steal_loop()
+VOID_TASK_IMPL_1(lace_steal_loop, int*, quit)
 {
     // Determine who I am
-    WorkerP * const me = lace_get_worker();
-    const int worker_id = me->worker;
+    const int worker_id = __lace_worker->worker;
 
     // Prepare self, victim
     Worker ** const self = &workers[worker_id];
     Worker **victim = self;
 
 #if LACE_PIE_TIMES
-    me->time = gethrtime();
+    __lace_worker->time = gethrtime();
 #endif
 
     uint32_t seed = worker_id;
     unsigned int n = n_workers;
     int i=0;
 
-    while(more_work) {
+    while(!(*(volatile int*)quit)) {
         // Select victim
         if( i>0 ) {
             i--;
@@ -390,14 +383,14 @@ lace_steal_loop()
             victim = workers + (rng(&seed, n-1) + worker_id + 1) % n;
         }
 
-        PR_COUNTSTEALS(me, CTR_steal_tries);
-        Worker *res = lace_steal(me, me->dq, *victim);
+        PR_COUNTSTEALS(__lace_worker, CTR_steal_tries);
+        Worker *res = lace_steal(__lace_worker, __lace_dq_head, *victim);
         if (res == LACE_NOWORK) {
-            lace_cb_stealing(me, me->dq);
+            lace_cb_stealing(__lace_worker, __lace_dq_head);
         } else if (res == LACE_STOLEN) {
-            PR_COUNTSTEALS(me, CTR_steals);
+            PR_COUNTSTEALS(__lace_worker, CTR_steals);
         } else if (res == LACE_BUSY) {
-            PR_COUNTSTEALS(me, CTR_steal_busy);
+            PR_COUNTSTEALS(__lace_worker, CTR_steal_busy);
         }
     }
 }
@@ -406,8 +399,10 @@ static void*
 lace_default_worker(void* arg)
 {
     lace_init_worker((size_t)arg, 0);
-    lace_steal_loop();
-    lace_time_event(lace_get_worker(), 9);
+    WorkerP *__lace_worker = lace_get_worker();
+    Task *__lace_dq_head = __lace_worker->dq;
+    lace_steal_loop(&lace_quits);
+    lace_time_event(__lace_worker, 9);
     lace_reject(lace_get_worker());
     barrier_wait(&bar);
     return NULL;
@@ -501,7 +496,7 @@ lace_init(int n, size_t dqsize)
     n_workers = n;
     if (n_workers == 0) n_workers = get_cpu_count();
     if (dqsize != 0) default_dqsize = dqsize;
-    more_work = 1;
+    lace_quits = 0;
     lace_cb_stealing = &lace_default_cb;
 
     // Create barrier for all workers
@@ -717,7 +712,7 @@ void lace_exit()
 {
     lace_time_event(lace_get_worker(), 2);
 
-    more_work = 0;
+    lace_quits = 1;
 
     // Wait for others
     lace_reject(lace_get_worker());
