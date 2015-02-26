@@ -282,10 +282,6 @@ Task *lace_get_head(WorkerP *);
  */
 void lace_exit();
 
-LACE_TYPEDEF_CB(void, lace_nowork_cb);
-extern lace_nowork_cb lace_cb_stealing;
-void lace_set_callback(lace_nowork_cb cb);
-
 #define LACE_STOLEN   ((Worker*)0)
 #define LACE_BUSY     ((Worker*)1)
 #define LACE_NOWORK   ((Worker*)2)
@@ -653,7 +649,6 @@ NAME##_leapfrog(WorkerP *__lace_worker, Task *__lace_dq_head)
             if (res == LACE_NOWORK) {
                 YIELD_NEWFRAME();
                 if ((LACE_LEAP_RANDOM) && (--attempts == 0)) { lace_steal_random(); attempts = 32; }
-                else lace_cb_stealing(__lace_worker, __lace_dq_head);
             } else if (res == LACE_STOLEN) {
                 PR_COUNTSTEALS(__lace_worker, CTR_leaps);
             } else if (res == LACE_BUSY) {
