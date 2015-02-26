@@ -788,6 +788,18 @@ VOID_TASK_IMPL_2(lace_steal_loop_root, Task*, t, int*, done)
     *done = 1;
 }
 
+VOID_TASK_2(lace_together_helper, Task*, t, volatile int*, finished)
+{
+    t->f(__lace_worker, __lace_dq_head, t);
+
+    for (;;) {
+        int f = *finished;
+        if (cas(finished, f, f-1)) break;
+    }
+
+    while (*finished != 0) STEAL_RANDOM();
+}
+
 static void
 lace_sync_and_exec(WorkerP *__lace_worker, Task *__lace_dq_head, Task *root)
 {
@@ -827,8 +839,19 @@ lace_yield(WorkerP *__lace_worker, Task *__lace_dq_head)
 void
 lace_do_together(WorkerP *__lace_worker, Task *__lace_dq_head, Task *t)
 {
-    while (!cas(&lace_newframe.t, 0, t)) lace_yield(__lace_worker, __lace_dq_head);
-    lace_sync_and_exec(__lace_worker, __lace_dq_head, t);
+    /* synchronization integer */
+    int done = n_workers;
+
+    /* wrap task in lace_together_helper */
+    Task _t2;
+    TD_lace_together_helper *t2 = (TD_lace_together_helper *)&_t2;
+    t2->f = lace_together_helper_WRAP;
+    t2->thief = THIEF_TASK;
+    t2->d.args.arg_1 = t;
+    t2->d.args.arg_2 = &done;
+
+    while (!cas(&lace_newframe.t, 0, &_t2)) lace_yield(__lace_worker, __lace_dq_head);
+    lace_sync_and_exec(__lace_worker, __lace_dq_head, &_t2);
 }
 
 void
