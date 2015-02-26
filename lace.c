@@ -411,10 +411,9 @@ lace_default_worker(void* arg)
     return NULL;
 }
 
-static void*
+static void
 lace_default_cb()
 {
-    return 0;
 }
 
 pthread_t

@@ -205,8 +205,8 @@ typedef struct _WorkerP {
     uint32_t seed; // my random seed (for lace_steal_random)
 } WorkerP;
 
-#define LACE_TYPEDEF_CB(f, ...) typedef void* (*f)(WorkerP *, Task *, ##__VA_ARGS__);
-LACE_TYPEDEF_CB(lace_startup_cb, void*);
+#define LACE_TYPEDEF_CB(t, f, ...) typedef t (*f)(WorkerP *, Task *, ##__VA_ARGS__);
+LACE_TYPEDEF_CB(void, lace_startup_cb, void*);
 
 /**
  * Initialize master structures for Lace with <n_workers> workers
@@ -282,7 +282,7 @@ Task *lace_get_head(WorkerP *);
  */
 void lace_exit();
 
-LACE_TYPEDEF_CB(lace_nowork_cb);
+LACE_TYPEDEF_CB(void, lace_nowork_cb);
 extern lace_nowork_cb lace_cb_stealing;
 void lace_set_callback(lace_nowork_cb cb);
 
