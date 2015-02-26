@@ -337,9 +337,11 @@ extern lace_newframe_t lace_newframe;
  * Usually, <root> is set to NULL and the task is copied from lace_newframe.t
  * It is possible to override the start task by setting <root>.
  */
-void lace_do_together(WorkerP *__lace_worker, Task *__lace_dq_head, Task *root);
+void lace_do_together(WorkerP *__lace_worker, Task *__lace_dq_head, Task *task);
 void lace_do_newframe(WorkerP *__lace_worker, Task *__lace_dq_head, Task *task);
-#define YIELD_NEWFRAME() { if (unlikely(lace_newframe.t != NULL)) { lace_do_together(__lace_worker, __lace_dq_head, NULL); } }
+
+void lace_yield(WorkerP *__lace_worker, Task *__lace_dq_head);
+#define YIELD_NEWFRAME() { if (unlikely(lace_newframe.t != NULL)) lace_yield(__lace_worker, __lace_dq_head); }
 
 #if LACE_PIE_TIMES
 static void lace_time_event( WorkerP *w, int event )
@@ -579,7 +581,6 @@ void NAME##_SPAWN(WorkerP *w, Task *__dq_head $FUN_ARGS)
 static inline __attribute__((unused))
 $RTYPE NAME##_NEWFRAME(WorkerP *w, Task *__dq_head $FUN_ARGS)
 {
-    /* create task */
     Task _t;
     TD_##NAME *t = (TD_##NAME *)&_t;
     t->f = &NAME##_WRAP;
@@ -591,7 +592,7 @@ $RTYPE NAME##_NEWFRAME(WorkerP *w, Task *__dq_head $FUN_ARGS)
 }
 
 static inline __attribute__((unused))
-int NAME##_TOGETHER(WorkerP *w, Task *__dq_head $FUN_ARGS)
+void NAME##_TOGETHER(WorkerP *w, Task *__dq_head $FUN_ARGS)
 {
     Task _t;
     TD_##NAME *t = (TD_##NAME *)&_t;
@@ -599,15 +600,7 @@ int NAME##_TOGETHER(WorkerP *w, Task *__dq_head $FUN_ARGS)
     t->thief = THIEF_TASK;
     $TASK_INIT
 
-    compiler_barrier();
-
-    if (cas(&lace_newframe.t, 0, (Task *)t)) {
-        lace_do_together(w, __dq_head, NULL);
-        return 1;
-    } else {
-        lace_do_together(w, __dq_head, NULL);
-        return 0;
-    }
+    lace_do_together(w, __dq_head, &_t);
 }
 
 static int

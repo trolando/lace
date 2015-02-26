@@ -788,38 +788,47 @@ VOID_TASK_IMPL_2(lace_steal_loop_root, Task*, t, int*, done)
     *done = 1;
 }
 
-void
-lace_do_together(WorkerP *__lace_worker, Task *__lace_dq_head, Task *root)
+static void
+lace_sync_and_exec(WorkerP *__lace_worker, Task *__lace_dq_head, Task *root)
 {
-    if (root != NULL) {
-        // wait until other workers have made a local copy
-        barrier_wait(&bar);
+    // wait until other workers have made a local copy
+    barrier_wait(&bar);
 
-        // one worker sets t to 0 again
-        if (LACE_WORKER_ID == 0) lace_newframe.t = 0;
-        // else while (*(volatile Task**)&lace_newframe.t != 0) {}
+    // one worker sets t to 0 again
+    if (LACE_WORKER_ID == 0) lace_newframe.t = 0;
+    // else while (*(volatile Task**)&lace_newframe.t != 0) {}
 
-        // the above line is commented out since lace_exec_in_new_frame includes
-        // a barrier_wait before the task is executed
+    // the above line is commented out since lace_exec_in_new_frame includes
+    // a barrier_wait before the task is executed
 
-        lace_exec_in_new_frame(__lace_worker, __lace_dq_head, root);
-    } else {
-        // make a local copy of the task
-        Task _t;
-        memcpy(&_t, lace_newframe.t, sizeof(Task));
+    lace_exec_in_new_frame(__lace_worker, __lace_dq_head, root);
+}
 
-        // wait until all workers have made a local copy
-        barrier_wait(&bar);
+void
+lace_yield(WorkerP *__lace_worker, Task *__lace_dq_head)
+{
+    // make a local copy of the task
+    Task _t;
+    memcpy(&_t, lace_newframe.t, sizeof(Task));
 
-        // one worker sets t to 0 again
-        if (LACE_WORKER_ID == 0) lace_newframe.t = 0;
-        // else while (*(volatile Task**)&lace_newframe.t != 0) {}
+    // wait until all workers have made a local copy
+    barrier_wait(&bar);
 
-        // the above line is commented out since lace_exec_in_new_frame includes
-        // a barrier_wait before the task is executed
+    // one worker sets t to 0 again
+    if (LACE_WORKER_ID == 0) lace_newframe.t = 0;
+    // else while (*(volatile Task**)&lace_newframe.t != 0) {}
 
-        lace_exec_in_new_frame(__lace_worker, __lace_dq_head, &_t);
-    }
+    // the above line is commented out since lace_exec_in_new_frame includes
+    // a barrier_wait before the task is executed
+
+    lace_exec_in_new_frame(__lace_worker, __lace_dq_head, &_t);
+}
+
+void
+lace_do_together(WorkerP *__lace_worker, Task *__lace_dq_head, Task *t)
+{
+    while (!cas(&lace_newframe.t, 0, t)) lace_yield(__lace_worker, __lace_dq_head);
+    lace_sync_and_exec(__lace_worker, __lace_dq_head, t);
 }
 
 void
@@ -845,12 +854,6 @@ lace_do_newframe(WorkerP *__lace_worker, Task *__lace_dq_head, Task *t)
 
     compiler_barrier();
 
-    for (;;) {
-        if (cas(&lace_newframe.t, 0, (Task *)s)) {
-            lace_do_together(__lace_worker, __lace_dq_head, (Task*)t2);
-            return;
-        } else {
-            lace_do_together(__lace_worker, __lace_dq_head, NULL);
-        }
-    }
+    while (!cas(&lace_newframe.t, 0, &_s)) lace_yield(__lace_worker, __lace_dq_head);
+    lace_sync_and_exec(__lace_worker, __lace_dq_head, &_t2);
 }
