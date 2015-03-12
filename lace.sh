@@ -244,6 +244,7 @@ pthread_t lace_spawn_worker(int idx, size_t stacksize, void *(*fun)(void*), void
  * Steal a random task.
  */
 #define lace_steal_random() CALL(lace_steal_random)
+void lace_steal_random_CALL(WorkerP*, Task*);
 
 /**
  * Steal random tasks until parameter *quit is set
@@ -473,6 +474,41 @@ lace_steal(WorkerP *self, Task *__dq_head, Worker *victim)
     return LACE_NOWORK;
 }
 
+static inline void
+lace_leapfrog(WorkerP *__lace_worker, Task *__lace_dq_head)
+{
+    lace_time_event(__lace_worker, 3);
+    Task *t = __lace_dq_head;
+    Worker *thief = t->thief;
+    if (thief != THIEF_COMPLETED) {
+        while ((size_t)thief <= 1) thief = t->thief;
+
+        /* PRE-LEAP: increase head again */
+        __lace_dq_head += 1;
+
+        /* Now leapfrog */
+        int attempts = 32;
+        while (thief != THIEF_COMPLETED) {
+            PR_COUNTSTEALS(__lace_worker, CTR_leap_tries);
+            Worker *res = lace_steal(__lace_worker, __lace_dq_head, thief);
+            if (res == LACE_NOWORK) {
+                YIELD_NEWFRAME();
+                if ((LACE_LEAP_RANDOM) && (--attempts == 0)) { lace_steal_random(); attempts = 32; }
+            } else if (res == LACE_STOLEN) {
+                PR_COUNTSTEALS(__lace_worker, CTR_leaps);
+            } else if (res == LACE_BUSY) {
+                PR_COUNTSTEALS(__lace_worker, CTR_leap_busy);
+            }
+            compiler_barrier();
+            thief = t->thief;
+        }
+    }
+
+    compiler_barrier();
+    t->thief = THIEF_EMPTY;
+    lace_time_event(__lace_worker, 4);
+}
+
 '
 #
 # Create macros for each arity
@@ -589,41 +625,6 @@ void NAME##_TOGETHER(WorkerP *w, Task *__dq_head $FUN_ARGS)
     lace_do_together(w, __dq_head, &_t);
 }
 
-static inline void
-NAME##_leapfrog(WorkerP *__lace_worker, Task *__lace_dq_head)
-{
-    lace_time_event(__lace_worker, 3);
-    TD_##NAME *t = (TD_##NAME *)__lace_dq_head;
-    Worker *thief = t->thief;
-    if (thief != THIEF_COMPLETED) {
-        while ((size_t)thief <= 1) thief = t->thief;
-
-        /* PRE-LEAP: increase head again */
-        __lace_dq_head += 1;
-
-        /* Now leapfrog */
-        int attempts = 32;
-        while (thief != THIEF_COMPLETED) {
-            PR_COUNTSTEALS(__lace_worker, CTR_leap_tries);
-            Worker *res = lace_steal(__lace_worker, __lace_dq_head, thief);
-            if (res == LACE_NOWORK) {
-                YIELD_NEWFRAME();
-                if ((LACE_LEAP_RANDOM) && (--attempts == 0)) { lace_steal_random(); attempts = 32; }
-            } else if (res == LACE_STOLEN) {
-                PR_COUNTSTEALS(__lace_worker, CTR_leaps);
-            } else if (res == LACE_BUSY) {
-                PR_COUNTSTEALS(__lace_worker, CTR_leap_busy);
-            }
-            compiler_barrier();
-            thief = t->thief;
-        }
-    }
-
-    compiler_barrier();
-    t->thief = THIEF_EMPTY;
-    lace_time_event(__lace_worker, 4);
-}
-
 static inline __attribute__((unused))
 $RTYPE NAME##_SYNC(WorkerP *w, Task *__dq_head)
 {
@@ -631,7 +632,7 @@ $RTYPE NAME##_SYNC(WorkerP *w, Task *__dq_head)
 
     if (unlikely(__dq_head < w->stolen)) {
         /* it is stolen */
-        NAME##_leapfrog(w, __dq_head);
+        lace_leapfrog(w, __dq_head);
         w->stolen--;
         t = (TD_##NAME *)__dq_head;
         return $RETURN_RES;
