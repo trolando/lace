@@ -290,6 +290,7 @@ void lace_exit();
 #define TASK(f)           ( f##_CALL )
 #define WRAP(f, ...)      ( f((WorkerP *)__lace_worker, (Task *)__lace_dq_head, ##__VA_ARGS__) )
 #define SYNC(f)           ( __lace_dq_head--, WRAP(f##_SYNC) )
+#define DROP()            ( __lace_dq_head--, WRAP(lace_drop) )
 #define SPAWN(f, ...)     ( WRAP(f##_SPAWN, ##__VA_ARGS__), __lace_dq_head++ )
 #define CALL(f, ...)      ( WRAP(f##_CALL, ##__VA_ARGS__) )
 #define TOGETHER(f, ...)  ( WRAP(f##_TOGETHER, ##__VA_ARGS__) )
@@ -545,6 +546,23 @@ lace_leapfrog(WorkerP *__lace_worker, Task *__lace_dq_head)
     compiler_barrier();
     t->thief = THIEF_EMPTY;
     lace_time_event(__lace_worker, 4);
+}
+
+static __attribute__((noinline))
+void lace_drop_slow(WorkerP *w, Task *__dq_head)
+{
+    if ((w->allstolen) || (w->split > __dq_head && lace_shrink_shared(w))) lace_leapfrog(w, __dq_head);
+}
+
+static inline __attribute__((unused))
+void lace_drop(WorkerP *w, Task *__dq_head)
+{
+    if (likely(0 == w->public->movesplit)) {
+        if (likely(w->split <= __dq_head)) {
+            return;
+        }
+    }
+    lace_drop_slow(w, __dq_head);
 }
 
 '
