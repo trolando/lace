@@ -249,6 +249,7 @@ pthread_t lace_spawn_worker(int idx, size_t stacksize, void *(*fun)(void*), void
  * Steal a random task.
  */
 #define lace_steal_random() CALL(lace_steal_random)
+void lace_steal_random_CALL(WorkerP*, Task*);
 
 /**
  * Steal random tasks until parameter *quit is set
@@ -470,6 +471,82 @@ lace_steal(WorkerP *self, Task *__dq_head, Worker *victim)
     return LACE_NOWORK;
 }
 
+static int
+lace_shrink_shared(WorkerP *w)
+{
+    Worker *wt = w->public;
+    TailSplit ts;
+    ts.v = wt->ts.v; /* Force in 1 memory read */
+    uint32_t tail = ts.ts.tail;
+    uint32_t split = ts.ts.split;
+
+    if (tail != split) {
+        uint32_t newsplit = (tail + split)/2;
+        wt->ts.ts.split = newsplit;
+        mfence();
+        tail = *(volatile uint32_t *)&(wt->ts.ts.tail);
+        if (tail != split) {
+            if (unlikely(tail > newsplit)) {
+                newsplit = (tail + split) / 2;
+                wt->ts.ts.split = newsplit;
+            }
+            w->split = w->dq + newsplit;
+            PR_COUNTSPLITS(w, CTR_split_shrink);
+            return 0;
+        }
+    }
+
+    wt->allstolen = 1;
+    w->allstolen = 1;
+    return 1;
+}
+
+static inline void
+lace_leapfrog(WorkerP *__lace_worker, Task *__lace_dq_head)
+{
+    lace_time_event(__lace_worker, 3);
+    Task *t = __lace_dq_head;
+    Worker *thief = t->thief;
+    if (thief != THIEF_COMPLETED) {
+        while ((size_t)thief <= 1) thief = t->thief;
+
+        /* PRE-LEAP: increase head again */
+        __lace_dq_head += 1;
+
+        /* Now leapfrog */
+        int attempts = 32;
+        while (thief != THIEF_COMPLETED) {
+            PR_COUNTSTEALS(__lace_worker, CTR_leap_tries);
+            Worker *res = lace_steal(__lace_worker, __lace_dq_head, thief);
+            if (res == LACE_NOWORK) {
+                YIELD_NEWFRAME();
+                if ((LACE_LEAP_RANDOM) && (--attempts == 0)) { lace_steal_random(); attempts = 32; }
+            } else if (res == LACE_STOLEN) {
+                PR_COUNTSTEALS(__lace_worker, CTR_leaps);
+            } else if (res == LACE_BUSY) {
+                PR_COUNTSTEALS(__lace_worker, CTR_leap_busy);
+            }
+            compiler_barrier();
+            thief = t->thief;
+        }
+
+        /* POST-LEAP: really pop the finished task */
+        /*            no need to decrease __lace_dq_head, since it is a local variable */
+        compiler_barrier();
+        if (__lace_worker->allstolen == 0) {
+            /* Assume: tail = split = head (pre-pop) */
+            /* Now we do a 'real pop' ergo either decrease tail,split,head or declare allstolen */
+            Worker *wt = __lace_worker->public;
+            wt->allstolen = 1;
+            __lace_worker->allstolen = 1;
+        }
+    }
+
+    compiler_barrier();
+    t->thief = THIEF_EMPTY;
+    lace_time_event(__lace_worker, 4);
+}
+
 '
 #
 # Create macros for each arity
@@ -599,89 +676,13 @@ void NAME##_TOGETHER(WorkerP *w, Task *__dq_head $FUN_ARGS)
     lace_do_together(w, __dq_head, &_t);
 }
 
-static int
-NAME##_shrink_shared(WorkerP *w)
-{
-    Worker *wt = w->public;
-    TailSplit ts;
-    ts.v = wt->ts.v; /* Force in 1 memory read */
-    uint32_t tail = ts.ts.tail;
-    uint32_t split = ts.ts.split;
-
-    if (tail != split) {
-        uint32_t newsplit = (tail + split)/2;
-        wt->ts.ts.split = newsplit;
-        mfence();
-        tail = *(volatile uint32_t *)&(wt->ts.ts.tail);
-        if (tail != split) {
-            if (unlikely(tail > newsplit)) {
-                newsplit = (tail + split) / 2;
-                wt->ts.ts.split = newsplit;
-            }
-            w->split = w->dq + newsplit;
-            PR_COUNTSPLITS(w, CTR_split_shrink);
-            return 0;
-        }
-    }
-
-    wt->allstolen = 1;
-    w->allstolen = 1;
-    return 1;
-}
-
-static inline void
-NAME##_leapfrog(WorkerP *__lace_worker, Task *__lace_dq_head)
-{
-    lace_time_event(__lace_worker, 3);
-    TD_##NAME *t = (TD_##NAME *)__lace_dq_head;
-    Worker *thief = t->thief;
-    if (thief != THIEF_COMPLETED) {
-        while ((size_t)thief <= 1) thief = t->thief;
-
-        /* PRE-LEAP: increase head again */
-        __lace_dq_head += 1;
-
-        /* Now leapfrog */
-        int attempts = 32;
-        while (thief != THIEF_COMPLETED) {
-            PR_COUNTSTEALS(__lace_worker, CTR_leap_tries);
-            Worker *res = lace_steal(__lace_worker, __lace_dq_head, thief);
-            if (res == LACE_NOWORK) {
-                YIELD_NEWFRAME();
-                if ((LACE_LEAP_RANDOM) && (--attempts == 0)) { lace_steal_random(); attempts = 32; }
-            } else if (res == LACE_STOLEN) {
-                PR_COUNTSTEALS(__lace_worker, CTR_leaps);
-            } else if (res == LACE_BUSY) {
-                PR_COUNTSTEALS(__lace_worker, CTR_leap_busy);
-            }
-            compiler_barrier();
-            thief = t->thief;
-        }
-
-        /* POST-LEAP: really pop the finished task */
-        /*            no need to decrease __lace_dq_head, since it is a local variable */
-        compiler_barrier();
-        if (__lace_worker->allstolen == 0) {
-            /* Assume: tail = split = head (pre-pop) */
-            /* Now we do a 'real pop' ergo either decrease tail,split,head or declare allstolen */
-            Worker *wt = __lace_worker->public;
-            wt->allstolen = 1;
-            __lace_worker->allstolen = 1;
-        }
-    }
-
-    compiler_barrier();
-    t->thief = THIEF_EMPTY;
-    lace_time_event(__lace_worker, 4);
-}
-
 static __attribute__((noinline))
 $RTYPE NAME##_SYNC_SLOW(WorkerP *w, Task *__dq_head)
 {
     TD_##NAME *t;
 
-    if ((w->allstolen) || (w->split > __dq_head && NAME##_shrink_shared(w))) {
-        NAME##_leapfrog(w, __dq_head);
+    if ((w->allstolen) || (w->split > __dq_head && lace_shrink_shared(w))) {
+        lace_leapfrog(w, __dq_head);
         t = (TD_##NAME *)__dq_head;
         return $RETURN_RES;
     }
