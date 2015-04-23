@@ -285,6 +285,7 @@ void lace_exit();
 #define TASK(f)           ( f##_CALL )
 #define WRAP(f, ...)      ( f((WorkerP *)__lace_worker, (Task *)__lace_dq_head, ##__VA_ARGS__) )
 #define SYNC(f)           ( __lace_dq_head--, WRAP(f##_SYNC) )
+#define DROP()            ( __lace_dq_head--, WRAP(lace_drop) )
 #define SPAWN(f, ...)     ( WRAP(f##_SPAWN, ##__VA_ARGS__), __lace_dq_head++ )
 #define CALL(f, ...)      ( WRAP(f##_CALL, ##__VA_ARGS__) )
 #define TOGETHER(f, ...)  ( WRAP(f##_TOGETHER, ##__VA_ARGS__) )
@@ -507,6 +508,30 @@ lace_leapfrog(WorkerP *__lace_worker, Task *__lace_dq_head)
     compiler_barrier();
     t->thief = THIEF_EMPTY;
     lace_time_event(__lace_worker, 4);
+}
+
+static inline __attribute__((unused))
+void lace_drop(WorkerP *w, Task *__dq_head)
+{
+    if (unlikely(__dq_head < w->stolen)) {
+        /* it is stolen */
+        lace_leapfrog(w, __dq_head);
+        w->stolen--;
+    }
+
+    if (likely(__dq_head > w->stolen)) {
+        if (*(w->a) == 0) {
+            /* update status */
+            *(w->a) = 1;
+        } else {
+            /* communicate */
+            Worker *j = *(w->r);
+            if (j != LACE_NO_REQUEST) {
+                *(j->t) = w->stolen++;
+                *(w->r) = LACE_NO_REQUEST;
+            }
+        }
+    }
 }
 
 '
