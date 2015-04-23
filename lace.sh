@@ -212,7 +212,6 @@ LACE_TYPEDEF_CB(void, lace_startup_cb, void*);
  * Initialize master structures for Lace with <n_workers> workers
  * and default deque size of <dqsize>.
  * Does not create new threads.
- * If compiled with NUMA support and NUMA is not available, program quits.
  * Tries to detect number of cpus, if n_workers equals 0.
  */
 void lace_init(int n_workers, size_t dqsize);
