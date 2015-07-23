@@ -691,7 +691,7 @@ $RTYPE NAME##_SYNC(WorkerP *w, Task *__dq_head)
 "\
 ) | awk '{printf "%-86s\\\n", $0 }'
 
-echo " "
+echo ""
 
 (\
 echo "$IMPL_MACRO
@@ -714,7 +714,7 @@ static inline __attribute__((always_inline))
 $RTYPE NAME##_WORK(WorkerP *__lace_worker __attribute__((unused)), Task *__lace_dq_head __attribute__((unused)) $WORK_ARGS)" \
 ) | awk '{printf "%-86s\\\n", $0 }'
 
-echo " "
+echo ""
 
 echo $DEF_MACRO
 
