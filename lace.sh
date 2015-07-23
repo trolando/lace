@@ -74,7 +74,7 @@ extern "C" {
    The value must be greater than or equal to the maximum size of your tasks.
    The task size is the maximum of the size of the result or of the sum of the parameter sizes. */
 #ifndef LACE_TASKSIZE
-#define LACE_TASKSIZE ('$k'+1)*P_SZ
+#define LACE_TASKSIZE ('$k')*P_SZ
 #endif
 
 #if LACE_PIE_TIMES
