@@ -30,6 +30,10 @@ echo '
 #ifndef __LACE_H__
 #define __LACE_H__
 
+#ifdef __cplusplus
+extern "C" {
+#endif /* __cplusplus */
+
 /* Some flags */
 
 #ifndef LACE_DEBUG_PROGRAMSTACK /* Write to stderr when 95% program stack reached */
@@ -70,7 +74,7 @@ echo '
    The value must be greater than or equal to the maximum size of your tasks.
    The task size is the maximum of the size of the result or of the sum of the parameter sizes. */
 #ifndef LACE_TASKSIZE
-#define LACE_TASKSIZE ('$k'+1)*P_SZ
+#define LACE_TASKSIZE ('$k')*P_SZ
 #endif
 
 #if LACE_PIE_TIMES
@@ -186,7 +190,7 @@ typedef struct _WorkerP {
     struct _Worker * volatile *r;
     Task * volatile *t;
     Task *stolen;
-    Worker *public;
+    Worker *_public;
     Task *end;
     size_t stack_trigger; // for stack overflow detection
     int16_t worker;
@@ -218,13 +222,6 @@ void lace_init(int n_workers, size_t dqsize);
  * Otherwise, the current thread is initialized as a Lace thread.
  */
 void lace_startup(size_t stacksize, lace_startup_cb, void* arg);
-
-/**
- * Manually spawn worker <idx> with (optional) program stack size <stacksize>.
- * If fun,arg are set, overrides default startup method.
- * Typically: for workers 1...(n_workers-1): lace_spawn_worker(i, stack_size, 0, 0);
- */
-pthread_t lace_spawn_worker(int idx, size_t stacksize, void *(*fun)(void*), void* arg);
 
 /**
  * Initialize current thread as worker <idx> and allocate a deque with size <dqsize>.
@@ -457,7 +454,7 @@ lace_steal(WorkerP *self, Task *__dq_head, Worker *victim)
     *(self->t) = LACE_NO_RESPONSE;
     if ((victim->a)) {
         if (*(victim->r) == LACE_NO_REQUEST) {
-            Worker *me = self->public;
+            Worker *me = self->_public;
             if (cas(victim->r, LACE_NO_REQUEST, me)) {
                 Task *t = *(self->t);
                 while (t == LACE_NO_RESPONSE) t = *(self->t);
@@ -732,6 +729,9 @@ VOID_TASK_DECL_0(lace_steal_random);
 VOID_TASK_DECL_1(lace_steal_random_loop, int*);
 VOID_TASK_DECL_1(lace_steal_loop, int*);
 VOID_TASK_DECL_2(lace_steal_loop_root, Task *, int*);
-"
 
-echo "#endif"
+#ifdef __cplusplus
+}
+#endif /* __cplusplus */
+
+#endif"

@@ -28,7 +28,7 @@
 #include <lace.h>
 
 #ifndef USE_HWLOC
-#define USE_HWLOC 1
+#define USE_HWLOC 0
 #endif
 
 #if USE_HWLOC
@@ -59,7 +59,6 @@ static pthread_key_t worker_key;
 
 static pthread_cond_t wait_until_done = PTHREAD_COND_INITIALIZER;
 static pthread_mutex_t wait_until_done_mutex = PTHREAD_MUTEX_INITIALIZER;
-static pthread_barrier_t suspend_barrier;
 
 struct lace_worker_init
 {
@@ -80,18 +79,32 @@ lace_get_worker()
 Task*
 lace_get_head(WorkerP *self)
 {
-    Task *low = self->dq;
-    Task *high = self->end;
+    Task *dq = self->dq;
+    if (dq[0].thief == 0) return dq;
+    if (dq[1].thief == 0) return dq+1;
+    if (dq[2].thief == 0) return dq+2;
 
-    if (low->thief == 0) return low;
+    size_t low = 2;
+    size_t high = self->end - self->dq;
+
+    for (;;) {
+        if (low*2 >= high) {
+            break;
+        } else if (dq[low*2].thief == 0) {
+            high=low*2;
+            break;
+        } else {
+            low*=2;
+        }
+    }
 
     while (low < high) {
-        Task *mid = low + (high-low)/2;
-        if (mid->thief == 0) high = mid;
+        size_t mid = low + (high-low)/2;
+        if (dq[mid].thief == 0) high = mid;
         else low = mid + 1;
     }
 
-    return low;
+    return dq+low;
 }
 
 size_t
@@ -278,7 +291,7 @@ lace_init_worker(int worker, size_t dq_size)
     w->t = wt->t;
 
     w->stolen = w->dq;
-    w->public = wt;
+    w->_public = wt;
     w->end = w->dq + dq_size;
     w->worker = worker;
     if (workers_init[worker].stack != 0) {
@@ -306,7 +319,73 @@ lace_init_worker(int worker, size_t dq_size)
 #endif
 }
 
-static int must_suspend = 0;
+#if defined(__APPLE__) && !defined(pthread_barrier_t)
+
+typedef int pthread_barrierattr_t;
+typedef struct
+{
+    pthread_mutex_t mutex;
+    pthread_cond_t cond;
+    int count;
+    int tripCount;
+} pthread_barrier_t;
+
+static int
+pthread_barrier_init(pthread_barrier_t *barrier, const pthread_barrierattr_t *attr, unsigned int count)
+{
+    if(count == 0)
+    {
+        errno = EINVAL;
+        return -1;
+    }
+    if(pthread_mutex_init(&barrier->mutex, 0) < 0)
+    {
+        return -1;
+    }
+    if(pthread_cond_init(&barrier->cond, 0) < 0)
+    {
+        pthread_mutex_destroy(&barrier->mutex);
+        return -1;
+    }
+    barrier->tripCount = count;
+    barrier->count = 0;
+
+    return 0;
+    (void)attr;
+}
+
+static int
+pthread_barrier_destroy(pthread_barrier_t *barrier)
+{
+    pthread_cond_destroy(&barrier->cond);
+    pthread_mutex_destroy(&barrier->mutex);
+    return 0;
+}
+
+static int
+pthread_barrier_wait(pthread_barrier_t *barrier)
+{
+    pthread_mutex_lock(&barrier->mutex);
+    ++(barrier->count);
+    if(barrier->count >= barrier->tripCount)
+    {
+        barrier->count = 0;
+        pthread_cond_broadcast(&barrier->cond);
+        pthread_mutex_unlock(&barrier->mutex);
+        return 1;
+    }
+    else
+    {
+        pthread_cond_wait(&barrier->cond, &(barrier->mutex));
+        pthread_mutex_unlock(&barrier->mutex);
+        return 0;
+    }
+}
+
+#endif // defined(__APPLE__) && !defined(pthread_barrier_t)
+
+static pthread_barrier_t suspend_barrier;
+static volatile int must_suspend = 0;
 
 static inline void
 lace_go_suspend()
