@@ -139,8 +139,59 @@ set(CMAKE_C_FLAGS "-g -O3 -Wall -Wextra")
 
 set(lace_flags "${HWLOC_DEF};${LACE_PIE};${LACE_COUNT_TASKS};${LACE_COUNT_STEALS};${LACE_COUNT_SPLITS}")
 
-set(uts_sources benchmarks/uts/rng/brg_sha1.c benchmarks/uts/rng/brg_sha1.h benchmarks/uts/uts.c)
+# Import the CHECK_INCLUDE_FILES macros
+include(CheckIncludeFiles)
 
+# Test for available headers, etc
+CHECK_INCLUDE_FILES("sys/time.h" LACE_CONFIG_HAVE_SYSTIME_H)
+if (LACE_CONFIG_HAVE_SYSTIME_H)
+	set(LACE_CONFIG_HAVE_SYSTIME_H_DEF "define")
+else()
+	set(LACE_CONFIG_HAVE_SYSTIME_H_DEF "undef")
+endif()
+
+CHECK_INCLUDE_FILES("sys/mman.h" LACE_CONFIG_HAVE_SYSMMAN_H)
+if (LACE_CONFIG_HAVE_SYSMMAN_H)
+	set(LACE_CONFIG_HAVE_SYSMMAN_H_DEF "define")
+else()
+	set(LACE_CONFIG_HAVE_SYSMMAN_H_DEF "undef")
+endif()
+
+CHECK_INCLUDE_FILES("unistd.h" LACE_CONFIG_HAVE_UNISTD_H)
+if (LACE_CONFIG_HAVE_UNISTD_H)
+	set(LACE_CONFIG_HAVE_UNISTD_H_DEF "define")
+else()
+	set(LACE_CONFIG_HAVE_UNISTD_H_DEF "undef")
+endif()
+
+CHECK_INCLUDE_FILES("sched.h" LACE_CONFIG_HAVE_SCHED_H)
+if (LACE_CONFIG_HAVE_SCHED_H)
+	set(LACE_CONFIG_HAVE_SCHED_H_DEF "define")
+else()
+	set(LACE_CONFIG_HAVE_SCHED_H_DEF "undef")
+endif()
+
+CHECK_INCLUDE_FILES("getopt.h" LACE_CONFIG_HAVE_GETOPT_H)
+if (LACE_CONFIG_HAVE_GETOPT_H)
+	set(LACE_CONFIG_HAVE_GETOPT_H_DEF "define")
+else()
+	set(LACE_CONFIG_HAVE_GETOPT_H_DEF "undef")
+endif()
+
+CHECK_INCLUDE_FILES("alloca.h" LACE_CONFIG_HAVE_ALLOCA_H)
+if (LACE_CONFIG_HAVE_ALLOCA_H)
+	set(LACE_CONFIG_HAVE_ALLOCA_H_DEF "define")
+else()
+	set(LACE_CONFIG_HAVE_ALLOCA_H_DEF "undef")
+endif()
+
+# Configure a header file to pass some of the CMake settings to the source code
+configure_file (
+	"${PROJECT_SOURCE_DIR}/laceConfig.h.in"
+	"${PROJECT_BINARY_DIR}/laceConfig.h"
+)
+
+set(uts_sources benchmarks/uts/rng/brg_sha1.c benchmarks/uts/rng/brg_sha1.h benchmarks/uts/uts.c)
 
 add_executable(fib-seq benchmarks/fib/fib-seq.c)
 target_link_libraries(fib-seq m)

@@ -1,0 +1,28 @@
+/*
+ * Lace - Build-in Options
+ *
+ * This file is parsed by CMake during makefile generation
+ */
+
+#ifndef LACE_GENERATED_CONFIG_H_
+#define LACE_GENERATED_CONFIG_H_
+
+// Whether sys/time.h is available
+#@LACE_CONFIG_HAVE_SYSTIME_H_DEF@ LACE_CONFIG_HAVE_SYSTIME_H
+
+// Whether sys/mman.h is available
+#@LACE_CONFIG_HAVE_SYSMMAN_H_DEF@ LACE_CONFIG_HAVE_SYSMMAN_H
+
+// Whether unistd.h is available
+#@LACE_CONFIG_HAVE_UNISTD_H_DEF@ LACE_CONFIG_HAVE_UNISTD_H
+
+// Whether sched.h is available
+#@LACE_CONFIG_HAVE_SCHED_H_DEF@ LACE_CONFIG_HAVE_SCHED_H
+
+// Whether getopt.h is available
+#@LACE_CONFIG_HAVE_GETOPT_H_DEF@ LACE_CONFIG_HAVE_GETOPT_H
+
+// Whether alloca.h is available
+#@LACE_CONFIG_HAVE_ALLOCA_H_DEF@ LACE_CONFIG_HAVE_ALLOCA_H
+
+#endif // LACE_GENERATED_CONFIG_H_
