@@ -17,7 +17,13 @@
 #include <string.h>
 #include <stdio.h>
 #include <math.h>
-#include <sys/time.h>
+
+#include "lace_config.h"
+#ifdef LACE_CONFIG_HAVE_SYSTIME_H
+#include <sys/time.h> // for gettimeofday
+#else
+#include "windows/windows_helper.h"
+#endif
 
 #include "uts.h"
 

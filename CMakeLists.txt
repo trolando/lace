@@ -87,6 +87,7 @@ if(USE_HWLOC)
   
 	if (HWLOC_INCLUDE_DIR AND HWLOC_LIBRARY)
 		set(HAVE_HWLOC_H TRUE)
+		include_directories(${HWLOC_INCLUDE_DIR})
 		set (HWLOC_LIB "${HWLOC_LIBRARY}")
 		set (HWLOC_DEF "USE_HWLOC=1")
 	else()

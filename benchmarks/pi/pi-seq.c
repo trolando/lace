@@ -2,7 +2,13 @@
 #include <stdint.h>
 #include <stdio.h> // for printf, fprintf
 #include <stdlib.h> // for exit, atol
-#include <sys/time.h>
+
+#include "lace_config.h"
+#ifdef LACE_CONFIG_HAVE_SYSTIME_H
+#include <sys/time.h> // for gettimeofday
+#else
+#include "windows/windows_helper.h"
+#endif
 
 double wctime() 
 {

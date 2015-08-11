@@ -2,8 +2,28 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <memory.h>
-#include <sys/time.h>
+
+#include "lace_config.h"
+#ifdef LACE_CONFIG_HAVE_SYSTIME_H
+#include <sys/time.h> // for gettimeofday
+#else
+#include "windows/windows_helper.h"
+#endif
+
+#ifdef LACE_CONFIG_HAVE_GETOPT_H
 #include <getopt.h>
+#else
+#include "windows/getopt.h"
+#endif
+
+#ifdef LACE_CONFIG_HAVE_ALLOCA_H
+#include <alloca.h>
+#elif defined(_MSC_VER)
+#include <malloc.h>
+#ifndef alloca
+#define alloca(size) _alloca((size))
+#endif
+#endif
 
 double wctime() 
 {
@@ -84,7 +104,7 @@ int main(int argc, char *argv[])
     uint64_t res = nqueens(n, 0, a);
     double t2 = wctime();
 
-    printf("Result: Q(%d) = %lu\n", n, res);
+    printf("Result: Q(%d) = %zu\n", n, res);
 
     printf("Time: %f\n", t2-t1);
 
