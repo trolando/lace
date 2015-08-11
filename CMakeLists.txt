@@ -26,8 +26,8 @@ function(laceGenerateHeader taskParameter)
 	set(WORK_ARGS "")
   
 	# Read the template string from file
-	FILE(READ "lace.h.macroDecl.in" laceHeaderMacroDeclTemplate)
-	FILE(READ "lace.h.macroImpl.in" laceHeaderMacroImplTemplate)
+	FILE(READ "lace.h.macro_decl.in" laceHeaderMacroDeclTemplate)
+	FILE(READ "lace.h.macro_impl.in" laceHeaderMacroImplTemplate)
 	
 	# Add trailing backslashed to make the multi-line macros stick together
 	string(REGEX REPLACE "\n" "\\\\\\n" laceHeaderMacroDeclTemplate "${laceHeaderMacroDeclTemplate}")
@@ -187,8 +187,8 @@ endif()
 
 # Configure a header file to pass some of the CMake settings to the source code
 configure_file (
-	"${PROJECT_SOURCE_DIR}/laceConfig.h.in"
-	"${PROJECT_BINARY_DIR}/laceConfig.h"
+	"${PROJECT_SOURCE_DIR}/lace_config.h.in"
+	"${PROJECT_BINARY_DIR}/lace_config.h"
 )
 
 set(uts_sources benchmarks/uts/rng/brg_sha1.c benchmarks/uts/rng/brg_sha1.h benchmarks/uts/uts.c)
