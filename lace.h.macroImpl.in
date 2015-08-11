@@ -1,0 +1,18 @@
+@IMPL_MACRO@
+void NAME##_WRAP(WorkerP *w, Task *__dq_head, TD_##NAME *t __attribute__((unused)))
+{
+    @SAVE_RVAL@ NAME##_CALL(w, __dq_head @TASK_GET_FROM_t@);
+}
+
+static inline __attribute__((always_inline))
+@RTYPE@ NAME##_WORK(WorkerP *__lace_worker, Task *__lace_dq_head @DECL_ARGS@);
+
+/* NAME##_WORK is inlined in NAME##_CALL and the parameter __lace_in_task will disappear */
+@RTYPE@ NAME##_CALL(WorkerP *w, Task *__dq_head @FUN_ARGS@)
+{
+    CHECKSTACK(w);
+    return NAME##_WORK(w, __dq_head @CALL_ARGS@);
+}
+
+static inline __attribute__((always_inline))
+@RTYPE@ NAME##_WORK(WorkerP *__lace_worker __attribute__((unused)), Task *__lace_dq_head __attribute__((unused)) @WORK_ARGS@)

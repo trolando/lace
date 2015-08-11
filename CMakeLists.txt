@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 2.6)
+cmake_minimum_required(VERSION 2.8)
 project(lace C)
 
 option(USE_HWLOC "Use HWLOC" ON)
@@ -7,53 +7,133 @@ option(COUNT_TASKS "Count Tasks in Lace" OFF)
 option(COUNT_STEALS "Count Steals and Leaps in Lace" OFF)
 option(COUNT_SPLITS "Count Splits in Lace" OFF)
 
-include(CheckIncludeFiles)
+include_directories("${PROJECT_SOURCE_DIR}")
+include_directories("${PROJECT_BINARY_DIR}")
+
+function(laceGenerateHeader taskParameter)
+	if (taskParameter LESS 2)
+		set(taskParameter 2)
+	endif()
+	
+	set(resultString "")
+	set(MACRO_ARGS "")
+	set(DECL_ARGS "")
+	set(TASK_FIELDS "")
+	set(TASK_INIT "")
+	set(TASK_GET_FROM_t "")
+	set(CALL_ARGS "")
+	set(FUN_ARGS "")
+	set(WORK_ARGS "")
+  
+	# Read the template string from file
+	FILE(READ "lace.h.macroDecl.in" laceHeaderMacroDeclTemplate)
+	FILE(READ "lace.h.macroImpl.in" laceHeaderMacroImplTemplate)
+	
+	# Add trailing backslashed to make the multi-line macros stick together
+	string(REGEX REPLACE "\n" "\\\\\\n" laceHeaderMacroDeclTemplate "${laceHeaderMacroDeclTemplate}")
+	string(REGEX REPLACE "\n" "\\\\\\n" laceHeaderMacroImplTemplate "${laceHeaderMacroImplTemplate}")
+  
+	#
+	# Create macros for each arity
+	#
+	foreach(r RANGE 0 ${taskParameter})
+		if (r GREATER 0)
+			set(MACRO_ARGS "${MACRO_ARGS}, ATYPE_${r}, ARG_${r}")
+			set(DECL_ARGS "${DECL_ARGS}, ATYPE_${r}")
+			set(TASK_FIELDS "${TASK_FIELDS} ATYPE_${r} arg_${r};")
+			set(TASK_INIT "${TASK_INIT} t->d.args.arg_${r} = arg_${r};")
+			set(TASK_GET_FROM_t "${TASK_GET_FROM_t}, t->d.args.arg_${r}")
+			set(CALL_ARGS "${CALL_ARGS}, arg_${r}")
+			set(FUN_ARGS "${FUN_ARGS}, ATYPE_${r} arg_${r}")
+			set(WORK_ARGS "${WORK_ARGS}, ATYPE_${r} ARG_${r}")
+		endif()
+		set(resultString "${resultString}\n\n// Task macros for tasks of arity ${r}\n")
+		
+		# Create a void and a non-void version
+		foreach (isvoid RANGE 0 1)
+			if (isvoid EQUAL 0)
+				set(DEF_MACRO "#define TASK_${r}(RTYPE, NAME${MACRO_ARGS}) TASK_DECL_${r}(RTYPE, NAME${DECL_ARGS}) TASK_IMPL_${r}(RTYPE, NAME${MACRO_ARGS})")
+				set(DECL_MACRO "#define TASK_DECL_${r}(RTYPE, NAME${DECL_ARGS})")
+				set(IMPL_MACRO "#define TASK_IMPL_${r}(RTYPE, NAME${MACRO_ARGS})")
+				set(RTYPE "RTYPE")
+				set(RES_FIELD "${RTYPE} res;")
+				set(SAVE_RVAL "t->d.res =")
+				set(RETURN_RES "((TD_##NAME *)t)->d.res")
+			else()
+				set(DEF_MACRO "#define VOID_TASK_${r}(NAME${MACRO_ARGS}) VOID_TASK_DECL_${r}(NAME${DECL_ARGS}) VOID_TASK_IMPL_${r}(NAME${MACRO_ARGS})")
+				set(DECL_MACRO "#define VOID_TASK_DECL_${r}(NAME${DECL_ARGS})")
+				set(IMPL_MACRO "#define VOID_TASK_IMPL_${r}(NAME${MACRO_ARGS})")
+				set(RTYPE "void")
+				set(RES_FIELD "")
+				set(SAVE_RVAL "")
+				set(RETURN_RES "")
+			endif()
+			
+			# Write down the macro for the task declaration
+			string(CONFIGURE "${laceHeaderMacroDeclTemplate}" macroDeclTemplateConfigured)
+			string(CONFIGURE "${laceHeaderMacroImplTemplate}" macroImplTemplateConfigured)
+			set(resultString "${resultString}\n${macroDeclTemplateConfigured}\n${macroImplTemplateConfigured}\n${DEF_MACRO}\n")
+		endforeach()
+	endforeach()
+	set(resultString "${resultString}\n\nVOID_TASK_DECL_0(lace_steal_random);\nVOID_TASK_DECL_1(lace_steal_random_loop, int*);\nVOID_TASK_DECL_1(lace_steal_loop, int*);\nVOID_TASK_DECL_2(lace_steal_loop_root, Task *, int*);\n\n#ifdef __cplusplus\n}\n#endif /* __cplusplus */\n\n#endif")
+	# "laceGenerateHeaderResultString" is automatically inserted into the lace.h.in files when generating them.
+	set(laceGenerateHeaderResultString "${resultString}" PARENT_SCOPE)
+endfunction()
 
 if(USE_HWLOC)
-  check_include_files(hwloc.h HAVE_HWLOC_H)
-  if(HAVE_HWLOC_H)
-    set (HWLOC_LIB hwloc)
-    set (HWLOC_DEF "USE_HWLOC=1")
-  else()
-    message("No HWLOC library found!")
-    set (HWLOC_DEF "USE_HWLOC=0")
-  endif()
+	find_path(HWLOC_INCLUDE_DIR hwloc.h HINTS ${HWLOC_ROOT} ENV HWLOC_ROOT PATH_SUFFIXES include)
+	find_library(HWLOC_LIBRARY NAMES hwloc libhwloc HINTS ${HWLOC_ROOT} ENV HWLOC_ROOT PATH_SUFFIXES lib lib64)
+	mark_as_advanced(HWLOC_ROOT HWLOC_LIBRARY HWLOC_INCLUDE_DIR)
+  
+	if (HWLOC_INCLUDE_DIR AND HWLOC_LIBRARY)
+		set(HAVE_HWLOC_H TRUE)
+		set (HWLOC_LIB "${HWLOC_LIBRARY}")
+		set (HWLOC_DEF "USE_HWLOC=1")
+	else()
+		set(HAVE_HWLOC_H FALSE)
+		message("No HWLOC library found!")
+		set (HWLOC_DEF "USE_HWLOC=0")
+	endif()
 else()
   set (HWLOC_DEF "USE_HWLOC=0")
 endif()
 
 if(PIE_TIMES)
-  set (LACE_PIE "LACE_PIE_TIMES=1")
+	set (LACE_PIE "LACE_PIE_TIMES=1")
 else()
-  set (LACE_PIE "LACE_PIE_TIMES=0")
+	set (LACE_PIE "LACE_PIE_TIMES=0")
 endif()
 
 if (COUNT_TASKS)
-  set (LACE_COUNT_TASKS "LACE_COUNT_TASKS=1")
+	set (LACE_COUNT_TASKS "LACE_COUNT_TASKS=1")
 else()
-  set (LACE_COUNT_TASKS "LACE_COUNT_TASKS=0")
+	set (LACE_COUNT_TASKS "LACE_COUNT_TASKS=0")
 endif()
 
 if (COUNT_STEALS)
-  set (LACE_COUNT_STEALS "LACE_COUNT_STEALS=1")
+	set (LACE_COUNT_STEALS "LACE_COUNT_STEALS=1")
 else()
-  set (LACE_COUNT_STEALS "LACE_COUNT_STEALS=0")
+	set (LACE_COUNT_STEALS "LACE_COUNT_STEALS=0")
 endif()
 
 if (COUNT_SPLITS)
-  set (LACE_COUNT_SPLITS "LACE_COUNT_SPLITS=1")
+	set (LACE_COUNT_SPLITS "LACE_COUNT_SPLITS=1")
 else()
-  set (LACE_COUNT_SPLITS "LACE_COUNT_SPLITS=0")
+	set (LACE_COUNT_SPLITS "LACE_COUNT_SPLITS=0")
 endif()
 
-add_custom_command(OUTPUT lace-1.c lace-1.h COMMAND ./prepare.sh 1 DEPENDS lace.sh lace.c)
-add_custom_command(OUTPUT lace-2.c lace-2.h COMMAND ./prepare.sh 2 DEPENDS lace.sh lace.c)
-add_custom_command(OUTPUT lace-3.c lace-3.h COMMAND ./prepare.sh 3 DEPENDS lace.sh lace.c)
-add_custom_command(OUTPUT lace-4.c lace-4.h COMMAND ./prepare.sh 4 DEPENDS lace.sh lace.c)
-add_custom_command(OUTPUT lace-5.c lace-5.h COMMAND ./prepare.sh 5 DEPENDS lace.sh lace.c)
-add_custom_command(OUTPUT lace-6.c lace-6.h COMMAND ./prepare.sh 6 DEPENDS lace.sh lace.c)
-add_custom_command(OUTPUT lace-7.c lace-7.h COMMAND ./prepare.sh 7 DEPENDS lace.sh lace.c)
-add_custom_command(OUTPUT lace-8.c lace-8.h COMMAND ./prepare.sh 8 DEPENDS lace.sh lace.c)
+foreach (LACE_TASKPARAMETER RANGE 1 8)
+	laceGenerateHeader(${LACE_TASKPARAMETER})
+	# here, "laceGenerateHeaderResultString" is inserted into the header files
+	configure_file (
+		"${PROJECT_SOURCE_DIR}/lace.h.in"
+		"${PROJECT_BINARY_DIR}/lace-${LACE_TASKPARAMETER}.h"
+	)
+	configure_file (
+		"${PROJECT_SOURCE_DIR}/lace.c.in"
+		"${PROJECT_BINARY_DIR}/lace-${LACE_TASKPARAMETER}.c"
+	)
+endforeach()
 
 set(CMAKE_C_FLAGS "-g -O3 -Wall -Wextra")
 

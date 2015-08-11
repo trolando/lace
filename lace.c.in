@@ -14,6 +14,8 @@
  * limitations under the License.
  */
 
+#include <lace-@LACE_TASKPARAMETER@.h>
+
 #include <errno.h>
 #include <sched.h> // for sched_getaffinity
 #include <stdio.h>  // for fprintf
@@ -24,8 +26,6 @@
 #include <pthread.h>
 #include <unistd.h>
 #include <assert.h>
-
-#include <lace.h>
 
 #ifndef USE_HWLOC
 #define USE_HWLOC 0
