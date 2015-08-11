@@ -3,13 +3,13 @@
 typedef struct _TD_##NAME {
   TASK_COMMON_FIELDS(_TD_##NAME)
   union {
-    struct { @TASK_FIELDS@ } args;
+    struct { @TASK_FIELDS@ char _PLACEHOLDER_; } args;
     @RES_FIELD@
   } d;
 } TD_##NAME;
 
 /* If this line generates an error, please manually set the define LACE_TASKSIZE to a higher value */
-typedef char assertion_failed_task_descriptor_out_of_bounds_##NAME[(sizeof(TD_##NAME)<=sizeof(Task)) ? 0 : -1];
+typedef char assertion_failed_task_descriptor_out_of_bounds_##NAME[(sizeof(TD_##NAME)<=sizeof(Task)) ? 1 : -1];
 
 void NAME##_WRAP(WorkerP *, Task *, TD_##NAME *);
 @RTYPE@ NAME##_CALL(WorkerP *, Task * @FUN_ARGS@);
