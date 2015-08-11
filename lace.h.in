@@ -13,12 +13,29 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
+// Include the generated config file
+#include "lace_config.h"
  
- #include <unistd.h>
+#ifdef LACE_CONFIG_HAVE_UNISTD_H
+#include <unistd.h>
+#endif
+
+#ifdef _MSC_VER // MSVC/Win32 detected
+#include <stddef.h>
+#include <crtdefs.h>
+#define __attribute__(arg)
+#include "windows/windows_helper.h"
+#endif
+
 #include <stdint.h>
 #include <stdio.h>
 #include <atomics.h>
+#ifdef _MSC_VER
+#include "windows/winpthreads.h"
+#else
 #include <pthread.h> /* for pthread_t */
+#endif
 
 #ifndef __LACE_H__
 #define __LACE_H__
@@ -73,12 +90,35 @@ extern "C" {
 
 #if LACE_PIE_TIMES
 /* High resolution timer */
-static inline uint64_t gethrtime()
-{
-    uint32_t hi, lo;
-    asm volatile ("rdtsc" : "=a"(lo), "=d"(hi) :: "memory");
-    return (uint64_t)hi<<32 | lo;
-}
+#ifdef _MSC_VER
+#include <intrin.h>
+#ifdef _M_IX86
+	static inline uint64_t gethrtime()
+	{
+		uint64_t c;
+		__asm {
+			cpuid
+			rdtsc
+			mov dword ptr [c + 0], eax
+			mov dword ptr [c + 4], edx
+		}
+		return c;
+	}
+#elif defined(_M_X64)
+	#pragma intrinsic(__rdtsc)
+	static inline uint64_t gethrtime()
+	{
+		return __rdtsc();
+	}
+#endif
+#else // GCC/Unix code
+	static inline uint64_t gethrtime()
+	{
+		uint32_t hi, lo;
+		asm volatile ("rdtsc" : "=a"(lo), "=d"(hi) :: "memory");
+		return (uint64_t)hi<<32 | lo;
+	}
+#endif
 #endif
 
 #if LACE_COUNT_EVENTS
@@ -284,6 +324,10 @@ void lace_exit();
 #define LACE_STOLEN   ((Worker*)0)
 #define LACE_BUSY     ((Worker*)1)
 #define LACE_NOWORK   ((Worker*)2)
+
+#ifdef _MSC_VER
+#undef NEWFRAME // \um\wingdi.h(303) contains a GDI define regarding "NEWFRAME"
+#endif
 
 #define TASK(f)           ( f##_CALL )
 #define WRAP(f, ...)      ( f((WorkerP *)__lace_worker, (Task *)__lace_dq_head, ##__VA_ARGS__) )

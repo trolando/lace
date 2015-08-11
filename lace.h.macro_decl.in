@@ -36,7 +36,7 @@ void NAME##_SPAWN(WorkerP *w, Task *__dq_head @FUN_ARGS@)
     Worker *wt = w->_public;
     if (unlikely(w->allstolen)) {
         if (wt->movesplit) wt->movesplit = 0;
-        head = __dq_head - w->dq;
+        head = (uint32_t)(__dq_head - w->dq);
         ts = (TailSplit){{head,head+1}};
         wt->ts.v = ts.v;
         compiler_barrier();
@@ -44,8 +44,8 @@ void NAME##_SPAWN(WorkerP *w, Task *__dq_head @FUN_ARGS@)
         w->split = __dq_head+1;
         w->allstolen = 0;
     } else if (unlikely(wt->movesplit)) {
-        head = __dq_head - w->dq;
-        split = w->split - w->dq;
+        head = (uint32_t)(__dq_head - w->dq);
+        split = (uint32_t)(w->split - w->dq);
         newsplit = (split + head + 2)/2;
         wt->ts.ts.split = newsplit;
         w->split = w->dq + newsplit;
@@ -99,7 +99,7 @@ static __attribute__((noinline))
         size_t diff = __dq_head - t;
         diff = (diff + 1) / 2;
         w->split = t + diff;
-        wt->ts.ts.split += diff;
+        wt->ts.ts.split += (uint32_t)(diff);
         compiler_barrier();
         wt->movesplit = 0;
         PR_COUNTSPLITS(w, CTR_split_grow);

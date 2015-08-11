@@ -157,7 +157,7 @@ elseif(MSVC)
 	add_definitions("/D_CRT_RAND_S") # to define rand_s
 	add_definitions("/D_CRT_SECURE_NO_WARNINGS") # to silcence "use foo_s instead of foo" warnings
 	
-	set(LACE_ADDITIONAL_SOURCES "${PROJECT_SOURCE_DIR}/windows/getopt.h" "${PROJECT_SOURCE_DIR}/windows/windowsHelper.h" "${PROJECT_SOURCE_DIR}/windows/windowsHelper.c" "${PROJECT_SOURCE_DIR}/windows/winpthreads.h")
+	set(LACE_ADDITIONAL_SOURCES "${PROJECT_SOURCE_DIR}/windows/getopt.h" "${PROJECT_SOURCE_DIR}/windows/windows_helper.h" "${PROJECT_SOURCE_DIR}/windows/windows_helper.c" "${PROJECT_SOURCE_DIR}/windows/winpthreads.h")
 	# this adds the CMakeLists.txt project in the windows/ folder, which defines the getopt library replacement for windows.
 	add_subdirectory("${PROJECT_SOURCE_DIR}/windows")
 	set(PTHREAD_LIB "")
