@@ -200,7 +200,9 @@ barrier_get_id(barrier_t *b)
     if (id == NULL) {
         id = (int*)malloc(sizeof(int));
         *id = barrier_get_next_id(b);
-        pthread_setspecific(b->tls_key, id);
+        if (pthread_setspecific(b->tls_key, id) != 0) {
+			fprintf(stderr, "Error: pthread_setspecific() failed in barrier_get_id.\n");
+		}
     }
     return *id;
 }
@@ -232,7 +234,9 @@ barrier_init(barrier_t *b, unsigned count)
 {
     assert(count <= BARRIER_MAX_THREADS);
     memset(b, 0, sizeof(barrier_t));
-    pthread_key_create(&b->tls_key, NULL);
+    if (pthread_key_create(&b->tls_key, NULL) != 0) {
+		fprintf(stderr, "Error: pthread_key_create() failed in barrier_init.\n");
+	}
     b->threads = count;
 }
 
@@ -241,9 +245,12 @@ barrier_destroy(barrier_t *b)
 {
     // wait for all to exit
     size_t i;
-    for (i=0; i<b->threads; i++)
+    for (i=0; i<b->threads; i++) {
         while (1 == b->entered[i].val) {}
-    pthread_key_delete(b->tls_key);
+	}
+	if (pthread_key_delete(b->tls_key) != 0) {
+		fprintf(stderr, "Error: pthread_key_delete() failed in barrier_destroy.\n");
+	}
 }
 
 static barrier_t bar;
@@ -306,7 +313,9 @@ lace_init_worker(int worker, size_t dq_size)
 #endif
 
     // Set pointers
-    pthread_setspecific(worker_key, w);
+	if (pthread_setspecific(worker_key, w) != 0) {
+		fprintf(stderr, "Error: pthread_setspecific() failed in lace_init_worker.\n");
+	}
     workers[worker] = wt;
     workers_p[worker] = w;
 
@@ -338,13 +347,15 @@ pthread_barrier_init(pthread_barrier_t *barrier, const pthread_barrierattr_t *at
         errno = EINVAL;
         return -1;
     }
-    if(pthread_mutex_init(&barrier->mutex, 0) < 0)
+    if(pthread_mutex_init(&barrier->mutex, 0) != 0)
     {
         return -1;
     }
-    if(pthread_cond_init(&barrier->cond, 0) < 0)
+    if(pthread_cond_init(&barrier->cond, 0) != 0)
     {
-        pthread_mutex_destroy(&barrier->mutex);
+        if (pthread_mutex_destroy(&barrier->mutex) != 0) {
+			fprintf(stderr, "Error: pthread_mutex_destroy() failed in pthread_barrier_init.\n");
+		}
         return -1;
     }
     barrier->tripCount = count;
@@ -357,27 +368,41 @@ pthread_barrier_init(pthread_barrier_t *barrier, const pthread_barrierattr_t *at
 static int
 pthread_barrier_destroy(pthread_barrier_t *barrier)
 {
-    pthread_cond_destroy(&barrier->cond);
-    pthread_mutex_destroy(&barrier->mutex);
+    if (pthread_cond_destroy(&barrier->cond) != 0) {
+		fprintf(stderr, "Error: pthread_cond_destroy() failed in pthread_barrier_destroy.\n");
+	}
+    if (pthread_mutex_destroy(&barrier->mutex) != 0) {
+		fprintf(stderr, "Error: pthread_mutex_destroy() failed in pthread_barrier_destroy.\n");
+	}
     return 0;
 }
 
 static int
 pthread_barrier_wait(pthread_barrier_t *barrier)
 {
-    pthread_mutex_lock(&barrier->mutex);
+    if (pthread_mutex_lock(&barrier->mutex) != 0) {
+		fprintf(stderr, "Error: pthread_mutex_lock() failed in pthread_barrier_wait.\n");
+	}
     ++(barrier->count);
     if(barrier->count >= barrier->tripCount)
     {
         barrier->count = 0;
-        pthread_cond_broadcast(&barrier->cond);
-        pthread_mutex_unlock(&barrier->mutex);
+        if (pthread_cond_broadcast(&barrier->cond) != 0) {
+			fprintf(stderr, "Error: pthread_cond_broadcast() failed in pthread_barrier_wait.\n");
+		}
+        if (pthread_mutex_unlock(&barrier->mutex) != 0) {
+			fprintf(stderr, "Error: pthread_mutex_unlock() failed in pthread_barrier_wait.\n");
+		}
         return 1;
     }
     else
     {
-        pthread_cond_wait(&barrier->cond, &(barrier->mutex));
-        pthread_mutex_unlock(&barrier->mutex);
+        if (pthread_cond_wait(&barrier->cond, &(barrier->mutex)) != 0) {
+			fprintf(stderr, "Error: pthread_cond_wait() failed in pthread_barrier_wait.\n");
+		}
+        if (pthread_mutex_unlock(&barrier->mutex) != 0) {
+			fprintf(stderr, "Error: pthread_mutex_unlock() failed in pthread_barrier_wait.\n");
+		}
         return 0;
     }
 }
