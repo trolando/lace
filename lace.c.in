@@ -153,7 +153,7 @@ lock_acquire()
 {
     while (1) {
         while (lock) {}
-        if (cas(&lock, 0, 1)) return;
+        if (cas_int(&lock, 0, 1)) return;
     }
 }
 static inline void
@@ -187,7 +187,7 @@ barrier_get_next_id(barrier_t *b)
 {
     size_t val, new_val;
     do { // cas is faster than __sync_fetch_and_inc / __sync_inc_and_fetch
-        val = ATOMIC_READ (b->ids);
+        val = ATOMIC_READ_size_t (b->ids);
         new_val = val + 1;
     } while (!cas(&b->ids, val, new_val));
     return val;
@@ -212,17 +212,17 @@ barrier_wait(barrier_t *b)
     int id = barrier_get_id(b);
 
     // signal entry
-    ATOMIC_WRITE (b->entered[id].val, 1);
+    ATOMIC_WRITE_size_t (b->entered[id].val, 1);
 
-    size_t wait = ATOMIC_READ(b->wait);
+    size_t wait = ATOMIC_READ_size_t(b->wait);
     if (b->threads == add_fetch(b->count, 1)) {
-        ATOMIC_WRITE(b->count, 0); // reset counter
-        ATOMIC_WRITE(b->wait, 1 - wait); // flip wait
-        ATOMIC_WRITE(b->entered[id].val, 0); // signal exit
+        ATOMIC_WRITE_size_t(b->count, 0); // reset counter
+        ATOMIC_WRITE_size_t(b->wait, 1 - wait); // flip wait
+        ATOMIC_WRITE_size_t(b->entered[id].val, 0); // signal exit
         return -1; // master return value
     } else {
-        while (wait == ATOMIC_READ(b->wait)) {} // wait
-        ATOMIC_WRITE(b->entered[id].val, 0); // signal exit
+        while (wait == ATOMIC_READ_size_t(b->wait)) {} // wait
+        ATOMIC_WRITE_size_t(b->entered[id].val, 0); // signal exit
         return 0; // slave return value
     }
 }
@@ -754,10 +754,19 @@ lace_count_report_file(FILE *file)
 
 #if LACE_COUNT_STEALS && LACE_COUNT_TASKS
     for (i=0;i<n_workers;i++) {
-        fprintf(file, "Tasks per steal (%d): %zu\n", i,
-            workers_p[i]->ctr[CTR_tasks]/(workers_p[i]->ctr[CTR_steals]+workers_p[i]->ctr[CTR_leaps]));
+		uint64_t stealsAndLeaps = (workers_p[i]->ctr[CTR_steals]+workers_p[i]->ctr[CTR_leaps]);
+		if (stealsAndLeaps == 0) {
+			fprintf(file, "Tasks per steal (%d): INFTY (no steals/leaps)\n", i);
+		} else {
+			fprintf(file, "Tasks per steal (%d): %zu\n", i, workers_p[i]->ctr[CTR_tasks]/stealsAndLeaps);
+		}
     }
-    fprintf(file, "Tasks per steal (sum): %zu\n", ctr_all[CTR_tasks]/(ctr_all[CTR_steals]+ctr_all[CTR_leaps]));
+	uint64_t allStealsAndLeaps = (ctr_all[CTR_steals]+ctr_all[CTR_leaps]);
+	if (allStealsAndLeaps == 0) {
+		fprintf(file, "Tasks per steal (sum): INFTY (no steals/leaps)\n");
+	} else {
+		fprintf(file, "Tasks per steal (sum): %zu\n", ctr_all[CTR_tasks]/allStealsAndLeaps);
+	}
     fprintf(file, "\n");
 #endif
 

@@ -2,11 +2,19 @@
 #define __ATOMICS_H
 
 #if defined(__cplusplus) && __cplusplus >= 201103L
-#define ATOMIC_READ(x) (*(volatile decltype(x) *)&(x))
-#define ATOMIC_WRITE(v,a) (*(volatile decltype(v) *)(&(v)) = (a))
+
+#define ATOMIC_READ_size_t(x) (*(volatile decltype(x) *)&(x))
+#define ATOMIC_WRITE_size_t(v,a) (*(volatile decltype(v) *)(&(v)) = (a))
+#define ATOMIC_READ_Task(x) (*(volatile decltype(x) *)&(x))
+#define ATOMIC_WRITE_Task(v,a) (*(volatile decltype(v) *)(&(v)) = (a))
+
 #else
-#define ATOMIC_READ(x)  (*(volatile typeof(x) *)&(x))
-#define ATOMIC_WRITE(v,a) (*(volatile  typeof(v) *)(&(v)) = (a))
+
+#define ATOMIC_READ_size_t(x) (*(volatile typeof(x) *)&(x))
+#define ATOMIC_WRITE_size_t(v,a) (*(volatile typeof(v) *)(&(v)) = (a))
+#define ATOMIC_READ_Task(x) (*(volatile typeof(x) *)&(x))
+#define ATOMIC_WRITE_Task(v,a) (*(volatile typeof(v) *)(&(v)) = (a))
+
 #endif
 
 /* Size of processor cache line */
@@ -24,8 +32,11 @@
 #endif
 
 /* CAS operation */
-#ifndef cas
+#if !defined(cas) || !defined(cas_int)
+#undef cas
+#undef cas_int
 #define cas(ptr, old, new) (__sync_bool_compare_and_swap((ptr),(old),(new)))
+#define cas_int(ptr, old, newval) (__sync_bool_compare_and_swap((ptr),(old),(newval)))
 #endif
 
 /* Atomic add and fetch operation */
