@@ -220,6 +220,22 @@ else()
 	set(LACE_CONFIG_HAVE_ALLOCA_H_DEF "undef")
 endif()
 
+# Test for struct timespec
+try_compile(LACE_CONFIG_HAVE_TIMESPEC ${PROJECT_BINARY_DIR} "${PROJECT_SOURCE_DIR}/cmake_check_struct_timespec_exists.c" OUTPUT_VARIABLE LACE_CONFIG_HAVE_TIMESPEC_OUPUT)
+if (LACE_CONFIG_HAVE_TIMESPEC)
+	set(LACE_CONFIG_HAVE_TIMESPEC_DEF "define")
+else()
+	set(LACE_CONFIG_HAVE_TIMESPEC_DEF "undef")
+endif()
+
+# Test whether a function declaration may contain "static inline"
+try_compile(LACE_CONFIG_ISVALID_STATIC_INLINE ${PROJECT_BINARY_DIR} "${PROJECT_SOURCE_DIR}/cmake_static_inline_valid.c" OUTPUT_VARIABLE LACE_CONFIG_ISVALID_STATIC_INLINE_OUTPUT)
+if (LACE_CONFIG_ISVALID_STATIC_INLINE)
+	set(LACE_CONFIG_ISVALID_STATIC_INLINE_DEF "define")
+else()
+	set(LACE_CONFIG_ISVALID_STATIC_INLINE_DEF "undef")
+endif()
+
 # Configure a header file to pass some of the CMake settings to the source code
 configure_file (
 	"${PROJECT_SOURCE_DIR}/lace_config.h.in"

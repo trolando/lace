@@ -121,14 +121,15 @@
 
 
 /* Windows doesn't have this, so declare it ourselves. */
-#ifndef _INC_TIME
-struct timespec
-{
-	/* long long in windows is the same as long in unix for 64bit */
-	long long tv_sec;
-	long long tv_nsec;
-};
-#endif
+//#ifndef _INC_TIME
+//struct timespec
+//{
+//	/* long long in windows is the same as long in unix for 64bit */
+//	long long tv_sec;
+//	long long tv_nsec;
+//};
+//#endif
+#include "windows/windows_helper.h"
 
 typedef struct _pthread_cleanup _pthread_cleanup;
 struct _pthread_cleanup

@@ -25,4 +25,22 @@
 // Whether alloca.h is available
 #@LACE_CONFIG_HAVE_ALLOCA_H_DEF@ LACE_CONFIG_HAVE_ALLOCA_H
 
+// Whether struct timespec is available
+#@LACE_CONFIG_HAVE_TIMESPEC_DEF@ LACE_CONFIG_HAVE_TIMESPEC_STRUCT
+
+// Whether a function declaration with "static inline" is allowed
+#@LACE_CONFIG_ISVALID_STATIC_INLINE_DEF@ LACE_CONFIG_ISVALID_STATIC_INLINE
+
+
+
+
+/* ------------------------------------------------------------------- */
+// These definitions are also required for the benchmarks without lace.h-inclusion,
+// therefore they need to be defined here.
+
+#ifndef LACE_CONFIG_ISVALID_STATIC_INLINE
+// If both qualifiers together are not allowed, drop the inline
+#define inline 
+#endif
+
 #endif // LACE_GENERATED_CONFIG_H_

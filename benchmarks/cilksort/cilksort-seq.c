@@ -55,7 +55,7 @@
  */
 
 #ifdef _MSC_VER
-#include <Winsock2.h> # for timeval struct
+#include <Winsock2.h> // for timeval struct
 #include "windows/getopt.h"
 #include "windows/windows_helper.h"
 #endif

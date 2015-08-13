@@ -1,4 +1,5 @@
-/* Source: http://git.postgresql.org/gitweb/?p=postgresql.git;a=blob;f=src/port/gettimeofday.c;h=75a91993b74414c0a1c13a2a09ce739cb8aa8a08;hb=HEAD
+/* License for int gettimeofday(struct timeval * tp, struct timezone * tzp):
+ * Source: http://git.postgresql.org/gitweb/?p=postgresql.git;a=blob;f=src/port/gettimeofday.c;h=75a91993b74414c0a1c13a2a09ce739cb8aa8a08;hb=HEAD
  * gettimeofday.c
  *    Win32 gettimeofday() replacement
  *
@@ -31,6 +32,14 @@
 
 #include <time.h>
 #include <Winsock2.h> // For timeval
+
+#include "lace_config.h"
+#ifndef LACE_CONFIG_HAVE_TIMESPEC_STRUCT
+struct timespec {
+	long long tv_sec;  // Seconds - >= 0
+	long long tv_nsec; // Nanoseconds - [0, 999999999]
+};
+#endif
 
 /*
  * timezone information is stored outside the kernel so tzp isn't used anymore.
