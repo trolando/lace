@@ -1,7 +1,22 @@
 #include <stdio.h>
 #include <stdlib.h>
-#include <sys/time.h>
+
+#include "lace_config.h"
+#ifdef LACE_CONFIG_HAVE_SYSTIME_H
+#include <sys/time.h> // for gettimeofday
+#else
+#include "windows/windows_helper.h"
+#endif
+
+#ifdef LACE_CONFIG_HAVE_GETOPT_H
 #include <getopt.h>
+#else
+#include "windows/getopt.h"
+#endif
+
+#ifdef _MSC_VER
+#define __attribute__(arg)
+#endif
 
 static int w, n;
 

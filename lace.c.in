@@ -14,18 +14,36 @@
  * limitations under the License.
  */
 
+#include <lace-@LACE_TASKPARAMETER@.h>
+
 #include <errno.h>
+#ifdef LACE_CONFIG_HAVE_SCHED_H
 #include <sched.h> // for sched_getaffinity
+#endif
+
+#ifdef _MSC_VER
+#include <windows.h>
+#endif
+
 #include <stdio.h>  // for fprintf
 #include <stdlib.h> // for memalign, malloc
 #include <string.h> // for memset
-#include <sys/mman.h> // for mprotect
-#include <sys/time.h> // for gettimeofday
-#include <pthread.h>
-#include <unistd.h>
-#include <assert.h>
 
-#include <lace.h>
+#ifdef LACE_CONFIG_HAVE_SYSTIME_H
+#include <sys/time.h> // for gettimeofday
+#else
+#include "windows/windows_helper.h"
+#endif
+
+#ifdef LACE_CONFIG_HAVE_SYSMMAN_H
+#include <sys/mman.h> // for mprotect
+#endif
+
+#ifdef LACE_CONFIG_HAVE_UNISTD_H
+#include <unistd.h>
+#endif
+
+#include <assert.h>
 
 #ifndef USE_HWLOC
 #define USE_HWLOC 0
@@ -120,20 +138,45 @@ lace_default_stacksize()
 }
 
 #if LACE_PIE_TIMES
+
 static uint64_t count_at_start, count_at_end;
+#ifdef _MSC_VER
+static LARGE_INTEGER us_elapsed_timer;
+#else
 static long long unsigned us_elapsed_timer;
+#endif
 
 static void
 us_elapsed_start(void)
 {
-    struct timeval now;
+#ifdef _MSC_VER
+	if (!QueryPerformanceCounter(&us_elapsed_timer)) {
+		fprintf(stderr, "Could not query performance counter!\n");
+	}
+#else
+	struct timeval now;
     gettimeofday(&now, NULL);
     us_elapsed_timer = now.tv_sec * 1000000LL + now.tv_usec;
+#endif
 }
 
 static long long unsigned
 us_elapsed(void)
 {
+#ifdef _MSC_VER
+	LARGE_INTEGER li;
+	if (!QueryPerformanceFrequency(&li)) {
+		fprintf(stderr, "Could not query performance frequency!\n");
+	}
+
+	double PCFreq = ((double)(li.QuadPart))/1000000.0; // microseconds
+
+	if (!QueryPerformanceCounter(&li)) {
+		fprintf(stderr, "Could not query performance counter!\n");
+	}
+	
+	return (unsigned long long)((double)(li.QuadPart-us_elapsed_timer.QuadPart)/PCFreq);
+#else
     struct timeval now;
     long long unsigned t;
 
@@ -142,6 +185,7 @@ us_elapsed(void)
     t = now.tv_sec * 1000000LL + now.tv_usec;
 
     return t - us_elapsed_timer;
+#endif
 }
 #endif
 
@@ -153,7 +197,7 @@ lock_acquire()
 {
     while (1) {
         while (lock) {}
-        if (cas(&lock, 0, 1)) return;
+        if (cas_int(&lock, 0, 1)) return;
     }
 }
 static inline void
@@ -187,7 +231,7 @@ barrier_get_next_id(barrier_t *b)
 {
     size_t val, new_val;
     do { // cas is faster than __sync_fetch_and_inc / __sync_inc_and_fetch
-        val = ATOMIC_READ (b->ids);
+        val = ATOMIC_READ_size_t (b->ids);
         new_val = val + 1;
     } while (!cas(&b->ids, val, new_val));
     return val;
@@ -200,7 +244,9 @@ barrier_get_id(barrier_t *b)
     if (id == NULL) {
         id = (int*)malloc(sizeof(int));
         *id = barrier_get_next_id(b);
-        pthread_setspecific(b->tls_key, id);
+        if (pthread_setspecific(b->tls_key, id) != 0) {
+			fprintf(stderr, "Error: pthread_setspecific() failed in barrier_get_id.\n");
+		}
     }
     return *id;
 }
@@ -212,17 +258,17 @@ barrier_wait(barrier_t *b)
     int id = barrier_get_id(b);
 
     // signal entry
-    ATOMIC_WRITE (b->entered[id].val, 1);
+    ATOMIC_WRITE_size_t (b->entered[id].val, 1);
 
-    size_t wait = ATOMIC_READ(b->wait);
+    size_t wait = ATOMIC_READ_size_t(b->wait);
     if (b->threads == add_fetch(b->count, 1)) {
-        ATOMIC_WRITE(b->count, 0); // reset counter
-        ATOMIC_WRITE(b->wait, 1 - wait); // flip wait
-        ATOMIC_WRITE(b->entered[id].val, 0); // signal exit
+        ATOMIC_WRITE_size_t(b->count, 0); // reset counter
+        ATOMIC_WRITE_size_t(b->wait, 1 - wait); // flip wait
+        ATOMIC_WRITE_size_t(b->entered[id].val, 0); // signal exit
         return -1; // master return value
     } else {
-        while (wait == ATOMIC_READ(b->wait)) {} // wait
-        ATOMIC_WRITE(b->entered[id].val, 0); // signal exit
+        while (wait == ATOMIC_READ_size_t(b->wait)) {} // wait
+        ATOMIC_WRITE_size_t(b->entered[id].val, 0); // signal exit
         return 0; // slave return value
     }
 }
@@ -232,7 +278,9 @@ barrier_init(barrier_t *b, unsigned count)
 {
     assert(count <= BARRIER_MAX_THREADS);
     memset(b, 0, sizeof(barrier_t));
-    pthread_key_create(&b->tls_key, NULL);
+    if (pthread_key_create(&b->tls_key, NULL) != 0) {
+		fprintf(stderr, "Error: pthread_key_create() failed in barrier_init.\n");
+	}
     b->threads = count;
 }
 
@@ -241,9 +289,12 @@ barrier_destroy(barrier_t *b)
 {
     // wait for all to exit
     size_t i;
-    for (i=0; i<b->threads; i++)
+    for (i=0; i<b->threads; i++) {
         while (1 == b->entered[i].val) {}
-    pthread_key_delete(b->tls_key);
+	}
+	if (pthread_key_delete(b->tls_key) != 0) {
+		fprintf(stderr, "Error: pthread_key_delete() failed in barrier_destroy.\n");
+	}
 }
 
 static barrier_t bar;
@@ -274,12 +325,22 @@ lace_init_worker(int worker, size_t dq_size)
     lock_release();
 #else
     // Allocate memory...
-    if (posix_memalign((void**)&wt, LINE_SIZE, sizeof(Worker)) ||
+#ifndef _MSC_VER
+	if (posix_memalign((void**)&wt, LINE_SIZE, sizeof(Worker)) ||
         posix_memalign((void**)&w, LINE_SIZE, sizeof(WorkerP)) || 
         posix_memalign((void**)&w->dq, LINE_SIZE, dq_size * sizeof(Task))) {
             fprintf(stderr, "Lace error: Unable to allocate memory for the Lace worker!\n");
             exit(1);
     }
+#else
+	wt = _aligned_malloc(sizeof(Worker), LINE_SIZE);
+	w = _aligned_malloc(sizeof(WorkerP), LINE_SIZE);
+	w->dq = _aligned_malloc(dq_size * sizeof(Task), LINE_SIZE);
+	if ((wt == NULL) || (w == NULL) || (w->dq == NULL)) {
+            fprintf(stderr, "Lace error: Unable to allocate memory for the Lace worker!\n");
+            exit(1);
+    }
+#endif
 #endif
 
     // Initialize public worker data
@@ -306,7 +367,9 @@ lace_init_worker(int worker, size_t dq_size)
 #endif
 
     // Set pointers
-    pthread_setspecific(worker_key, w);
+	if (pthread_setspecific(worker_key, w) != 0) {
+		fprintf(stderr, "Error: pthread_setspecific() failed in lace_init_worker.\n");
+	}
     workers[worker] = wt;
     workers_p[worker] = w;
 
@@ -338,13 +401,15 @@ pthread_barrier_init(pthread_barrier_t *barrier, const pthread_barrierattr_t *at
         errno = EINVAL;
         return -1;
     }
-    if(pthread_mutex_init(&barrier->mutex, 0) < 0)
+    if(pthread_mutex_init(&barrier->mutex, 0) != 0)
     {
         return -1;
     }
-    if(pthread_cond_init(&barrier->cond, 0) < 0)
+    if(pthread_cond_init(&barrier->cond, 0) != 0)
     {
-        pthread_mutex_destroy(&barrier->mutex);
+        if (pthread_mutex_destroy(&barrier->mutex) != 0) {
+			fprintf(stderr, "Error: pthread_mutex_destroy() failed in pthread_barrier_init.\n");
+		}
         return -1;
     }
     barrier->tripCount = count;
@@ -357,27 +422,41 @@ pthread_barrier_init(pthread_barrier_t *barrier, const pthread_barrierattr_t *at
 static int
 pthread_barrier_destroy(pthread_barrier_t *barrier)
 {
-    pthread_cond_destroy(&barrier->cond);
-    pthread_mutex_destroy(&barrier->mutex);
+    if (pthread_cond_destroy(&barrier->cond) != 0) {
+		fprintf(stderr, "Error: pthread_cond_destroy() failed in pthread_barrier_destroy.\n");
+	}
+    if (pthread_mutex_destroy(&barrier->mutex) != 0) {
+		fprintf(stderr, "Error: pthread_mutex_destroy() failed in pthread_barrier_destroy.\n");
+	}
     return 0;
 }
 
 static int
 pthread_barrier_wait(pthread_barrier_t *barrier)
 {
-    pthread_mutex_lock(&barrier->mutex);
+    if (pthread_mutex_lock(&barrier->mutex) != 0) {
+		fprintf(stderr, "Error: pthread_mutex_lock() failed in pthread_barrier_wait.\n");
+	}
     ++(barrier->count);
     if(barrier->count >= barrier->tripCount)
     {
         barrier->count = 0;
-        pthread_cond_broadcast(&barrier->cond);
-        pthread_mutex_unlock(&barrier->mutex);
+        if (pthread_cond_broadcast(&barrier->cond) != 0) {
+			fprintf(stderr, "Error: pthread_cond_broadcast() failed in pthread_barrier_wait.\n");
+		}
+        if (pthread_mutex_unlock(&barrier->mutex) != 0) {
+			fprintf(stderr, "Error: pthread_mutex_unlock() failed in pthread_barrier_wait.\n");
+		}
         return 1;
     }
     else
     {
-        pthread_cond_wait(&barrier->cond, &(barrier->mutex));
-        pthread_mutex_unlock(&barrier->mutex);
+        if (pthread_cond_wait(&barrier->cond, &(barrier->mutex)) != 0) {
+			fprintf(stderr, "Error: pthread_cond_wait() failed in pthread_barrier_wait.\n");
+		}
+        if (pthread_mutex_unlock(&barrier->mutex) != 0) {
+			fprintf(stderr, "Error: pthread_mutex_unlock() failed in pthread_barrier_wait.\n");
+		}
         return 0;
     }
 }
@@ -523,7 +602,13 @@ lace_spawn_worker(int worker, size_t stacksize, void* (*fun)(void*), void* arg)
     // Determine stack size
     if (stacksize == 0) stacksize = default_stacksize;
 
-    size_t pagesize = sysconf(_SC_PAGESIZE);
+#ifndef _MSC_VER
+	size_t pagesize = sysconf(_SC_PAGESIZE);
+#else
+	SYSTEM_INFO si;
+	GetSystemInfo(&si);
+	size_t pagesize = si.dwPageSize;
+#endif
     stacksize = (stacksize + pagesize - 1) & ~(pagesize - 1); // ceil(stacksize, pagesize)
 
 #if USE_HWLOC
@@ -539,22 +624,43 @@ lace_spawn_worker(int worker, size_t stacksize, void* (*fun)(void*), void* arg)
         exit(1);
     }
 #else
+    
+#ifndef _MSC_VER
     void *stack_location = mmap(NULL, stacksize + pagesize, PROT_READ | PROT_WRITE, MAP_ANON | MAP_PRIVATE, 0, 0);
     if (stack_location == MAP_FAILED) {
         fprintf(stderr, "Lace error: Cannot allocate program stack, errno=%d!\n", errno);
         exit(1);
     }
+#else
+	void *stack_location = VirtualAlloc(NULL, stacksize + pagesize, MEM_RESERVE | MEM_COMMIT, PAGE_EXECUTE_READWRITE);
+	if (stack_location == NULL) {
+        fprintf(stderr, "Lace error: Cannot allocate program stack, errno=%d!\n", GetLastError());
+        exit(1);
+    }
+#endif
 #endif
 
+#ifndef _MSC_VER
     if (0 != mprotect(stack_location, pagesize, PROT_NONE)) {
+#else
+	DWORD flOldProtect;
+	if (0 != VirtualProtect(stack_location, pagesize, PAGE_GUARD, &flOldProtect)) {
+#endif
         fprintf(stderr, "Lace error: Unable to protect the allocated program stack with a guard page!\n");
         exit(1);
     }
     stack_location = (uint8_t *)stack_location + pagesize; // skip protected page.
+#ifndef _MSC_VER
     if (0 != pthread_attr_setstack(&worker_attr, stack_location, stacksize)) {
-        fprintf(stderr, "Lace error: Unable to set the pthread stack in Lace!\n");
+	    fprintf(stderr, "Lace error: Unable to set the pthread stack in Lace!\n");
         exit(1);
     }
+#else
+	if ((0 != pthread_attr_setstackaddr(&worker_attr, stack_location)) || (0 != pthread_attr_setstacksize(&worker_attr, stacksize))) {
+	    fprintf(stderr, "Lace error: Unable to set the pthread stack in Lace!\n");
+        exit(1);
+    }
+#endif
 
     workers_init[worker].stack = stack_location;
     workers_init[worker].stacksize = stacksize;
@@ -615,11 +721,20 @@ lace_init(int n, size_t dqsize)
     pthread_barrier_init(&suspend_barrier, NULL, n_workers);
 
     // Allocate array with all workers
+#ifndef _MSC_VER
     if (posix_memalign((void**)&workers, LINE_SIZE, n_workers*sizeof(Worker*)) != 0 ||
         posix_memalign((void**)&workers_p, LINE_SIZE, n_workers*sizeof(WorkerP*)) != 0) {
         fprintf(stderr, "Lace error: unable to allocate memory!\n");
         exit(1);
     }
+#else
+	workers = _aligned_malloc(n_workers*sizeof(Worker*), LINE_SIZE);
+	workers_p = _aligned_malloc(n_workers*sizeof(WorkerP*), LINE_SIZE);
+	if ((workers == NULL) || (workers_p == NULL)) {
+        fprintf(stderr, "Lace error: unable to allocate memory!\n");
+        exit(1);
+    }
+#endif
 
     // Create pthread key
     pthread_key_create(&worker_key, NULL);
@@ -754,10 +869,19 @@ lace_count_report_file(FILE *file)
 
 #if LACE_COUNT_STEALS && LACE_COUNT_TASKS
     for (i=0;i<n_workers;i++) {
-        fprintf(file, "Tasks per steal (%d): %zu\n", i,
-            workers_p[i]->ctr[CTR_tasks]/(workers_p[i]->ctr[CTR_steals]+workers_p[i]->ctr[CTR_leaps]));
+		uint64_t steals_and_leaps = (workers_p[i]->ctr[CTR_steals]+workers_p[i]->ctr[CTR_leaps]);
+		if (steals_and_leaps == 0) {
+			fprintf(file, "Tasks per steal (%d): INFTY (no steals/leaps)\n", i);
+		} else {
+			fprintf(file, "Tasks per steal (%d): %zu\n", i, workers_p[i]->ctr[CTR_tasks]/steals_and_leaps);
+		}
     }
-    fprintf(file, "Tasks per steal (sum): %zu\n", ctr_all[CTR_tasks]/(ctr_all[CTR_steals]+ctr_all[CTR_leaps]));
+	uint64_t all_steals_and_leaps = (ctr_all[CTR_steals]+ctr_all[CTR_leaps]);
+	if (all_steals_and_leaps == 0) {
+		fprintf(file, "Tasks per steal (sum): INFTY (no steals/leaps)\n");
+	} else {
+		fprintf(file, "Tasks per steal (sum): %zu\n", ctr_all[CTR_tasks]/all_steals_and_leaps);
+	}
     fprintf(file, "\n");
 #endif
 
@@ -848,8 +972,8 @@ lace_exec_in_new_frame(WorkerP *__lace_worker, Task *__lace_dq_head, Task *root)
         old.ts.tail = wt->ts.ts.tail;
 
         TailSplit ts_new;
-        ts_new.ts.tail = __lace_dq_head - __lace_worker->dq;
-        ts_new.ts.split = __lace_dq_head - __lace_worker->dq;
+        ts_new.ts.tail = (uint32_t)(__lace_dq_head - __lace_worker->dq);
+        ts_new.ts.split = (uint32_t)(__lace_dq_head - __lace_worker->dq);
         wt->ts.v = ts_new.v;
 
         __lace_worker->split = __lace_dq_head;

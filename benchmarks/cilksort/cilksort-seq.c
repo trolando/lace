@@ -54,7 +54,19 @@
  * log factor in the critical path (left as homework).
  */
 
+#ifdef _MSC_VER
+#include <Winsock2.h> // for timeval struct
+#include "windows/getopt.h"
+#include "windows/windows_helper.h"
+#endif
+
+#include "lace_config.h"
+#ifdef LACE_CONFIG_HAVE_SYSTIME_H
 #include <sys/time.h>
+#else
+#include "windows/windows_helper.h"
+#endif
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>

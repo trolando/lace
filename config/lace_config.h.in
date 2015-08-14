@@ -1,0 +1,46 @@
+/*
+ * Lace - Build-in Options
+ *
+ * This file is parsed by CMake during makefile generation
+ */
+
+#ifndef LACE_GENERATED_CONFIG_H_
+#define LACE_GENERATED_CONFIG_H_
+
+// Whether sys/time.h is available
+#@LACE_CONFIG_HAVE_SYSTIME_H_DEF@ LACE_CONFIG_HAVE_SYSTIME_H
+
+// Whether sys/mman.h is available
+#@LACE_CONFIG_HAVE_SYSMMAN_H_DEF@ LACE_CONFIG_HAVE_SYSMMAN_H
+
+// Whether unistd.h is available
+#@LACE_CONFIG_HAVE_UNISTD_H_DEF@ LACE_CONFIG_HAVE_UNISTD_H
+
+// Whether sched.h is available
+#@LACE_CONFIG_HAVE_SCHED_H_DEF@ LACE_CONFIG_HAVE_SCHED_H
+
+// Whether getopt.h is available
+#@LACE_CONFIG_HAVE_GETOPT_H_DEF@ LACE_CONFIG_HAVE_GETOPT_H
+
+// Whether alloca.h is available
+#@LACE_CONFIG_HAVE_ALLOCA_H_DEF@ LACE_CONFIG_HAVE_ALLOCA_H
+
+// Whether struct timespec is available
+#@LACE_CONFIG_HAVE_TIMESPEC_DEF@ LACE_CONFIG_HAVE_TIMESPEC_STRUCT
+
+// Whether a function declaration with "static inline" is allowed
+#@LACE_CONFIG_ISVALID_STATIC_INLINE_DEF@ LACE_CONFIG_ISVALID_STATIC_INLINE
+
+
+
+
+/* ------------------------------------------------------------------- */
+// These definitions are also required for the benchmarks without lace.h-inclusion,
+// therefore they need to be defined here.
+
+#ifndef LACE_CONFIG_ISVALID_STATIC_INLINE
+// If both qualifiers together are not allowed, drop the inline
+#define inline 
+#endif
+
+#endif // LACE_GENERATED_CONFIG_H_
