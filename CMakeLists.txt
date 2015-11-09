@@ -55,7 +55,7 @@ add_custom_command(OUTPUT lace-6.c lace-6.h COMMAND ./prepare.sh 6 DEPENDS lace.
 add_custom_command(OUTPUT lace-7.c lace-7.h COMMAND ./prepare.sh 7 DEPENDS lace.sh lace.c)
 add_custom_command(OUTPUT lace-8.c lace-8.h COMMAND ./prepare.sh 8 DEPENDS lace.sh lace.c)
 
-set(CMAKE_C_FLAGS "-g -O3 -Wall -Wextra")
+set(CMAKE_C_FLAGS "-g -O3 -Wall -Wextra -Werror")
 
 set(lace_flags "${HWLOC_DEF};${LACE_PIE};${LACE_COUNT_TASKS};${LACE_COUNT_STEALS};${LACE_COUNT_SPLITS}")
 

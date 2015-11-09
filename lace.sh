@@ -5,7 +5,7 @@ if [ "$1" -le 1 ] ; then k=2; else k=$1; fi
 
 # Copyright notice:
 echo "/* 
- * Copyright 2013-2014 Formal Methods and Tools, University of Twente
+ * Copyright 2013-2015 Formal Methods and Tools, University of Twente
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -24,7 +24,6 @@ echo '
 #include <unistd.h>
 #include <stdint.h>
 #include <stdio.h>
-#include <atomics.h>
 #include <pthread.h> /* for pthread_t */
 
 #ifndef __LACE_H__
@@ -64,6 +63,11 @@ extern "C" {
 #define LACE_COUNT_EVENTS (LACE_PIE_TIMES || LACE_COUNT_TASKS || LACE_COUNT_STEALS || LACE_COUNT_SPLITS)
 #endif
 
+/* Typical cacheline size of system architectures */
+#ifndef LINE_SIZE
+#define LINE_SIZE 64
+#endif
+
 /* The size of a pointer, 8 bytes on a 64-bit architecture */
 #define P_SZ (sizeof(void *))
 
@@ -75,6 +79,24 @@ extern "C" {
    The task size is the maximum of the size of the result or of the sum of the parameter sizes. */
 #ifndef LACE_TASKSIZE
 #define LACE_TASKSIZE ('$k')*P_SZ
+#endif
+
+/* Some fences */
+#ifndef compiler_barrier
+#define compiler_barrier() { asm volatile("" ::: "memory"); }
+#endif
+
+#ifndef mfence
+#define mfence() { asm volatile("mfence" ::: "memory"); }
+#endif
+
+/* Compiler specific branch prediction optimization */
+#ifndef likely
+#define likely(x)       __builtin_expect((x),1)
+#endif
+
+#ifndef unlikely
+#define unlikely(x)     __builtin_expect((x),0)
 #endif
 
 #if LACE_PIE_TIMES
@@ -343,7 +365,7 @@ void lace_do_together(WorkerP *__lace_worker, Task *__lace_dq_head, Task *task);
 void lace_do_newframe(WorkerP *__lace_worker, Task *__lace_dq_head, Task *task);
 
 void lace_yield(WorkerP *__lace_worker, Task *__lace_dq_head);
-#define YIELD_NEWFRAME() { if (unlikely(ATOMIC_READ(lace_newframe.t) != NULL)) lace_yield(__lace_worker, __lace_dq_head); }
+#define YIELD_NEWFRAME() { if (unlikely((*(volatile Task**)&lace_newframe.t) != NULL)) lace_yield(__lace_worker, __lace_dq_head); }
 
 #if LACE_PIE_TIMES
 static void lace_time_event( WorkerP *w, int event )
@@ -450,7 +472,7 @@ lace_steal(WorkerP *self, Task *__dq_head, Worker *victim)
             register TailSplit ts_new;
             ts_new.v = ts.v;
             ts_new.ts.tail++;
-            if (cas(&victim->ts.v, ts.v, ts_new.v)) {
+            if (__sync_bool_compare_and_swap(&victim->ts.v, ts.v, ts_new.v)) {
                 // Stolen
                 Task *t = &victim->dq[ts.ts.tail];
                 t->thief = self->_public;
@@ -586,6 +608,7 @@ if ((r)); then
   CALL_ARGS="$CALL_ARGS, arg_$r"
   FUN_ARGS="$FUN_ARGS, ATYPE_$r arg_$r"
   WORK_ARGS="$WORK_ARGS, ATYPE_$r ARG_$r"
+  ARGS_STRUCT="struct { $TASK_FIELDS } args;"
 fi
 
 echo
@@ -603,15 +626,16 @@ if (( isvoid==0 )); then
   RES_FIELD="$RTYPE res;"
   SAVE_RVAL="t->d.res ="
   RETURN_RES="((TD_##NAME *)t)->d.res"
+  UNION="union { $ARGS_STRUCT $RTYPE res; } d;"
 else
   DEF_MACRO="#define VOID_TASK_$r(NAME$MACRO_ARGS) \
              VOID_TASK_DECL_$r(NAME$DECL_ARGS) VOID_TASK_IMPL_$r(NAME$MACRO_ARGS)"
   DECL_MACRO="#define VOID_TASK_DECL_$r(NAME$DECL_ARGS)"
   IMPL_MACRO="#define VOID_TASK_IMPL_$r(NAME$MACRO_ARGS)"
   RTYPE="void"
-  RES_FIELD=""
   SAVE_RVAL=""
   RETURN_RES=""
+  if ((r)); then UNION="union { $ARGS_STRUCT } d;"; else UNION=""; fi
 fi
 
 # Write down the macro for the task declaration
@@ -620,10 +644,7 @@ echo "$DECL_MACRO
 
 typedef struct _TD_##NAME {
   TASK_COMMON_FIELDS(_TD_##NAME)
-  union {
-    struct { $TASK_FIELDS } args;
-    $RES_FIELD
-  } d;
+  $UNION
 } TD_##NAME;
 
 /* If this line generates an error, please manually set the define LACE_TASKSIZE to a higher value */

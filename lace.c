@@ -1,5 +1,5 @@
 /*
- * Copyright 2013-2014 Formal Methods and Tools, University of Twente
+ * Copyright 2013-2015 Formal Methods and Tools, University of Twente
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -119,6 +119,10 @@ lace_default_stacksize()
     return default_stacksize;
 }
 
+#ifndef cas
+#define cas(ptr, old, new) (__sync_bool_compare_and_swap((ptr),(old),(new)))
+#endif
+
 #if LACE_PIE_TIMES
 static uint64_t count_at_start, count_at_end;
 static long long unsigned us_elapsed_timer;
@@ -173,10 +177,10 @@ typedef union __attribute__((__packed__)) asize_u
 } asize_t;
 
 typedef struct barrier_s {
-    size_t __attribute__((aligned(LINE_SIZE))) ids;
+    volatile size_t __attribute__((aligned(LINE_SIZE))) ids;
     size_t __attribute__((aligned(LINE_SIZE))) threads;
-    size_t __attribute__((aligned(LINE_SIZE))) count;
-    size_t __attribute__((aligned(LINE_SIZE))) wait;
+    volatile size_t __attribute__((aligned(LINE_SIZE))) count;
+    volatile size_t __attribute__((aligned(LINE_SIZE))) wait;
     /* the following is needed only for destroy: */
     asize_t             entered[BARRIER_MAX_THREADS];
     pthread_key_t       tls_key;
@@ -185,11 +189,10 @@ typedef struct barrier_s {
 static inline size_t
 barrier_get_next_id(barrier_t *b)
 {
-    size_t val, new_val;
+    size_t val;
     do { // cas is faster than __sync_fetch_and_inc / __sync_inc_and_fetch
-        val = ATOMIC_READ (b->ids);
-        new_val = val + 1;
-    } while (!cas(&b->ids, val, new_val));
+        val = b->ids;
+    } while (!cas(&b->ids, val, val + 1));
     return val;
 }
 
@@ -212,17 +215,17 @@ barrier_wait(barrier_t *b)
     int id = barrier_get_id(b);
 
     // signal entry
-    ATOMIC_WRITE (b->entered[id].val, 1);
+    b->entered[id].val = 1;
 
-    size_t wait = ATOMIC_READ(b->wait);
-    if (b->threads == add_fetch(b->count, 1)) {
-        ATOMIC_WRITE(b->count, 0); // reset counter
-        ATOMIC_WRITE(b->wait, 1 - wait); // flip wait
-        ATOMIC_WRITE(b->entered[id].val, 0); // signal exit
+    size_t wait = b->wait;
+    if (b->threads == __sync_add_and_fetch(&b->count, 1)) {
+        b->count = 0; // reset counter
+        b->wait = 1 - wait; // flip wait
+        b->entered[id].val = 0; // signal exit
         return -1; // master return value
     } else {
-        while (wait == ATOMIC_READ(b->wait)) {} // wait
-        ATOMIC_WRITE(b->entered[id].val, 0); // signal exit
+        while (wait == b->wait) {} // wait
+        b->entered[id].val = 0; // signal exit
         return 0; // slave return value
     }
 }
