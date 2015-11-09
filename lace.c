@@ -45,6 +45,8 @@ static hwloc_topology_t topo;
 static unsigned int n_nodes, n_cores, n_pus;
 #endif
 
+static int verbosity = 0;
+
 static int n_workers = 0;
 
 // private Worker data (just for stats at end )
@@ -594,6 +596,12 @@ get_cpu_count()
 }
 
 void
+lace_set_verbosity(int level)
+{
+    verbosity = level;
+}
+
+void
 lace_init(int n, size_t dqsize)
 {
 #if USE_HWLOC
@@ -639,11 +647,13 @@ lace_init(int n, size_t dqsize)
         default_stacksize = 1048576; // 1 megabyte default
     }
 
+    if (verbosity) {
 #if USE_HWLOC
-    fprintf(stderr, "Initializing Lace, %u nodes, %u cores, %u logical processors, %d workers.\n", n_nodes, n_cores, n_pus, n_workers);
+        fprintf(stderr, "Initializing Lace, %u nodes, %u cores, %u logical processors, %d workers.\n", n_nodes, n_cores, n_pus, n_workers);
 #else
-    fprintf(stderr, "Initializing Lace, %d workers.\n", n_workers);
+        fprintf(stderr, "Initializing Lace, %d workers.\n", n_workers);
 #endif
+    }
 
     // Prepare lace_init structure
     workers_init = (struct lace_worker_init*)calloc(1, sizeof(struct lace_worker_init) * n_workers);
@@ -662,12 +672,14 @@ lace_startup(size_t stacksize, lace_startup_cb cb, void *arg)
 {
     if (stacksize == 0) stacksize = default_stacksize;
 
-    if (cb != 0) {
-        fprintf(stderr, "Lace startup, creating %d worker threads with program stack %zu bytes.\n", n_workers, stacksize);
-    } else if (n_workers == 1) {
-        fprintf(stderr, "Lace startup, creating 0 worker threads.\n");
-    } else {
-        fprintf(stderr, "Lace startup, creating %d worker threads with program stack %zu bytes.\n", n_workers-1, stacksize);
+    if (verbosity) {
+        if (cb != 0) {
+            fprintf(stderr, "Lace startup, creating %d worker threads with program stack %zu bytes.\n", n_workers, stacksize);
+        } else if (n_workers == 1) {
+            fprintf(stderr, "Lace startup, creating 0 worker threads.\n");
+        } else {
+            fprintf(stderr, "Lace startup, creating %d worker threads with program stack %zu bytes.\n", n_workers-1, stacksize);
+        }
     }
 
     /* Spawn workers */

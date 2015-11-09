@@ -235,6 +235,12 @@ typedef struct _WorkerP {
 LACE_TYPEDEF_CB(void, lace_startup_cb, void*);
 
 /**
+ * Set verbosity level (0 = no startup messages, 1 = startup messages)
+ * Default level: 0
+ */
+void lace_set_verbosity(int level);
+
+/**
  * Initialize master structures for Lace with <n_workers> workers
  * and default deque size of <dqsize>.
  * Does not create new threads.
