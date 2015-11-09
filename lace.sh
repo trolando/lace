@@ -283,6 +283,11 @@ void lace_steal_random_CALL(WorkerP*, Task*);
 #define lace_steal_loop(quit) CALL(lace_steal_loop, quit)
 
 /**
+ * Barrier (all workers must enter it before progressing)
+ */
+void lace_barrier();
+
+/**
  * Suspend and resume all other workers.
  * Careful with usage. Only suspend when all other workers are idle.
  * Always use resume before exiting Lace.

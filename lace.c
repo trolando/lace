@@ -180,86 +180,54 @@ lock_release()
 /* Barrier */
 #define BARRIER_MAX_THREADS 128
 
-typedef union __attribute__((__packed__)) asize_u
+typedef union __attribute__((__packed__))
 {
     volatile size_t val;
-    char            pad[LINE_SIZE - sizeof(size_t)];
+    char            pad[LINE_SIZE];
 } asize_t;
 
-typedef struct barrier_s {
-    volatile size_t __attribute__((aligned(LINE_SIZE))) ids;
-    size_t __attribute__((aligned(LINE_SIZE))) threads;
-    volatile size_t __attribute__((aligned(LINE_SIZE))) count;
-    volatile size_t __attribute__((aligned(LINE_SIZE))) wait;
+typedef struct {
+    volatile int __attribute__((aligned(LINE_SIZE))) count;
+    volatile int __attribute__((aligned(LINE_SIZE))) wait;
     /* the following is needed only for destroy: */
     asize_t             entered[BARRIER_MAX_THREADS];
-    pthread_key_t       tls_key;
 } barrier_t;
 
-static inline size_t
-barrier_get_next_id(barrier_t *b)
+barrier_t lace_bar;
+
+void
+lace_barrier()
 {
-    size_t val;
-    do { // cas is faster than __sync_fetch_and_inc / __sync_inc_and_fetch
-        val = b->ids;
-    } while (!cas(&b->ids, val, val + 1));
-    return val;
-}
+    int id = lace_get_worker()->worker;
 
-static inline int
-barrier_get_id(barrier_t *b)
-{
-    int *id = (int*)pthread_getspecific(b->tls_key);
-    if (id == NULL) {
-        id = (int*)malloc(sizeof(int));
-        *id = barrier_get_next_id(b);
-        pthread_setspecific(b->tls_key, id);
-    }
-    return *id;
-}
+    lace_bar.entered[id].val = 1; // signal entry
 
-static int
-barrier_wait(barrier_t *b)
-{
-    // get id ( only needed for destroy :( )
-    int id = barrier_get_id(b);
-
-    // signal entry
-    b->entered[id].val = 1;
-
-    size_t wait = b->wait;
-    if (b->threads == __sync_add_and_fetch(&b->count, 1)) {
-        b->count = 0; // reset counter
-        b->wait = 1 - wait; // flip wait
-        b->entered[id].val = 0; // signal exit
-        return -1; // master return value
+    int wait = lace_bar.wait;
+    if (n_workers == __sync_add_and_fetch(&lace_bar.count, 1)) {
+        lace_bar.count = 0; // reset counter
+        lace_bar.wait = 1 - wait; // flip wait
+        lace_bar.entered[id].val = 0; // signal exit
     } else {
-        while (wait == b->wait) {} // wait
-        b->entered[id].val = 0; // signal exit
-        return 0; // slave return value
+        while (wait == lace_bar.wait) {} // wait
+        lace_bar.entered[id].val = 0; // signal exit
     }
 }
 
 static void
-barrier_init(barrier_t *b, unsigned count)
+lace_barrier_init()
 {
-    assert(count <= BARRIER_MAX_THREADS);
-    memset(b, 0, sizeof(barrier_t));
-    pthread_key_create(&b->tls_key, NULL);
-    b->threads = count;
+    assert(n_workers <= BARRIER_MAX_THREADS);
+    memset(&lace_bar, 0, sizeof(barrier_t));
 }
 
 static void
-barrier_destroy(barrier_t *b)
+lace_barrier_destroy()
 {
     // wait for all to exit
-    size_t i;
-    for (i=0; i<b->threads; i++)
-        while (1 == b->entered[i].val) {}
-    pthread_key_delete(b->tls_key);
+    for (int i=0; i<n_workers; i++) {
+        while (1 == lace_bar.entered[i].val) {}
+    }
 }
-
-static barrier_t bar;
 
 void
 lace_init_worker(int worker, size_t dq_size)
@@ -328,7 +296,7 @@ lace_init_worker(int worker, size_t dq_size)
     workers_p[worker] = w;
 
     // Synchronize with others
-    barrier_wait(&bar);
+    lace_barrier();
 
 #if LACE_PIE_TIMES
     w->time = gethrtime();
@@ -407,7 +375,7 @@ static volatile int must_suspend = 0;
 static inline void
 lace_go_suspend()
 {
-    barrier_wait(&bar);
+    lace_barrier();
     pthread_barrier_wait(&suspend_barrier);
 }
 
@@ -415,7 +383,7 @@ void
 lace_suspend()
 {
     must_suspend = 1;
-    barrier_wait(&bar);
+    lace_barrier();
     must_suspend = 0;
 }
 
@@ -530,7 +498,7 @@ lace_default_worker(void* arg)
     Task *__lace_dq_head = __lace_worker->dq;
     lace_steal_loop(&lace_quits);
     lace_time_event(__lace_worker, 9);
-    barrier_wait(&bar);
+    lace_barrier();
     return NULL;
 }
 
@@ -632,7 +600,7 @@ lace_init(int n, size_t dqsize)
     lace_quits = 0;
 
     // Create barrier for all workers
-    barrier_init(&bar, n_workers);
+    lace_barrier_init();
 
     // Create suspend barrier
     pthread_barrier_init(&suspend_barrier, NULL, n_workers);
@@ -848,9 +816,9 @@ void lace_exit()
     lace_quits = 1;
 
     // Wait for others
-    barrier_wait(&bar);
+    lace_barrier();
 
-    barrier_destroy(&bar);
+    lace_barrier_destroy();
 
     pthread_barrier_destroy(&suspend_barrier);
 
@@ -886,14 +854,14 @@ lace_exec_in_new_frame(WorkerP *__lace_worker, Task *__lace_dq_head, Task *root)
     }
 
     // wait until all workers are ready
-    barrier_wait(&bar);
+    lace_barrier();
 
     // execute task
     root->f(__lace_worker, __lace_dq_head, root);
     compiler_barrier();
 
     // wait until all workers are back (else they may steal from previous frame)
-    barrier_wait(&bar);
+    lace_barrier();
 
     // restore tail, split, allstolen
     {
@@ -927,14 +895,14 @@ static void
 lace_sync_and_exec(WorkerP *__lace_worker, Task *__lace_dq_head, Task *root)
 {
     // wait until other workers have made a local copy
-    barrier_wait(&bar);
+    lace_barrier();
 
     // one worker sets t to 0 again
     if (LACE_WORKER_ID == 0) lace_newframe.t = 0;
     // else while (*(volatile Task**)&lace_newframe.t != 0) {}
 
     // the above line is commented out since lace_exec_in_new_frame includes
-    // a barrier_wait before the task is executed
+    // a lace_barrier before the task is executed
 
     lace_exec_in_new_frame(__lace_worker, __lace_dq_head, root);
 }
@@ -947,14 +915,14 @@ lace_yield(WorkerP *__lace_worker, Task *__lace_dq_head)
     memcpy(&_t, lace_newframe.t, sizeof(Task));
 
     // wait until all workers have made a local copy
-    barrier_wait(&bar);
+    lace_barrier();
 
     // one worker sets t to 0 again
     if (LACE_WORKER_ID == 0) lace_newframe.t = 0;
     // else while (*(volatile Task**)&lace_newframe.t != 0) {}
 
     // the above line is commented out since lace_exec_in_new_frame includes
-    // a barrier_wait before the task is executed
+    // a lace_barrier before the task is executed
 
     lace_exec_in_new_frame(__lace_worker, __lace_dq_head, &_t);
 }
