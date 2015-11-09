@@ -372,13 +372,6 @@ pthread_barrier_wait(pthread_barrier_t *barrier)
 static pthread_barrier_t suspend_barrier;
 static volatile int must_suspend = 0, suspended = 0;
 
-static inline void
-lace_go_suspend()
-{
-    lace_barrier();
-    pthread_barrier_wait(&suspend_barrier);
-}
-
 void
 lace_suspend()
 {
@@ -416,12 +409,11 @@ VOID_TASK_IMPL_0(lace_steal_random)
 {
     Worker *victim = workers[(__lace_worker->worker + 1 + rng(&__lace_worker->seed, n_workers-1)) % n_workers];
 
+    YIELD_NEWFRAME();
+
     PR_COUNTSTEALS(__lace_worker, CTR_steal_tries);
     Worker *res = lace_steal(__lace_worker, __lace_dq_head, victim);
-    if (res == LACE_NOWORK) {
-        YIELD_NEWFRAME();
-        if (must_suspend) lace_go_suspend();
-    } else if (res == LACE_STOLEN) {
+    if (res == LACE_STOLEN) {
         PR_COUNTSTEALS(__lace_worker, CTR_steals);
     } else if (res == LACE_BUSY) {
         PR_COUNTSTEALS(__lace_worker, CTR_steal_busy);
@@ -430,7 +422,14 @@ VOID_TASK_IMPL_0(lace_steal_random)
 
 VOID_TASK_IMPL_1(lace_steal_random_loop, int*, quit)
 {
-    while (!(*(volatile int*)quit)) STEAL_RANDOM();
+    while(!(*(volatile int*)quit)) {
+        lace_steal_random();
+
+        if (must_suspend) {
+            lace_barrier();
+            pthread_barrier_wait(&suspend_barrier);
+        }
+    }
 }
 
 static lace_startup_cb main_cb;
@@ -470,7 +469,7 @@ VOID_TASK_IMPL_1(lace_steal_loop, int*, quit)
     unsigned int n = n_workers;
     int i=0;
 
-    while(!(*(volatile int*)quit)) {
+    while(*(volatile int*)quit == 0) {
         // Select victim
         if( i>0 ) {
             i--;
@@ -485,13 +484,17 @@ VOID_TASK_IMPL_1(lace_steal_loop, int*, quit)
 
         PR_COUNTSTEALS(__lace_worker, CTR_steal_tries);
         Worker *res = lace_steal(__lace_worker, __lace_dq_head, *victim);
-        if (res == LACE_NOWORK) {
-            YIELD_NEWFRAME();
-            if (must_suspend) lace_go_suspend();
-        } else if (res == LACE_STOLEN) {
+        if (res == LACE_STOLEN) {
             PR_COUNTSTEALS(__lace_worker, CTR_steals);
         } else if (res == LACE_BUSY) {
             PR_COUNTSTEALS(__lace_worker, CTR_steal_busy);
+        }
+
+        YIELD_NEWFRAME();
+
+        if (must_suspend) {
+            lace_barrier();
+            pthread_barrier_wait(&suspend_barrier);
         }
     }
 }
