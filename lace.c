@@ -56,8 +56,12 @@ static WorkerP **workers_p;
 static int lace_quits = 0;
 
 // for storing private Worker data
-static pthread_attr_t worker_attr;
+#ifdef __linux__ // use gcc thread-local storage (i.e. __thread variables)
+static __thread WorkerP *current_worker;
+#else
 static pthread_key_t worker_key;
+#endif
+static pthread_attr_t worker_attr;
 
 static pthread_cond_t wait_until_done = PTHREAD_COND_INITIALIZER;
 static pthread_mutex_t wait_until_done_mutex = PTHREAD_MUTEX_INITIALIZER;
@@ -75,7 +79,11 @@ lace_newframe_t lace_newframe;
 WorkerP*
 lace_get_worker()
 {
+#ifdef __linux__
+    return current_worker;
+#else
     return (WorkerP*)pthread_getspecific(worker_key);
+#endif
 }
 
 Task*
@@ -311,7 +319,11 @@ lace_init_worker(int worker, size_t dq_size)
 #endif
 
     // Set pointers
+#ifdef __linux__
+    current_worker = w;
+#else
     pthread_setspecific(worker_key, w);
+#endif
     workers[worker] = wt;
     workers_p[worker] = w;
 
@@ -633,7 +645,9 @@ lace_init(int n, size_t dqsize)
     }
 
     // Create pthread key
+#ifndef __linux__
     pthread_key_create(&worker_key, NULL);
+#endif
 
     // Prepare structures for thread creation
     pthread_attr_init(&worker_attr);
