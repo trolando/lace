@@ -48,6 +48,7 @@ static unsigned int n_nodes, n_cores, n_pus;
 static int verbosity = 0;
 
 static int n_workers = 0;
+static int enabled_workers = 0;
 
 // private Worker data (just for stats at end )
 static WorkerP **workers_p;
@@ -203,7 +204,7 @@ lace_barrier()
     lace_bar.entered[id].val = 1; // signal entry
 
     int wait = lace_bar.wait;
-    if (n_workers == __sync_add_and_fetch(&lace_bar.count, 1)) {
+    if (enabled_workers == __sync_add_and_fetch(&lace_bar.count, 1)) {
         lace_bar.count = 0; // reset counter
         lace_bar.wait = 1 - wait; // flip wait
         lace_bar.entered[id].val = 0; // signal exit
@@ -275,6 +276,7 @@ lace_init_worker(int worker, size_t dq_size)
     w->split = w->dq;
     w->allstolen = 0;
     w->worker = worker;
+    w->enabled = 1;
     if (workers_init[worker].stack != 0) {
         w->stack_trigger = ((size_t)workers_init[worker].stack) + workers_init[worker].stacksize/20;
     } else {
@@ -392,6 +394,51 @@ lace_resume()
     }
 }
 
+/**
+ * With set_workers, all workers 0..(N-1) are enabled and N..max are disabled.
+ * You can never disable the current worker or reduce the number of workers below 1.
+ */
+void
+lace_disable_worker(int worker)
+{
+    int self = lace_get_worker()->worker;
+    if (worker == self) return;
+    if (workers_p[worker]->enabled == 1) {
+        workers_p[worker]->enabled = 0;
+        enabled_workers--;
+    }
+}
+
+void
+lace_enable_worker(int worker)
+{
+    int self = lace_get_worker()->worker;
+    if (worker == self) return;
+    if (workers_p[worker]->enabled == 0) {
+        workers_p[worker]->enabled = 1;
+        enabled_workers++;
+    }
+}
+
+void
+lace_set_workers(int workercount)
+{
+    if (workercount < 1) workercount = 1;
+    if (workercount > n_workers) workercount = n_workers;
+    enabled_workers = workercount;
+    int self = lace_get_worker()->worker;
+    if (self >= workercount) workercount--;
+    for (int i=0; i<n_workers; i++) {
+        workers_p[i]->enabled = (i < workercount || i == self) ? 1 : 0;
+    }
+}
+
+int
+lace_enabled_workers()
+{
+    return enabled_workers;
+}
+
 static inline uint32_t
 rng(uint32_t *seed, int max)
 {
@@ -427,7 +474,9 @@ VOID_TASK_IMPL_1(lace_steal_random_loop, int*, quit)
 
         if (must_suspend) {
             lace_barrier();
-            pthread_barrier_wait(&suspend_barrier);
+            do {
+                pthread_barrier_wait(&suspend_barrier);
+            } while (__lace_worker->enabled == 0);
         }
     }
 }
@@ -494,7 +543,9 @@ VOID_TASK_IMPL_1(lace_steal_loop, int*, quit)
 
         if (must_suspend) {
             lace_barrier();
-            pthread_barrier_wait(&suspend_barrier);
+            do {
+                pthread_barrier_wait(&suspend_barrier);
+            } while (__lace_worker->enabled == 0);
         }
     }
 }
@@ -605,6 +656,7 @@ lace_init(int n, size_t dqsize)
     // Initialize globals
     n_workers = n;
     if (n_workers == 0) n_workers = get_cpu_count();
+    enabled_workers = n_workers;
     if (dqsize != 0) default_dqsize = dqsize;
     lace_quits = 0;
 
@@ -822,13 +874,19 @@ void lace_exit()
 {
     lace_time_event(lace_get_worker(), 2);
 
+    // first suspend all other threads
+    lace_suspend();
+
+    // now enable all threads and tell them to quit
+    lace_set_workers(n_workers);
     lace_quits = 1;
 
-    // Wait for others
+    // now resume all threads and wait until they all pass the barrier
+    lace_resume();
     lace_barrier();
 
+    // finally, destroy the barriers
     lace_barrier_destroy();
-
     pthread_barrier_destroy(&suspend_barrier);
 
 #if LACE_COUNT_EVENTS

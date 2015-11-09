@@ -221,6 +221,7 @@ typedef struct _WorkerP {
     size_t stack_trigger; // for stack overflow detection
     int16_t worker;     // what is my worker id?
     uint8_t allstolen; // my allstolen
+    volatile int enabled; // if this worker is enabled
 
 #if LACE_COUNT_EVENTS
     uint64_t ctr[CTR_MAX]; // counters
@@ -289,11 +290,21 @@ void lace_barrier();
 
 /**
  * Suspend and resume all other workers.
- * Careful with usage. Only suspend when all other workers are idle.
- * Always use resume before exiting Lace.
+ * May only be used when all other workers are idle.
  */
 void lace_suspend();
 void lace_resume();
+
+/**
+ * When all tasks are suspended, workers can be temporarily disabled.
+ * With set_workers, all workers 0..(N-1) are enabled and N..max are disabled.
+ * You can never disable the current worker or reduce the number of workers below 1.
+ * You cannot add workers.
+ */
+void lace_disable_worker(int worker);
+void lace_enable_worker(int worker);
+void lace_set_workers(int workercount);
+int lace_enabled_workers();
 
 /**
  * Retrieve number of Lace workers
