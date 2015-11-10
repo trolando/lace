@@ -966,7 +966,7 @@ lace_sync_and_exec(WorkerP *__lace_worker, Task *__lace_dq_head, Task *root)
 
     // one worker sets t to 0 again
     if (LACE_WORKER_ID == 0) lace_newframe.t = 0;
-    // else while (*(volatile Task**)&lace_newframe.t != 0) {}
+    // else while (*(Task* volatile *)&lace_newframe.t != 0) {}
 
     // the above line is commented out since lace_exec_in_new_frame includes
     // a lace_barrier before the task is executed
@@ -986,7 +986,7 @@ lace_yield(WorkerP *__lace_worker, Task *__lace_dq_head)
 
     // one worker sets t to 0 again
     if (LACE_WORKER_ID == 0) lace_newframe.t = 0;
-    // else while (*(volatile Task**)&lace_newframe.t != 0) {}
+    // else while (*(Task* volatile *)&lace_newframe.t != 0) {}
 
     // the above line is commented out since lace_exec_in_new_frame includes
     // a lace_barrier before the task is executed
