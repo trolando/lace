@@ -468,7 +468,7 @@ int main(int argc, char *argv[])
     sprintf(filename, "cilksort-%ld.data", size);
     FILE *f = fopen(filename, "r");
     if (f != NULL) {
-        fread(array, sizeof(ELM), size, f);
+        if (fread(array, sizeof(ELM), size, f) != (unsigned)size) exit(1);
         fclose(f);
     } else {
         fill_array(array, size);

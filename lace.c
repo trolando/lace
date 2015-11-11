@@ -225,7 +225,8 @@ static void
 lace_barrier_destroy()
 {
     // wait for all to exit
-    for (int i=0; i<n_workers; i++) {
+    int i;
+    for (i=0; i<n_workers; i++) {
         while (1 == lace_bar.entered[i].val) {}
     }
 }
@@ -428,7 +429,8 @@ lace_set_workers(int workercount)
     enabled_workers = workercount;
     int self = lace_get_worker()->worker;
     if (self >= workercount) workercount--;
-    for (int i=0; i<n_workers; i++) {
+    int i;
+    for (i=0; i<n_workers; i++) {
         workers_p[i]->enabled = (i < workercount || i == self) ? 1 : 0;
     }
 }

@@ -46,11 +46,11 @@ int read_input(const char *filename, struct item *items, int *capacity, int *n)
         return -1;
     }
     /* format of the input: #items capacity value1 weight1 ... */
-    fscanf(f, "%d", n);
-    fscanf(f, "%d", capacity);
+    if (fscanf(f, "%d", n) != 1) return -1;
+    if (fscanf(f, "%d", capacity) != 1) return -1;
 
     for (i = 0; i < *n; ++i)
-        fscanf(f, "%d %d", &items[i].value, &items[i].weight);
+        if (fscanf(f, "%d %d", &items[i].value, &items[i].weight) != 3) return -1;
 
     fclose(f);
 
