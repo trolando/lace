@@ -219,6 +219,7 @@ typedef struct _WorkerP {
     Task *end;                  // dq+dq_size
     Worker *_public;            // pointer to public Worker struct
     size_t stack_trigger;       // for stack overflow detection
+    uint64_t rng;               // my random seed (for lace_trng)
     uint32_t seed;              // my random seed (for lace_steal_random)
     int16_t worker;             // what is my worker id?
     uint8_t allstolen;          // my allstolen
@@ -390,6 +391,11 @@ void lace_do_newframe(WorkerP *__lace_worker, Task *__lace_dq_head, Task *task);
 
 void lace_yield(WorkerP *__lace_worker, Task *__lace_dq_head);
 #define YIELD_NEWFRAME() { if (unlikely((*(Task* volatile *)&lace_newframe.t) != NULL)) lace_yield(__lace_worker, __lace_dq_head); }
+
+/**
+ * Compute a random number, thread-local
+ */
+#define LACE_TRNG (__lace_worker->rng = 2862933555777941757ULL * __lace_worker->rng + 3037000493ULL)
 
 #if LACE_PIE_TIMES
 static void lace_time_event( WorkerP *w, int event )

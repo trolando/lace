@@ -288,6 +288,7 @@ lace_init_worker(int worker, size_t dq_size)
     } else {
         w->stack_trigger = 0;
     }
+    w->rng = (((uint64_t)rand())<<32 | rand());
 
 #if LACE_COUNT_EVENTS
     // Reset counters
