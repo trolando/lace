@@ -12,19 +12,24 @@ int __attribute__((noinline)) loop()
 
     for( i=0; i<n; i++ ) {
         s += i;
+        s *= i;
+        s ^= i;
+        s *= i;
+        s += i;
     }
 
     return s;
 }
 
-VOID_TASK_1(tree, int, d)
+TASK_1(int, tree, int, d)
 {
     if( d>0 ) {
         int i;
         for (i=0;i<w;i++) SPAWN(tree, d-1);
         for (i=0;i<w;i++) SYNC(tree);
+        return 0;
     } else {
-        loop();
+        return loop();
     }
 }
 
