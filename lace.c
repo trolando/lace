@@ -554,9 +554,10 @@ VOID_TASK_IMPL_1(lace_steal_loop, int*, quit)
 }
 
 static void*
-lace_default_worker(void* arg)
+lace_default_worker_thread(void* arg)
 {
     size_t worker = (size_t)arg;
+
 #if USE_HWLOC
     // Get our logical processor
     hwloc_obj_t pu = hwloc_get_obj_by_type(topo, HWLOC_OBJ_PU, worker % n_pus);
@@ -565,6 +566,7 @@ lace_default_worker(void* arg)
     hwloc_set_cpubind(topo, pu->cpuset, HWLOC_CPUBIND_THREAD);
 #endif
 
+    // Initialize local datastructure
     lace_init_worker(worker);
     WorkerP *__lace_worker = lace_get_worker();
     Task *__lace_dq_head = __lace_worker->dq;
@@ -615,7 +617,7 @@ lace_spawn_worker(int worker, size_t stacksize, void* (*fun)(void*), void* arg)
     workers_init[worker].stacksize = stacksize;
 
     if (fun == 0) {
-        fun = lace_default_worker;
+        fun = lace_default_worker_thread;
         arg = (void*)(size_t)worker;
     }
 
