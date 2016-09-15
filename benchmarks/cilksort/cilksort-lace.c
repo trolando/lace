@@ -54,7 +54,7 @@
  * log factor in the critical path (left as homework).
  */
 
-#include <lace-5.h>
+#include <lace.h>
 #include <sys/time.h>
 #include <stdio.h>
 #include <stdlib.h>

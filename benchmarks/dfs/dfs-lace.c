@@ -2,7 +2,7 @@
 #include <stdlib.h>
 #include <sys/time.h>
 #include <getopt.h>
-#include <lace-1.h>
+#include <lace.h>
 
 static int w, n;
 

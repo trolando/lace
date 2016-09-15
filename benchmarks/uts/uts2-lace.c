@@ -20,7 +20,7 @@
 #include <time.h> /* for nanosleep */
 
 #include "uts.h"
-#include "lace-2.h"
+#include "lace.h"
 
 #define GET_NUM_THREADS  1
 #define GET_THREAD_NUM   0

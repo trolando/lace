@@ -1,4 +1,4 @@
-#include "lace-1.h"
+#include "lace.h"
 #include <stdio.h> // for printf, fprintf
 #include <stdlib.h> // for exit, atoi
 #include <sys/time.h>

@@ -1,4 +1,4 @@
-#include "lace-2.h"
+#include "lace.h"
 #include <math.h>
 #include <stdio.h> // for printf, fprintf
 #include <stdlib.h> // for exit, atol
