@@ -244,7 +244,7 @@ lace_check_memory(void)
 #endif
 }
 
-void
+WorkerP *
 lace_init_worker(int worker)
 {
 #if USE_HWLOC
@@ -271,7 +271,7 @@ lace_init_worker(int worker)
 
     // Initialize private worker data
     w->_public = wt;
-    w->end = w->dq + dq_size;
+    w->end = w->dq + default_dqsize;
     w->split = w->dq;
     w->allstolen = 0;
     w->worker = worker;
@@ -307,6 +307,8 @@ lace_init_worker(int worker)
     w->time = gethrtime();
     w->level = 0;
 #endif
+
+    return w;
 }
 
 #if defined(__APPLE__) && !defined(pthread_barrier_t)
@@ -456,7 +458,7 @@ rng(uint32_t *seed, int max)
     return next % max;
 }
 
-VOID_TASK_IMPL_0(lace_steal_random)
+VOID_TASK_0(lace_steal_random)
 {
     Worker *victim = workers[(__lace_worker->worker + 1 + rng(&__lace_worker->seed, n_workers-1)) % n_workers];
 
@@ -471,7 +473,7 @@ VOID_TASK_IMPL_0(lace_steal_random)
     }
 }
 
-VOID_TASK_IMPL_1(lace_steal_random_loop, int*, quit)
+VOID_TASK_1(lace_steal_random_loop, int*, quit)
 {
     while(!(*(volatile int*)quit)) {
         lace_steal_random();
@@ -490,22 +492,19 @@ static lace_startup_cb main_cb;
 static void*
 lace_main_wrapper(void *arg)
 {
-    lace_init_worker(0);
-    WorkerP *self = lace_get_worker();
-
-#if LACE_PIE_TIMES
-    self->time = gethrtime();
-#endif
-
-    lace_time_event(self, 1);
-    main_cb(self, self->dq, arg);
+    lace_init_main();
+    LACE_ME;
+    WRAP(main_cb, arg);
     lace_exit();
+
+    // Now signal that we're done
     pthread_cond_broadcast(&wait_until_done);
 
     return NULL;
 }
 
-VOID_TASK_IMPL_1(lace_steal_loop, int*, quit)
+#define lace_steal_loop(quit) CALL(lace_steal_loop, quit)
+VOID_TASK_1(lace_steal_loop, int*, quit)
 {
     // Determine who I am
     const int worker_id = __lace_worker->worker;
@@ -554,16 +553,43 @@ VOID_TASK_IMPL_1(lace_steal_loop, int*, quit)
     }
 }
 
-static void*
-lace_default_worker(void* arg)
+/**
+ * Initialize worker 0.
+ */
+void
+lace_init_main()
 {
-    size_t worker = (size_t)arg;
-    lace_init_worker(worker);
-    WorkerP *__lace_worker = lace_get_worker();
+    WorkerP * __attribute__((unused)) __lace_worker = lace_init_worker(0);
+    lace_time_event(__lace_worker, 1);
+}
+
+/**
+ * Initialize the current thread as a Lace thread, and perform work-stealing
+ * as worker <worker> until lace_exit() is called.
+ *
+ * For worker 0, use lace_init_main
+ */
+void
+lace_run_worker(int worker)
+{
+    // Initialize local datastructure
+    WorkerP *__lace_worker = lace_init_worker(worker);
     Task *__lace_dq_head = __lace_worker->dq;
+
+    // Steal for a while
     lace_steal_loop(&lace_quits);
+
+    // Time the quit event
     lace_time_event(__lace_worker, 9);
+
+    // Synchronize with lace_exit
     lace_barrier();
+}
+
+static void*
+lace_default_worker_thread(void* arg)
+{
+    lace_run_worker((int)(size_t)arg);
     return NULL;
 }
 
@@ -608,7 +634,7 @@ lace_spawn_worker(int worker, size_t stacksize, void* (*fun)(void*), void* arg)
     workers_init[worker].stacksize = stacksize;
 
     if (fun == 0) {
-        fun = lace_default_worker;
+        fun = lace_default_worker_thread;
         arg = (void*)(size_t)worker;
     }
 
@@ -969,7 +995,7 @@ lace_exec_in_new_frame(WorkerP *__lace_worker, Task *__lace_dq_head, Task *root)
     }
 }
 
-VOID_TASK_IMPL_2(lace_steal_loop_root, Task*, t, int*, done)
+VOID_TASK_2(lace_steal_loop_root, Task*, t, int*, done)
 {
     t->f(__lace_worker, __lace_dq_head, t);
     *done = 1;
