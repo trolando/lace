@@ -225,9 +225,31 @@ lace_barrier_destroy()
     }
 }
 
+static void
+lace_check_memory(void)
+{
+#if USE_HWLOC
+    hwloc_cpuset_t memset = hwloc_bitmap_alloc();
+    hwloc_cpuset_t cpuset = hwloc_bitmap_alloc();
+    hwloc_get_cpubind(topo, cpuset, HWLOC_CPUBIND_THREAD);
+    hwloc_membind_policy_t policy;
+    hwloc_get_area_membind(topo, workers_memory[0], 1, memset, &policy, 0);
+    if (!hwloc_bitmap_isincluded(cpuset, memset)) {
+        fprintf(stderr, "Lace warning: Lace thread not on same memory domain as data!\n");
+    }
+    hwloc_bitmap_free(memset);
+    hwloc_bitmap_free(cpuset);
+#else
+    // noop
+#endif
+}
+
 void
 lace_init_worker(int worker)
 {
+    // Check if we are on the correct node
+    lace_check_memory();
+
     // Get allocated memory
     Worker *wt = &workers_memory[worker]->worker_public;
     WorkerP *w = &workers_memory[worker]->worker_private;
