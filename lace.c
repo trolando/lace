@@ -228,14 +228,6 @@ lace_barrier_destroy()
 void
 lace_init_worker(int worker)
 {
-#if USE_HWLOC
-    // Get our logical processor
-    hwloc_obj_t pu = hwloc_get_obj_by_type(topo, HWLOC_OBJ_PU, worker % n_pus);
-
-    // Pin our thread...
-    hwloc_set_cpubind(topo, pu->cpuset, HWLOC_CPUBIND_THREAD);
-#endif
-
     // Get allocated memory
     Worker *wt = &workers_memory[worker]->worker_public;
     WorkerP *w = &workers_memory[worker]->worker_private;
@@ -468,6 +460,13 @@ static lace_startup_cb main_cb;
 static void*
 lace_main_wrapper(void *arg)
 {
+#if USE_HWLOC
+    // Get our logical processor
+    hwloc_obj_t pu = hwloc_get_obj_by_type(topo, HWLOC_OBJ_PU, 0);
+    // Pin our thread...
+    hwloc_set_cpubind(topo, pu->cpuset, HWLOC_CPUBIND_THREAD);
+#endif
+
     lace_init_worker(0);
     WorkerP *self = lace_get_worker();
 
@@ -536,6 +535,14 @@ static void*
 lace_default_worker(void* arg)
 {
     size_t worker = (size_t)arg;
+#if USE_HWLOC
+    // Get our logical processor
+    hwloc_obj_t pu = hwloc_get_obj_by_type(topo, HWLOC_OBJ_PU, worker % n_pus);
+
+    // Pin our thread...
+    hwloc_set_cpubind(topo, pu->cpuset, HWLOC_CPUBIND_THREAD);
+#endif
+
     lace_init_worker(worker);
     WorkerP *__lace_worker = lace_get_worker();
     Task *__lace_dq_head = __lace_worker->dq;
@@ -745,6 +752,13 @@ lace_startup(size_t stacksize, lace_startup_cb cb, void *arg)
         pthread_cond_wait(&wait_until_done, &wait_until_done_mutex);
         pthread_mutex_unlock(&wait_until_done_mutex);
     } else {
+#if USE_HWLOC
+        // Get our logical processor
+        hwloc_obj_t pu = hwloc_get_obj_by_type(topo, HWLOC_OBJ_PU, 0);
+
+        // Pin our thread...
+        hwloc_set_cpubind(topo, pu->cpuset, HWLOC_CPUBIND_THREAD);
+#endif
         // use this thread as worker and return control
         lace_init_worker(0);
         lace_time_event(lace_get_worker(), 1);
