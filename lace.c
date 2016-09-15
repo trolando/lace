@@ -215,12 +215,12 @@ lace_barrier_destroy()
 }
 
 void
-lace_init_worker(int worker, size_t dq_size)
+lace_init_worker(int worker)
 {
     Worker *wt = NULL;
     WorkerP *w = NULL;
 
-    if (dq_size == 0) dq_size = default_dqsize;
+    size_t dq_size = default_dqsize;
 
     // Allocate memory
     size_t w_size = ROUND(sizeof(Worker), LINE_SIZE);
@@ -476,7 +476,7 @@ static lace_startup_cb main_cb;
 static void*
 lace_main_wrapper(void *arg)
 {
-    lace_init_worker(0, 0);
+    lace_init_worker(0);
     WorkerP *self = lace_get_worker();
 
 #if LACE_PIE_TIMES
@@ -543,7 +543,8 @@ VOID_TASK_IMPL_1(lace_steal_loop, int*, quit)
 static void*
 lace_default_worker(void* arg)
 {
-    lace_init_worker((size_t)arg, 0);
+    size_t worker = (size_t)arg;
+    lace_init_worker(worker);
     WorkerP *__lace_worker = lace_get_worker();
     Task *__lace_dq_head = __lace_worker->dq;
     lace_steal_loop(&lace_quits);
@@ -727,7 +728,7 @@ lace_startup(size_t stacksize, lace_startup_cb cb, void *arg)
         pthread_mutex_unlock(&wait_until_done_mutex);
     } else {
         // use this thread as worker and return control
-        lace_init_worker(0, 0);
+        lace_init_worker(0);
         lace_time_event(lace_get_worker(), 1);
     }
 }
