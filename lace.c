@@ -37,7 +37,7 @@
 #endif
 
 // public Worker data
-static Worker **workers;
+static Worker **workers = NULL;
 static size_t default_stacksize = 0; // set by lace_init
 static size_t default_dqsize = 100000;
 
@@ -50,6 +50,17 @@ static int verbosity = 0;
 
 static int n_workers = 0;
 static int enabled_workers = 0;
+
+typedef struct {
+    Worker worker_public;
+    char pad1[PAD(sizeof(Worker), LINE_SIZE)];
+    WorkerP worker_private;
+    char pad2[PAD(sizeof(WorkerP), LINE_SIZE)];
+    Task deque[];
+} worker_data;
+
+static worker_data **workers_memory = NULL;
+static size_t workers_memory_size = 0;
 
 // private Worker data (just for stats at end )
 static WorkerP **workers_p;
@@ -217,35 +228,18 @@ lace_barrier_destroy()
 void
 lace_init_worker(int worker)
 {
-    Worker *wt = NULL;
-    WorkerP *w = NULL;
-
-    size_t dq_size = default_dqsize;
-
-    // Allocate memory
-    size_t w_size = ROUND(sizeof(Worker), LINE_SIZE);
-    size_t wp_size = ROUND(sizeof(WorkerP), LINE_SIZE);
-    size_t mem_size = w_size + wp_size + sizeof(Task) * dq_size;
-    void *mem = mmap(NULL, w_size + wp_size + sizeof(Task) * dq_size, PROT_READ|PROT_WRITE, MAP_PRIVATE|MAP_ANONYMOUS, -1, 0);
-    if (mem == MAP_FAILED) {
-        fprintf(stderr, "Lace error: Unable to allocate memory for the Lace worker!\n");
-        exit(1);
-    }
-
 #if USE_HWLOC
     // Get our logical processor
     hwloc_obj_t pu = hwloc_get_obj_by_type(topo, HWLOC_OBJ_PU, worker % n_pus);
 
     // Pin our thread...
     hwloc_set_cpubind(topo, pu->cpuset, HWLOC_CPUBIND_THREAD);
-
-    // Pin our data...
-    hwloc_set_area_membind(topo, mem, mem_size, pu->cpuset, HWLOC_MEMBIND_BIND, 0);
 #endif
 
-    wt = (Worker *)mem;
-    w = (WorkerP *)(mem + w_size);
-    w->dq = (Task*)(mem + w_size + wp_size);
+    // Get allocated memory
+    Worker *wt = &workers_memory[worker]->worker_public;
+    WorkerP *w = &workers_memory[worker]->worker_private;
+    w->dq = workers_memory[worker]->deque;
 
     // Initialize public worker data
     wt->dq = w->dq;
@@ -283,8 +277,6 @@ lace_init_worker(int worker)
 #else
     pthread_setspecific(worker_key, w);
 #endif
-    workers[worker] = wt;
-    workers_p[worker] = w;
 
     // Synchronize with others
     lace_barrier();
@@ -634,6 +626,7 @@ void
 lace_init(int _n_workers, size_t dqsize)
 {
 #if USE_HWLOC
+    // Initialize topology and information about cpus
     hwloc_topology_init(&topo);
     hwloc_topology_load(topo);
 
@@ -657,10 +650,35 @@ lace_init(int _n_workers, size_t dqsize)
 
     // Allocate array with all workers
     if (posix_memalign((void**)&workers, LINE_SIZE, n_workers*sizeof(Worker*)) != 0 ||
-        posix_memalign((void**)&workers_p, LINE_SIZE, n_workers*sizeof(WorkerP*)) != 0) {
+        posix_memalign((void**)&workers_p, LINE_SIZE, n_workers*sizeof(WorkerP*)) != 0 ||
+        posix_memalign((void**)&workers_memory, LINE_SIZE, n_workers*sizeof(worker_data*)) != 0) {
         fprintf(stderr, "Lace error: unable to allocate memory!\n");
         exit(1);
     }
+
+    // Allocate memory for each worker
+    workers_memory_size = sizeof(worker_data) + sizeof(Task) * dqsize;
+
+    for (int i=0; i<n_workers; i++) {
+        workers_memory[i] = mmap(NULL, workers_memory_size, PROT_READ|PROT_WRITE, MAP_PRIVATE|MAP_ANONYMOUS, -1, 0);
+        if (workers_memory[i] == MAP_FAILED) {
+            fprintf(stderr, "Lace error: Unable to allocate memory for the Lace worker!\n");
+            exit(1);
+        }
+        workers[i] = &workers_memory[i]->worker_public;
+        workers_p[i] = &workers_memory[i]->worker_private;
+    }
+
+#if USE_HWLOC
+    // Pin allocated memory of each worker
+    for (int i=0; i<n_workers; i++) {
+        // Get our logical processor
+        hwloc_obj_t pu = hwloc_get_obj_by_type(topo, HWLOC_OBJ_PU, i % n_pus);
+
+        // Pin the memory area
+        hwloc_set_area_membind(topo, workers_memory[i], workers_memory_size, pu->cpuset, HWLOC_MEMBIND_BIND, 0);
+    }
+#endif
 
     // Create pthread key
 #ifndef __linux__
