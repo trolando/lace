@@ -5,7 +5,8 @@ if [ "$1" -le 1 ] ; then k=2; else k=$1; fi
 
 # Copyright notice:
 echo "/* 
- * Copyright 2013-2015 Formal Methods and Tools, University of Twente
+ * Copyright 2013-2016 Formal Methods and Tools, University of Twente
+ * Copyright 2016 Tom van Dijk, Johannes Kepler University Linz
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
