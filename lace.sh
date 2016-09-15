@@ -397,6 +397,19 @@ void lace_yield(WorkerP *__lace_worker, Task *__lace_dq_head);
  */
 #define LACE_TRNG (__lace_worker->rng = 2862933555777941757ULL * __lace_worker->rng + 3037000493ULL)
 
+/**
+ * Make all tasks of the current worker shared.
+ */
+#define LACE_MAKE_ALL_SHARED() lace_make_all_shared(__lace_worker, __lace_dq_head)
+static inline void __attribute__((unused))
+lace_make_all_shared( WorkerP *w, Task *__lace_dq_head)
+{
+    if (w->split != __lace_dq_head) {
+        w->split = __lace_dq_head;
+        w->_public->ts.ts.split = __lace_dq_head - w->dq;
+    }
+}
+
 #if LACE_PIE_TIMES
 static void lace_time_event( WorkerP *w, int event )
 {
