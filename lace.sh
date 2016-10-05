@@ -414,6 +414,7 @@ lace_make_all_shared( WorkerP *w, Task *__lace_dq_head)
 #if LACE_PIE_TIMES
 static void lace_time_event( WorkerP *w, int event )
 {
+    printf("lace event %d\n", event);
     uint64_t now = gethrtime(),
              prev = w->time;
 

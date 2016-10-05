@@ -299,6 +299,9 @@ lace_init_worker(int worker)
     w->time = gethrtime();
     w->level = 0;
 #endif
+
+    // If we are worker 0, record initialization time
+    if (worker == 0) lace_time_event(w, 1);
 }
 
 #if defined(__APPLE__) && !defined(pthread_barrier_t)
@@ -491,12 +494,6 @@ lace_main_wrapper(void *arg)
 
     lace_init_worker(0);
     WorkerP *self = lace_get_worker();
-
-#if LACE_PIE_TIMES
-    self->time = gethrtime();
-#endif
-
-    lace_time_event(self, 1);
     main_cb(self, self->dq, arg);
     lace_exit();
     pthread_cond_broadcast(&wait_until_done);
@@ -556,6 +553,7 @@ VOID_TASK_IMPL_1(lace_steal_loop, int*, quit)
 static void*
 lace_default_worker_thread(void* arg)
 {
+    // Get worker number
     size_t worker = (size_t)arg;
 
 #if USE_HWLOC
@@ -566,12 +564,17 @@ lace_default_worker_thread(void* arg)
     hwloc_set_cpubind(topo, pu->cpuset, HWLOC_CPUBIND_THREAD);
 #endif
 
-    // Initialize local datastructure
+    // Initialize datastructure for this worker
     lace_init_worker(worker);
-    WorkerP *__lace_worker = lace_get_worker();
-    Task *__lace_dq_head = __lace_worker->dq;
+
+    // Enter stealing
+    LACE_ME;
     lace_steal_loop(&lace_quits);
+
+    // Time quit
     lace_time_event(__lace_worker, 9);
+
+    // Synchronize with lace_quit
     lace_barrier();
     return NULL;
 }
@@ -785,7 +788,6 @@ lace_startup(size_t stacksize, lace_startup_cb cb, void *arg)
 #endif
         // use this thread as worker and return control
         lace_init_worker(0);
-        lace_time_event(lace_get_worker(), 1);
     }
 }
 
