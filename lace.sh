@@ -160,16 +160,12 @@ typedef enum {
     CTR_fast_sync,   /* Number of fast syncs */
     CTR_slow_sync,   /* Number of slow syncs */
 #ifdef LACE_PIE_TIMES
-    CTR_init,        /* Timer for initialization */
-    CTR_close,       /* Timer for shutdown */
     CTR_wapp,        /* Timer for application code (steal) */
     CTR_lapp,        /* Timer for application code (leap) */
     CTR_wsteal,      /* Timer for steal code (steal) */
     CTR_lsteal,      /* Timer for steal code (leap) */
     CTR_wstealsucc,  /* Timer for succesful steal code (steal) */
     CTR_lstealsucc,  /* Timer for succesful steal code (leap) */
-    CTR_wsignal,     /* Timer for signal after work (steal) */
-    CTR_lsignal,     /* Timer for signal after work (leap) */
 #endif
     CTR_MAX
 } CTR_index;
@@ -418,14 +414,15 @@ static void lace_time_event( WorkerP *w, int event )
     uint64_t now = gethrtime(),
              prev = w->time;
 
+    // Level 1: normal steals
+    // Level +: leapfrogging
+
     switch( event ) {
 
-        // Enter application code
-        case 1 :
-            if(  w->level /* level */ == 0 ) {
-                PR_ADD( w, CTR_init, now - prev );
-                w->level = 1;
-            } else if( w->level /* level */ == 1 ) {
+        // Leave Lace code
+        // Enter application code to run stolen task
+        case 1:
+            if (w->level == 1) {
                 PR_ADD( w, CTR_wsteal, now - prev );
                 PR_ADD( w, CTR_wstealsucc, now - prev );
             } else {
@@ -434,18 +431,19 @@ static void lace_time_event( WorkerP *w, int event )
             }
             break;
 
-            // Exit application code
+        // Exit application code after stolen task
+        // Enter Lace code
         case 2 :
-            if( w->level /* level */ == 1 ) {
+            if (w->level == 1 ) {
                 PR_ADD( w, CTR_wapp, now - prev );
             } else {
                 PR_ADD( w, CTR_lapp, now - prev );
             }
             break;
 
-            // Enter sync on stolen
+        // Enter leapfrog
         case 3 :
-            if( w->level /* level */ == 1 ) {
+            if (w->level == 1) {
                 PR_ADD( w, CTR_wapp, now - prev );
             } else {
                 PR_ADD( w, CTR_lapp, now - prev );
@@ -453,45 +451,24 @@ static void lace_time_event( WorkerP *w, int event )
             w->level++;
             break;
 
-            // Exit sync on stolen
+        // Exit leapfrog
         case 4 :
-            if( w->level /* level */ == 1 ) {
-                fprintf( stderr, "This should not happen, level = %d\n", w->level );
-            } else {
-                PR_ADD( w, CTR_lsteal, now - prev );
-            }
+            PR_ADD( w, CTR_lsteal, now - prev );
             w->level--;
             break;
 
-            // Return from failed steal
+        // Return from failed steal
         case 7 :
-            if( w->level /* level */ == 0 ) {
-                PR_ADD( w, CTR_init, now - prev );
-            } else if( w->level /* level */ == 1 ) {
+            if (w->level == 1) {
                 PR_ADD( w, CTR_wsteal, now - prev );
             } else {
                 PR_ADD( w, CTR_lsteal, now - prev );
             }
             break;
 
-            // Signalling time
-        case 8 :
-            if( w->level /* level */ == 1 ) {
-                PR_ADD( w, CTR_wsignal, now - prev );
-                PR_ADD( w, CTR_wsteal, now - prev );
-            } else {
-                PR_ADD( w, CTR_lsignal, now - prev );
-                PR_ADD( w, CTR_lsteal, now - prev );
-            }
-            break;
-
-            // Done
+        // Done
         case 9 :
-            if( w->level /* level */ == 0 ) {
-                PR_ADD( w, CTR_init, now - prev );
-            } else {
-                PR_ADD( w, CTR_close, now - prev );
-            }
+            PR_ADD( w, CTR_close, now - prev );
             break;
 
         default: return;
@@ -525,7 +502,6 @@ lace_steal(WorkerP *self, Task *__dq_head, Worker *victim)
                 t->f(self, __dq_head, t);
                 lace_time_event(self, 2);
                 t->thief = THIEF_COMPLETED;
-                lace_time_event(self, 8);
                 return LACE_STOLEN;
             }
 

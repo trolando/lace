@@ -153,8 +153,6 @@ typedef enum {
     CTR_fast_sync,   /* Number of fast syncs */
     CTR_slow_sync,   /* Number of slow syncs */
 #ifdef LACE_PIE_TIMES
-    CTR_init,        /* Timer for initialization */
-    CTR_close,       /* Timer for shutdown */
     CTR_wapp,        /* Timer for application code (steal) */
     CTR_lapp,        /* Timer for application code (leap) */
     CTR_wsteal,      /* Timer for steal code (steal) */
@@ -411,14 +409,19 @@ static void lace_time_event( WorkerP *w, int event )
     uint64_t now = gethrtime(),
              prev = w->time;
 
+    // Level 0: before startup
+    // Level 1: startup, normal steals
+    // Level +: leapfrogging
+
     switch( event ) {
 
-        // Enter application code
-        case 1 :
-            if(  w->level /* level */ == 0 ) {
+        // Leave Lace code
+        // Enter application code to run stolen task
+        case 1:
+            if (w->level == 0) {
                 PR_ADD( w, CTR_init, now - prev );
                 w->level = 1;
-            } else if( w->level /* level */ == 1 ) {
+            } else if(w->level == 1) {
                 PR_ADD( w, CTR_wsteal, now - prev );
                 PR_ADD( w, CTR_wstealsucc, now - prev );
             } else {
@@ -427,18 +430,19 @@ static void lace_time_event( WorkerP *w, int event )
             }
             break;
 
-            // Exit application code
+        // Exit application code after stolen task
+        // Enter Lace code
         case 2 :
-            if( w->level /* level */ == 1 ) {
+            if (w->level == 1 ) {
                 PR_ADD( w, CTR_wapp, now - prev );
             } else {
                 PR_ADD( w, CTR_lapp, now - prev );
             }
             break;
 
-            // Enter sync on stolen
+        // Enter leapfrog
         case 3 :
-            if( w->level /* level */ == 1 ) {
+            if (w->level == 1) {
                 PR_ADD( w, CTR_wapp, now - prev );
             } else {
                 PR_ADD( w, CTR_lapp, now - prev );
@@ -446,30 +450,26 @@ static void lace_time_event( WorkerP *w, int event )
             w->level++;
             break;
 
-            // Exit sync on stolen
+        // Exit leapfrog
         case 4 :
-            if( w->level /* level */ == 1 ) {
-                fprintf( stderr, "This should not happen, level = %d\n", w->level );
-            } else {
-                PR_ADD( w, CTR_lsteal, now - prev );
-            }
+            PR_ADD( w, CTR_lsteal, now - prev );
             w->level--;
             break;
 
-            // Return from failed steal
+        // Return from failed steal
         case 7 :
-            if( w->level /* level */ == 0 ) {
+            if (w->level == 0) {
                 PR_ADD( w, CTR_init, now - prev );
-            } else if( w->level /* level */ == 1 ) {
+            } else if (w->level == 1) {
                 PR_ADD( w, CTR_wsteal, now - prev );
             } else {
                 PR_ADD( w, CTR_lsteal, now - prev );
             }
             break;
 
-            // Signalling time
+        // Time between things
         case 8 :
-            if( w->level /* level */ == 1 ) {
+            if (w->level == 1) {
                 PR_ADD( w, CTR_wsignal, now - prev );
                 PR_ADD( w, CTR_wsteal, now - prev );
             } else {
@@ -478,9 +478,9 @@ static void lace_time_event( WorkerP *w, int event )
             }
             break;
 
-            // Done
+        // Done
         case 9 :
-            if( w->level /* level */ == 0 ) {
+            if (w->level == 0) {
                 PR_ADD( w, CTR_init, now - prev );
             } else {
                 PR_ADD( w, CTR_close, now - prev );

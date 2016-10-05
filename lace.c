@@ -263,7 +263,7 @@ lace_init_worker(int worker)
 
     // Initialize private worker data
     w->_public = wt;
-    w->end = w->dq + dq_size;
+    w->end = w->dq + default_dqsize;
     w->split = w->dq;
     w->allstolen = 0;
     w->worker = worker;
@@ -297,11 +297,8 @@ lace_init_worker(int worker)
 
 #if LACE_PIE_TIMES
     w->time = gethrtime();
-    w->level = 0;
+    w->level = 1;
 #endif
-
-    // If we are worker 0, record initialization time
-    if (worker == 0) lace_time_event(w, 1);
 }
 
 #if defined(__APPLE__) && !defined(pthread_barrier_t)
@@ -509,10 +506,6 @@ VOID_TASK_IMPL_1(lace_steal_loop, int*, quit)
     // Prepare self, victim
     Worker ** const self = &workers[worker_id];
     Worker **victim = self;
-
-#if LACE_PIE_TIMES
-    __lace_worker->time = gethrtime();
-#endif
 
     uint32_t seed = worker_id;
     unsigned int n = n_workers;
@@ -919,6 +912,7 @@ lace_count_report_file(FILE *file)
 
 void lace_exit()
 {
+    // record time until lace_exit as application code (steal)
     lace_time_event(lace_get_worker(), 2);
 
     // first suspend all other threads
