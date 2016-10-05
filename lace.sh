@@ -263,24 +263,10 @@ void lace_startup(size_t stacksize, lace_startup_cb, void* arg);
 void lace_init_worker(int idx);
 
 /**
- * Manually spawn worker <idx> with (optional) program stack size <stacksize>.
- * If fun,arg are set, overrides default startup method.
- * Typically: for workers 1...(n_workers-1): lace_spawn_worker(i, stack_size, 0, 0);
- */
-pthread_t lace_spawn_worker(int idx, size_t stacksize, void *(*fun)(void*), void* arg);
-
-/**
  * Steal a random task.
  */
 #define lace_steal_random() CALL(lace_steal_random)
 void lace_steal_random_CALL(WorkerP*, Task*);
-
-/**
- * Steal random tasks until parameter *quit is set
- * Note: task declarations at end; quit is of type int*
- */
-#define lace_steal_random_loop(quit) CALL(lace_steal_random_loop, quit)
-#define lace_steal_loop(quit) CALL(lace_steal_loop, quit)
 
 /**
  * Barrier (all workers must enter it before progressing)
@@ -410,14 +396,14 @@ lace_make_all_shared( WorkerP *w, Task *__lace_dq_head)
 #if LACE_PIE_TIMES
 static void lace_time_event( WorkerP *w, int event )
 {
-    printf("lace event %d\n", event);
+    // printf("lace event %d\n", event);
     uint64_t now = gethrtime(),
              prev = w->time;
 
     // Level 1: normal steals
     // Level +: leapfrogging
 
-    switch( event ) {
+    switch (event) {
 
         // Leave Lace code
         // Enter application code to run stolen task
@@ -433,7 +419,7 @@ static void lace_time_event( WorkerP *w, int event )
 
         // Exit application code after stolen task
         // Enter Lace code
-        case 2 :
+        case 2:
             if (w->level == 1 ) {
                 PR_ADD( w, CTR_wapp, now - prev );
             } else {
@@ -442,7 +428,7 @@ static void lace_time_event( WorkerP *w, int event )
             break;
 
         // Enter leapfrog
-        case 3 :
+        case 3:
             if (w->level == 1) {
                 PR_ADD( w, CTR_wapp, now - prev );
             } else {
@@ -452,13 +438,13 @@ static void lace_time_event( WorkerP *w, int event )
             break;
 
         // Exit leapfrog
-        case 4 :
+        case 4:
             PR_ADD( w, CTR_lsteal, now - prev );
             w->level--;
             break;
 
         // Return from failed steal
-        case 7 :
+        case 7:
             if (w->level == 1) {
                 PR_ADD( w, CTR_wsteal, now - prev );
             } else {
@@ -466,12 +452,8 @@ static void lace_time_event( WorkerP *w, int event )
             }
             break;
 
-        // Done
-        case 9 :
-            PR_ADD( w, CTR_close, now - prev );
-            break;
-
-        default: return;
+        default:
+            return;
     }
 
     w->time = now;
@@ -825,11 +807,6 @@ done
 done
 
 echo "
-VOID_TASK_DECL_0(lace_steal_random);
-VOID_TASK_DECL_1(lace_steal_random_loop, int*);
-VOID_TASK_DECL_1(lace_steal_loop, int*);
-VOID_TASK_DECL_2(lace_steal_loop_root, Task *, int*);
-
 #ifdef __cplusplus
 }
 #endif /* __cplusplus */

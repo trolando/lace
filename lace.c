@@ -448,7 +448,7 @@ rng(uint32_t *seed, int max)
     return next % max;
 }
 
-VOID_TASK_IMPL_0(lace_steal_random)
+VOID_TASK_0(lace_steal_random)
 {
     Worker *victim = workers[(__lace_worker->worker + 1 + rng(&__lace_worker->seed, n_workers-1)) % n_workers];
 
@@ -460,20 +460,6 @@ VOID_TASK_IMPL_0(lace_steal_random)
         PR_COUNTSTEALS(__lace_worker, CTR_steals);
     } else if (res == LACE_BUSY) {
         PR_COUNTSTEALS(__lace_worker, CTR_steal_busy);
-    }
-}
-
-VOID_TASK_IMPL_1(lace_steal_random_loop, int*, quit)
-{
-    while(!(*(volatile int*)quit)) {
-        lace_steal_random();
-
-        if (must_suspend) {
-            lace_barrier();
-            do {
-                pthread_barrier_wait(&suspend_barrier);
-            } while (__lace_worker->enabled == 0);
-        }
     }
 }
 
@@ -498,7 +484,7 @@ lace_main_wrapper(void *arg)
     return NULL;
 }
 
-VOID_TASK_IMPL_1(lace_steal_loop, int*, quit)
+VOID_TASK_1(lace_steal_loop, int*, quit)
 {
     // Determine who I am
     const int worker_id = __lace_worker->worker;
@@ -562,7 +548,7 @@ lace_default_worker_thread(void* arg)
 
     // Enter stealing
     LACE_ME;
-    lace_steal_loop(&lace_quits);
+    CALL(lace_steal_loop, &lace_quits);
 
     // Time quit
     lace_time_event(__lace_worker, 9);
@@ -572,7 +558,7 @@ lace_default_worker_thread(void* arg)
     return NULL;
 }
 
-pthread_t
+static pthread_t
 lace_spawn_worker(int worker, size_t stacksize, void* (*fun)(void*), void* arg)
 {
     // Determine stack size
@@ -852,10 +838,11 @@ lace_count_report_file(FILE *file)
 
 #if LACE_COUNT_STEALS && LACE_COUNT_TASKS
     for (i=0;i<n_workers;i++) {
-        fprintf(file, "Tasks per steal (%d): %zu\n", i,
-            workers_p[i]->ctr[CTR_tasks]/(workers_p[i]->ctr[CTR_steals]+workers_p[i]->ctr[CTR_leaps]));
+        size_t steals = (workers_p[i]->ctr[CTR_steals]+workers_p[i]->ctr[CTR_leaps]);
+        if (steals != 0) fprintf(file, "Tasks per steal (%d): %zu\n", i, workers_p[i]->ctr[CTR_tasks]/steals);
     }
-    fprintf(file, "Tasks per steal (sum): %zu\n", ctr_all[CTR_tasks]/(ctr_all[CTR_steals]+ctr_all[CTR_leaps]));
+    size_t steals = ctr_all[CTR_steals]+ctr_all[CTR_leaps];
+    if (steals != 0) fprintf(file, "Tasks per steal (sum): %zu\n", ctr_all[CTR_tasks]/(ctr_all[CTR_steals]+ctr_all[CTR_leaps]));
     fprintf(file, "\n");
 #endif
 
@@ -876,33 +863,29 @@ lace_count_report_file(FILE *file)
     double dcpm = (double)count_per_ms;
 
     uint64_t sum_count;
-    sum_count = ctr_all[CTR_init] + ctr_all[CTR_wapp] + ctr_all[CTR_lapp] + ctr_all[CTR_wsteal] + ctr_all[CTR_lsteal]
-              + ctr_all[CTR_close] + ctr_all[CTR_wstealsucc] + ctr_all[CTR_lstealsucc] + ctr_all[CTR_wsignal]
-              + ctr_all[CTR_lsignal];
+    sum_count = ctr_all[CTR_wapp] + ctr_all[CTR_lapp] +
+                ctr_all[CTR_wsteal] + ctr_all[CTR_lsteal] +
+                ctr_all[CTR_wstealsucc] + ctr_all[CTR_lstealsucc];
 
     fprintf(file, "Measured clock (tick) frequency: %.2f GHz\n", count_per_ms / 1000000.0);
     fprintf(file, "Aggregated time per pie slice, total time: %.2f CPU seconds\n\n", sum_count / (1000*dcpm));
 
     for (i=0;i<n_workers;i++) {
-        fprintf(file, "Startup time (%d):    %10.2f ms\n", i, workers_p[i]->ctr[CTR_init] / dcpm);
         fprintf(file, "Steal work (%d):      %10.2f ms\n", i, workers_p[i]->ctr[CTR_wapp] / dcpm);
         fprintf(file, "Leap work (%d):       %10.2f ms\n", i, workers_p[i]->ctr[CTR_lapp] / dcpm);
-        fprintf(file, "Steal overhead (%d):  %10.2f ms\n", i, (workers_p[i]->ctr[CTR_wstealsucc]+workers_p[i]->ctr[CTR_wsignal]) / dcpm);
-        fprintf(file, "Leap overhead (%d):   %10.2f ms\n", i, (workers_p[i]->ctr[CTR_lstealsucc]+workers_p[i]->ctr[CTR_lsignal]) / dcpm);
-        fprintf(file, "Steal search (%d):    %10.2f ms\n", i, (workers_p[i]->ctr[CTR_wsteal]-workers_p[i]->ctr[CTR_wstealsucc]-workers_p[i]->ctr[CTR_wsignal]) / dcpm);
-        fprintf(file, "Leap search (%d):     %10.2f ms\n", i, (workers_p[i]->ctr[CTR_lsteal]-workers_p[i]->ctr[CTR_lstealsucc]-workers_p[i]->ctr[CTR_lsignal]) / dcpm);
-        fprintf(file, "Exit time (%d):       %10.2f ms\n", i, workers_p[i]->ctr[CTR_close] / dcpm);
+        fprintf(file, "Steal overhead (%d):  %10.2f ms\n", i, (workers_p[i]->ctr[CTR_wstealsucc]) / dcpm);
+        fprintf(file, "Leap overhead (%d):   %10.2f ms\n", i, (workers_p[i]->ctr[CTR_lstealsucc]) / dcpm);
+        fprintf(file, "Steal search (%d):    %10.2f ms\n", i, (workers_p[i]->ctr[CTR_wsteal]-workers_p[i]->ctr[CTR_wstealsucc]) / dcpm);
+        fprintf(file, "Leap search (%d):     %10.2f ms\n", i, (workers_p[i]->ctr[CTR_lsteal]-workers_p[i]->ctr[CTR_lstealsucc]) / dcpm);
         fprintf(file, "\n");
     }
 
-    fprintf(file, "Startup time (sum):    %10.2f ms\n", ctr_all[CTR_init] / dcpm);
     fprintf(file, "Steal work (sum):      %10.2f ms\n", ctr_all[CTR_wapp] / dcpm);
     fprintf(file, "Leap work (sum):       %10.2f ms\n", ctr_all[CTR_lapp] / dcpm);
-    fprintf(file, "Steal overhead (sum):  %10.2f ms\n", (ctr_all[CTR_wstealsucc]+ctr_all[CTR_wsignal]) / dcpm);
-    fprintf(file, "Leap overhead (sum):   %10.2f ms\n", (ctr_all[CTR_lstealsucc]+ctr_all[CTR_lsignal]) / dcpm);
-    fprintf(file, "Steal search (sum):    %10.2f ms\n", (ctr_all[CTR_wsteal]-ctr_all[CTR_wstealsucc]-ctr_all[CTR_wsignal]) / dcpm);
-    fprintf(file, "Leap search (sum):     %10.2f ms\n", (ctr_all[CTR_lsteal]-ctr_all[CTR_lstealsucc]-ctr_all[CTR_lsignal]) / dcpm);
-    fprintf(file, "Exit time (sum):       %10.2f ms\n", ctr_all[CTR_close] / dcpm);
+    fprintf(file, "Steal overhead (sum):  %10.2f ms\n", (ctr_all[CTR_wstealsucc]) / dcpm);
+    fprintf(file, "Leap overhead (sum):   %10.2f ms\n", (ctr_all[CTR_lstealsucc]) / dcpm);
+    fprintf(file, "Steal search (sum):    %10.2f ms\n", (ctr_all[CTR_wsteal]-ctr_all[CTR_wstealsucc]) / dcpm);
+    fprintf(file, "Leap search (sum):     %10.2f ms\n", (ctr_all[CTR_lsteal]-ctr_all[CTR_lstealsucc]) / dcpm);
     fprintf(file, "\n" );
 #endif
 #endif
@@ -981,7 +964,7 @@ lace_exec_in_new_frame(WorkerP *__lace_worker, Task *__lace_dq_head, Task *root)
     }
 }
 
-VOID_TASK_IMPL_2(lace_steal_loop_root, Task*, t, int*, done)
+VOID_TASK_2(lace_steal_loop_root, Task*, t, int*, done)
 {
     t->f(__lace_worker, __lace_dq_head, t);
     *done = 1;
