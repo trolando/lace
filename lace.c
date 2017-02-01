@@ -173,19 +173,9 @@ us_elapsed(void)
 #endif
 
 /* Barrier */
-#define BARRIER_MAX_THREADS 128
-
-typedef union __attribute__((__packed__))
-{
-    volatile size_t val;
-    char            pad[LINE_SIZE];
-} asize_t;
-
 typedef struct {
     volatile int __attribute__((aligned(LINE_SIZE))) count;
     volatile int __attribute__((aligned(LINE_SIZE))) wait;
-    /* the following is needed only for destroy: */
-    asize_t             entered[BARRIER_MAX_THREADS];
 } barrier_t;
 
 barrier_t lace_bar;
@@ -193,25 +183,19 @@ barrier_t lace_bar;
 void
 lace_barrier()
 {
-    int id = lace_get_worker()->worker;
-
-    lace_bar.entered[id].val = 1; // signal entry
-
     int wait = lace_bar.wait;
     if (enabled_workers == __sync_add_and_fetch(&lace_bar.count, 1)) {
-        lace_bar.count = 0; // reset counter
         lace_bar.wait = 1 - wait; // flip wait
-        lace_bar.entered[id].val = 0; // signal exit
     } else {
         while (wait == lace_bar.wait) {} // wait
-        lace_bar.entered[id].val = 0; // signal exit
     }
+
+    __sync_add_and_fetch(&lace_bar.count, -1);
 }
 
 static void
 lace_barrier_init()
 {
-    assert(n_workers <= BARRIER_MAX_THREADS);
     memset(&lace_bar, 0, sizeof(barrier_t));
 }
 
@@ -219,10 +203,7 @@ static void
 lace_barrier_destroy()
 {
     // wait for all to exit
-    int i;
-    for (i=0; i<n_workers; i++) {
-        while (1 == lace_bar.entered[i].val) {}
-    }
+    while (lace_bar.count != 0) continue;
 }
 
 static void
