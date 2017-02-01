@@ -213,16 +213,40 @@ static void
 lace_check_memory(void)
 {
 #if USE_HWLOC
-    hwloc_cpuset_t memset = hwloc_bitmap_alloc();
+    // get our current worker
+    WorkerP *w = lace_get_worker();
+    void* mem = workers_memory[w->worker];
+
+    // get pinned PUs
     hwloc_cpuset_t cpuset = hwloc_bitmap_alloc();
     hwloc_get_cpubind(topo, cpuset, HWLOC_CPUBIND_THREAD);
-    hwloc_membind_policy_t policy;
-    hwloc_get_area_membind(topo, workers_memory[0], 1, memset, &policy, 0);
-    if (!hwloc_bitmap_isincluded(cpuset, memset)) {
+
+    // get nodes of pinned PUs
+    hwloc_nodeset_t cpunodes = hwloc_bitmap_alloc();
+    hwloc_cpuset_to_nodeset(topo, cpuset, cpunodes);
+
+    // get location of memory
+    hwloc_nodeset_t memlocation = hwloc_bitmap_alloc();
+    hwloc_get_area_memlocation(topo, mem, sizeof(worker_data), memlocation, HWLOC_MEMBIND_BYNODESET);
+
+    // check if CPU and node are on the same place
+    if (!hwloc_bitmap_isequal(cpunodes, memlocation)) {
         fprintf(stderr, "Lace warning: Lace thread not on same memory domain as data!\n");
+
+        char *strp, *strp2, *strp3;
+        hwloc_bitmap_list_asprintf(&strp, cpuset);
+        hwloc_bitmap_list_asprintf(&strp2, cpunodes);
+        hwloc_bitmap_list_asprintf(&strp3, memlocation);
+        fprintf(stderr, "Worker %d is pinned on PUs %s, node %s; memory is pinned on node %s\n", w->worker, strp, strp2, strp3);
+        free(strp);
+        free(strp2);
+        free(strp3);
     }
-    hwloc_bitmap_free(memset);
+
+    // free allocated memory
     hwloc_bitmap_free(cpuset);
+    hwloc_bitmap_free(cpunodes);
+    hwloc_bitmap_free(memlocation);
 #else
     // noop
 #endif
@@ -237,10 +261,8 @@ lace_init_worker(int worker)
 
     // Pin our thread...
     hwloc_set_cpubind(topo, pu->cpuset, HWLOC_CPUBIND_THREAD);
-#endif
 
-    // Check if everything is on the correct node
-    lace_check_memory();
+#endif
 
     // Get allocated memory
     Worker *wt = &workers_memory[worker]->worker_public;
@@ -283,6 +305,9 @@ lace_init_worker(int worker)
 #else
     pthread_setspecific(worker_key, w);
 #endif
+
+    // Check if everything is on the correct node
+    lace_check_memory();
 
     // Synchronize with others
     lace_barrier();
