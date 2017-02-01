@@ -253,12 +253,39 @@ WorkerP *
 lace_init_worker(int worker)
 {
 #if USE_HWLOC
-    // Get our logical processor
-    hwloc_obj_t pu = hwloc_get_obj_by_type(topo, HWLOC_OBJ_PU, worker % n_pus);
+    // Get our core
+    hwloc_obj_t pu = hwloc_get_obj_by_type(topo, HWLOC_OBJ_CORE, worker % n_cores);
+
+    // Get our copy of the bitmap
+    hwloc_cpuset_t bmp = hwloc_bitmap_dup(pu->cpuset);
+
+    // Get number of PUs in set
+    int n = -1, count=0;
+    while ((n=hwloc_bitmap_next(bmp, n)) != -1) count++;
+
+    // Check if we actually have logical processors
+    if (count == 0) {
+        fprintf(stderr, "Lace error: trying to pin a worker on an empty core?\n");
+        exit(-1);
+    }
+
+    // Select the correct PU on the core (in case of hyperthreading)
+    int idx = worker / n_cores;
+    if (idx >= count) {
+        fprintf(stderr, "Lace warning: more workers than available logical processors!\n");
+        idx %= count;
+    }
+
+    // Find index of PU and restrict bitmap
+    n = -1;
+    for (int i=0; i<=idx; i++) n = hwloc_bitmap_next(bmp, n);
+    hwloc_bitmap_only(bmp, n);
 
     // Pin our thread...
-    hwloc_set_cpubind(topo, pu->cpuset, HWLOC_CPUBIND_THREAD);
+    hwloc_set_cpubind(topo, bmp, HWLOC_CPUBIND_THREAD);
 
+    // Free allocated memory
+    hwloc_bitmap_free(bmp);
 #endif
 
     // Get allocated memory
@@ -726,11 +753,14 @@ lace_init(int _n_workers, size_t dqsize)
 #if USE_HWLOC
     // Pin allocated memory of each worker
     for (int i=0; i<n_workers; i++) {
-        // Get our logical processor
-        hwloc_obj_t pu = hwloc_get_obj_by_type(topo, HWLOC_OBJ_PU, i % n_pus);
+        // Get our core
+        hwloc_obj_t core = hwloc_get_obj_by_type(topo, HWLOC_OBJ_CORE, i % n_cores);
 
         // Pin the memory area
-        hwloc_set_area_membind(topo, workers_memory[i], workers_memory_size, pu->cpuset, HWLOC_MEMBIND_BIND, 0);
+        int res = hwloc_set_area_membind(topo, workers_memory[i], workers_memory_size, core->nodeset, HWLOC_MEMBIND_BIND, HWLOC_MEMBIND_STRICT | HWLOC_MEMBIND_MIGRATE | HWLOC_MEMBIND_BYNODESET);
+        if (res != 0) {
+            fprintf(stderr, "Lace error: Unable to bind worker memory to node!\n");
+        }
     }
 #endif
 
