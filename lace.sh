@@ -6,7 +6,7 @@ if [ "$1" -le 1 ] ; then k=2; else k=$1; fi
 # Copyright notice:
 echo "/* 
  * Copyright 2013-2016 Formal Methods and Tools, University of Twente
- * Copyright 2016 Tom van Dijk, Johannes Kepler University Linz
+ * Copyright 2016-2017 Tom van Dijk, Johannes Kepler University Linz
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -29,6 +29,8 @@ echo '
 
 #ifndef __LACE_H__
 #define __LACE_H__
+
+#include <lace_config.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -257,8 +259,6 @@ LACE_TYPEDEF_CB(void, lace_startup_cb, void*);
  *   after the callback has returned, and all created threads are destroyed
  * - calling without a startup callback creates N-1 threads and returns
  *   control to the caller. When lace_exit is called, all created threads are terminated.
- *
- * Regardless, if compiled with USE_HWLOC, Lace controls placement of threads on CPUs.
  */
 
 /**

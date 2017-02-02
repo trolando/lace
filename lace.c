@@ -26,25 +26,17 @@
 #include <unistd.h>
 #include <assert.h>
 
+#include <lace_config.h>
 #include <lace.h>
-
-#ifndef USE_HWLOC
-#define USE_HWLOC 0
-#endif
-
-#if USE_HWLOC
 #include <hwloc.h>
-#endif
 
 // public Worker data
 static Worker **workers = NULL;
 static size_t default_stacksize = 0; // set by lace_init
 static size_t default_dqsize = 100000;
 
-#if USE_HWLOC
 static hwloc_topology_t topo;
 static unsigned int n_nodes, n_cores, n_pus;
-#endif
 
 static int verbosity = 0;
 
@@ -212,7 +204,6 @@ lace_barrier_destroy()
 static void
 lace_check_memory(void)
 {
-#if USE_HWLOC
     // get our current worker
     WorkerP *w = lace_get_worker();
     void* mem = workers_memory[w->worker];
@@ -258,15 +249,11 @@ lace_check_memory(void)
     hwloc_bitmap_free(cpuset);
     hwloc_bitmap_free(cpunodes);
     hwloc_bitmap_free(memlocation);
-#else
-    // noop
-#endif
 }
 
 WorkerP *
 lace_init_worker(int worker)
 {
-#if USE_HWLOC
     // Get our core
     hwloc_obj_t pu = hwloc_get_obj_by_type(topo, HWLOC_OBJ_CORE, worker % n_cores);
 
@@ -302,7 +289,6 @@ lace_init_worker(int worker)
 
     // Free allocated memory
     hwloc_bitmap_free(bmp);
-#endif
 
     // Get allocated memory
     Worker *wt = &workers_memory[worker]->worker_public;
@@ -321,11 +307,7 @@ lace_init_worker(int worker)
     w->split = w->dq;
     w->allstolen = 0;
     w->worker = worker;
-#if USE_HWLOC
-    w->pu = worker % n_pus;
-#else
-    w->pu = -1;
-#endif
+    w->pu = worker % n_cores;
     w->enabled = 1;
     if (workers_init[worker].stack != 0) {
         w->stack_trigger = ((size_t)workers_init[worker].stack) + workers_init[worker].stacksize/20;
@@ -653,7 +635,6 @@ lace_spawn_worker(int worker, size_t stacksize, void* (*fun)(void*), void* arg)
     size_t pagesize = sysconf(_SC_PAGESIZE);
     stacksize = (stacksize + pagesize - 1) & ~(pagesize - 1); // ceil(stacksize, pagesize)
 
-#if USE_HWLOC
     // Get our logical processor
     hwloc_obj_t pu = hwloc_get_obj_by_type(topo, HWLOC_OBJ_PU, worker % n_pus);
 
@@ -663,13 +644,6 @@ lace_spawn_worker(int worker, size_t stacksize, void* (*fun)(void*), void* arg)
         fprintf(stderr, "Lace error: Unable to allocate memory for the pthread stack!\n");
         exit(1);
     }
-#else
-    void *stack_location = mmap(NULL, stacksize + pagesize, PROT_READ | PROT_WRITE, MAP_ANON | MAP_PRIVATE, -1, 0);
-    if (stack_location == MAP_FAILED) {
-        fprintf(stderr, "Lace error: Cannot allocate program stack: %s!\n", strerror(errno));
-        exit(1);
-    }
-#endif
 
     if (0 != mprotect(stack_location, pagesize, PROT_NONE)) {
         fprintf(stderr, "Lace error: Unable to protect the allocated program stack with a guard page!\n");
@@ -697,21 +671,7 @@ lace_spawn_worker(int worker, size_t stacksize, void* (*fun)(void*), void* arg)
 static int
 get_cpu_count()
 {
-#if USE_HWLOC
     int count = hwloc_get_nbobjs_by_type(topo, HWLOC_OBJ_PU);
-#elif defined(sched_getaffinity)
-    /* Best solution: find actual available cpus */
-    cpu_set_t cs;
-    CPU_ZERO(&cs);
-    sched_getaffinity(0, sizeof(cs), &cs);
-    int count = CPU_COUNT(&cs);
-#elif defined(_SC_NPROCESSORS_ONLN)
-    /* Fallback */
-    int count = sysconf(_SC_NPROCESSORS_ONLN);
-#else
-    /* Okay... */
-    int count = 1;
-#endif
     return count < 1 ? 1 : count;
 }
 
@@ -724,7 +684,6 @@ lace_set_verbosity(int level)
 void
 lace_init(int _n_workers, size_t dqsize)
 {
-#if USE_HWLOC
     // Initialize topology and information about cpus
     hwloc_topology_init(&topo);
     hwloc_topology_load(topo);
@@ -732,7 +691,6 @@ lace_init(int _n_workers, size_t dqsize)
     n_nodes = hwloc_get_nbobjs_by_type(topo, HWLOC_OBJ_NODE);
     n_cores = hwloc_get_nbobjs_by_type(topo, HWLOC_OBJ_CORE);
     n_pus = hwloc_get_nbobjs_by_type(topo, HWLOC_OBJ_PU);
-#endif
 
     // Initialize globals
     n_workers = _n_workers;
@@ -768,7 +726,6 @@ lace_init(int _n_workers, size_t dqsize)
         workers_p[i] = &workers_memory[i]->worker_private;
     }
 
-#if USE_HWLOC
     // Pin allocated memory of each worker
     for (int i=0; i<n_workers; i++) {
         // Get our core
@@ -784,7 +741,6 @@ lace_init(int _n_workers, size_t dqsize)
             fprintf(stderr, "Lace error: Unable to bind worker memory to node!\n");
         }
     }
-#endif
 
     // Create pthread key
 #ifndef __linux__
@@ -804,11 +760,7 @@ lace_init(int _n_workers, size_t dqsize)
     }
 
     if (verbosity) {
-#if USE_HWLOC
         fprintf(stderr, "Initializing Lace, %u nodes, %u cores, %u logical processors, %d workers.\n", n_nodes, n_cores, n_pus, n_workers);
-#else
-        fprintf(stderr, "Initializing Lace, %d workers.\n", n_workers);
-#endif
     }
 
     // Prepare lace_init structure
