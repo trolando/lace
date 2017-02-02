@@ -227,10 +227,21 @@ lace_check_memory(void)
 
     // get location of memory
     hwloc_nodeset_t memlocation = hwloc_bitmap_alloc();
+#ifdef hwloc_get_area_memlocation
     hwloc_get_area_memlocation(topo, mem, sizeof(worker_data), memlocation, HWLOC_MEMBIND_BYNODESET);
+#else
+    hwloc_membind_policy_t policy;
+    int res = hwloc_get_area_membind_nodeset(topo, mem, sizeof(worker_data), memlocation, &policy, HWLOC_MEMBIND_STRICT);
+    if (res == -1) {
+        fprintf(stderr, "Lace warning: hwloc_get_area_membind_nodeset returned -1!\n");
+    }
+    if (policy != HWLOC_MEMBIND_BIND) {
+        fprintf(stderr, "Lace warning: Lace worker memory not bound with BIND policy!\n");
+    }
+#endif
 
     // check if CPU and node are on the same place
-    if (!hwloc_bitmap_isequal(cpunodes, memlocation)) {
+    if (!hwloc_bitmap_isincluded(memlocation, cpunodes)) {
         fprintf(stderr, "Lace warning: Lace thread not on same memory domain as data!\n");
 
         char *strp, *strp2, *strp3;
@@ -285,7 +296,9 @@ lace_init_worker(int worker)
     hwloc_bitmap_only(bmp, n);
 
     // Pin our thread...
-    hwloc_set_cpubind(topo, bmp, HWLOC_CPUBIND_THREAD);
+    if (hwloc_set_cpubind(topo, bmp, HWLOC_CPUBIND_THREAD) == -1) {
+        fprintf(stderr, "Lace warning: hwloc_set_cpubind returned -1!\n");
+    }
 
     // Free allocated memory
     hwloc_bitmap_free(bmp);
@@ -762,7 +775,11 @@ lace_init(int _n_workers, size_t dqsize)
         hwloc_obj_t core = hwloc_get_obj_by_type(topo, HWLOC_OBJ_CORE, i % n_cores);
 
         // Pin the memory area
+#ifdef HWLOC_MEMBIND_BYNODESET
         int res = hwloc_set_area_membind(topo, workers_memory[i], workers_memory_size, core->nodeset, HWLOC_MEMBIND_BIND, HWLOC_MEMBIND_STRICT | HWLOC_MEMBIND_MIGRATE | HWLOC_MEMBIND_BYNODESET);
+#else
+        int res = hwloc_set_area_membind_nodeset(topo, workers_memory[i], workers_memory_size, core->nodeset, HWLOC_MEMBIND_BIND, HWLOC_MEMBIND_STRICT | HWLOC_MEMBIND_MIGRATE);
+#endif
         if (res != 0) {
             fprintf(stderr, "Lace error: Unable to bind worker memory to node!\n");
         }
