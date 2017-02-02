@@ -1,5 +1,26 @@
-cmake_minimum_required(VERSION 2.6)
-project(lace C)
+cmake_minimum_required(VERSION 3.1)
+
+project(lace VERSION 1.0)
+
+set(PROJECT_DESCRIPTION "Lace, a work-stealing framework for multi-core fork-join parallelism")
+set(PROJECT_URL "https://github.com/trolando/lace")
+
+message(STATUS "CMake build configuration for Lace ${PROJECT_VERSION}")
+message(STATUS "OS: ${CMAKE_SYSTEM_NAME}")
+message(STATUS "Compiler: ${CMAKE_C_COMPILER_ID}")
+
+enable_language(C)
+
+set(CMAKE_C_STANDARD 11)
+set(CMAKE_C_STANDARD_REQUIRED ON)
+
+if(NOT CMAKE_BUILD_TYPE)
+    set(CMAKE_BUILD_TYPE Release CACHE STRING "Choose the type of build, options are: None Debug Release RelWithDebInfo MinSizeRel." FORCE)
+endif(NOT CMAKE_BUILD_TYPE)
+
+set(CMAKE_MODULE_PATH "${PROJECT_SOURCE_DIR}/cmake/")
+set(CMAKE_C_FLAGS "-Wall -Wextra -Werror -fno-strict-aliasing ${CMAKE_C_FLAGS}")
+include_directories(${CMAKE_SOURCE_DIR})
 
 option(USE_HWLOC "Use HWLOC" ON)
 option(PIE_TIMES "Record Pie Times" OFF)
