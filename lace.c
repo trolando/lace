@@ -498,7 +498,9 @@ lace_main_wrapper(void *arg)
     lace_exit();
 
     // Now signal that we're done
+    pthread_mutex_lock(&wait_until_done_mutex);
     pthread_cond_broadcast(&wait_until_done);
+    pthread_mutex_unlock(&wait_until_done_mutex);
 
     return NULL;
 }
@@ -790,7 +792,7 @@ lace_startup(size_t stacksize, lace_startup_cb cb, void *arg)
 
         // Suspend this thread until cb returns
         pthread_mutex_lock(&wait_until_done_mutex);
-        pthread_cond_wait(&wait_until_done, &wait_until_done_mutex);
+        if (lace_quits == 0) pthread_cond_wait(&wait_until_done, &wait_until_done_mutex);
         pthread_mutex_unlock(&wait_until_done_mutex);
     } else {
         // use this thread as worker and return control
