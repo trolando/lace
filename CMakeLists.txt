@@ -2,6 +2,8 @@ cmake_minimum_required(VERSION 3.1)
 
 project(lace VERSION 1.0)
 
+include(CTest)
+
 set(PROJECT_DESCRIPTION "Lace, a work-stealing framework for multi-core fork-join parallelism")
 set(PROJECT_URL "https://github.com/trolando/lace")
 
@@ -51,3 +53,5 @@ install(FILES ${CMAKE_CURRENT_SOURCE_DIR}/lace.h ${CMAKE_CURRENT_BINARY_DIR}/lac
 # pkg-config
 configure_file("${CMAKE_CURRENT_SOURCE_DIR}/lace.pc.in" "${CMAKE_CURRENT_BINARY_DIR}/lace.pc" @ONLY)
 install(FILES "${CMAKE_CURRENT_BINARY_DIR}/lace.pc" DESTINATION "${CMAKE_INSTALL_LIBDIR}/pkgconfig")
+
+add_subdirectory(test)
