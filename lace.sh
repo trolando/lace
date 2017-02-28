@@ -392,6 +392,8 @@ static inline void CHECKSTACK(WorkerP *w)
 #define CHECKSTACK(w) {}
 #endif
 
+void lace_abort_stack_overflow(void) __attribute__((noreturn));
+
 typedef struct
 {
     Task *t;
@@ -727,7 +729,7 @@ void NAME##_SPAWN(WorkerP *w, Task *__dq_head $FUN_ARGS)
     TailSplit ts;
     uint32_t head, split, newsplit;
 
-    /* assert(__dq_head < w->end); */ /* Assuming to be true */
+    if (__dq_head == w->end) lace_abort_stack_overflow();
 
     t = (TD_##NAME *)__dq_head;
     t->f = &NAME##_WRAP;
