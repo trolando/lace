@@ -606,23 +606,6 @@ VOID_TASK_0(lace_steal_random)
 }
 
 /**
- * Steal random tasks until Lace quits.
- */
-VOID_TASK_1(lace_steal_random_loop, int*, quit)
-{
-    while(!(*(volatile int*)quit)) {
-        lace_steal_random();
-
-        if (must_suspend) {
-            lace_barrier();
-            do {
-                pthread_barrier_wait(&suspend_barrier);
-            } while (__lace_worker->enabled == 0);
-        }
-    }
-}
-
-/**
  * Variable to hold the main/root task.
  */
 static lace_startup_cb main_cb;
