@@ -244,21 +244,24 @@ LACE_TYPEDEF_CB(void, lace_startup_cb, void*);
  * Using Lace.
  *
  * Optionally set the verbosity level with lace_set_verbosity.
- * Call lace_init to allocate all data structures.
+ * Then call lace_init to initialize the system.
+ * - lace_init(n_workers, deque_size);
+ *   set both parameters to 0 for reasonable defaults, using all available cores.
  *
- * You can create threads yourself or let Lace create threads with lace_startup.
+ * You can create Worker threads yourself or let Lace create threads with lace_startup.
  *
- * When creating threads yourself:
- * - call lace_init_main for worker 0
- *   this method returns when all other workers have started
- * - call lace_run_worker for all other workers
- *   workers perform work-stealing until worker 0 calls lace_exit
+ * When creating threads yourself, call the following functions:
+ *   - lace_init_worker to allocate and initialize the worker data structures
+ *     this method returns when all workers have called lace_init_worker
+ *   - lace_pin_worker (optional) to pin the thread and memory to a core
+ * The main worker can now start its root task. All other workers:
+ *   - lace_run_worker to perform work-stealing until the main worker calls lace_exit
  *
  * When letting Lace create threads with lace_startup
- * - calling with startup callback creates N threads and returns
- *   after the callback has returned, and all created threads are destroyed
- * - calling without a startup callback creates N-1 threads and returns
- *   control to the caller. When lace_exit is called, all created threads are terminated.
+ * - Call lace_startup with a callback to create N threads.
+ *   Returns after the callback has returned and all created threads are destroyed
+ * - Call lace_startup without a callback to create N-1 threads.
+ *   Returns control to the caller. When lace_exit is called, all created threads are terminated.
  */
 
 /**
@@ -268,36 +271,38 @@ LACE_TYPEDEF_CB(void, lace_startup_cb, void*);
 void lace_set_verbosity(int level);
 
 /**
- * Initialize master structures for Lace with <n_workers> workers
- * and default deque size of <dqsize>.
- * Does not create new threads.
- * Tries to detect number of cpus, if n_workers equals 0.
+ * Initialize Lace for <n_workers> workers with a deque size of <dqsize> per worker.
+ * If <n_workers> is set to 0, automatically detects available cores.
+ * If <dqsize> is est to 0, uses a reasonable default value.
  */
 void lace_init(unsigned int n_workers, size_t dqsize);
 
 /**
- * After lace_init, start all worker threads.
- * If cb,arg are set, suspend this thread, call cb(arg) in a new thread
- * and exit Lace upon return
- * Otherwise, the current thread is initialized as worker 0.
+ * Let Lace create worker threads.
+ * If <stacksize> is set to 0, uses a reaonable default value.
+ * If cb, arg are set to 0, then the current thread is initialized as the main Worker (Worker 0).
+ *
+ * If cb,arg are set, then the current thread is suspended. A new thread is made for Worker 0 and
+ * the task cb with paremeter arg is called; when cb returns, Lace is exited automatically.
  */
 void lace_startup(size_t stacksize, lace_startup_cb, void* arg);
 
 /**
- * Initialize worker 0. This method returns when all other workers are initialized
- * (using lace_run_worker).
- *
- * When done, run lace_exit so all worker threads return from lace_run_worker.
+ * Initialize worker <worker>, allocating memory.
+ * If <worker> is 0, then the current thread is the main worker.
  */
-void lace_init_main();
+void lace_init_worker(unsigned int worker);
 
 /**
- * Initialize the current thread as the Lace thread of worker <worker>, and perform
- * work-stealing until lace_exit is called.
- *
- * For worker 0, call lace_init_main instead.
+ * Use hwloc to pin the current thread to a CPU and its allocated memory in the closest domain.
+ * Call this *after* lace_init_worker and *before* lace_run_worker.
  */
-void lace_run_worker(int worker);
+void lace_pin_worker(void);
+
+/**
+ * Perform work-stealing until lace_exit is called.
+ */
+void lace_run_worker(void);
 
 /**
  * Steal a random task.

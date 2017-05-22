@@ -329,20 +329,23 @@ lace_check_memory(void)
     hwloc_bitmap_free(memlocation);
 }
 
-WorkerP *
-lace_init_worker(int worker)
+void
+lace_pin_worker(void)
 {
-    // Get our core
+    // Get our worker
+    unsigned int worker = lace_get_worker()->worker;
+
+    // Get our core (hwloc object)
     hwloc_obj_t pu = hwloc_get_obj_by_type(topo, HWLOC_OBJ_CORE, worker % n_cores);
 
     // Get our copy of the bitmap
     hwloc_cpuset_t bmp = hwloc_bitmap_dup(pu->cpuset);
 
-    // Get number of PUs in set
+    // Get number of PUs in bitmap
     int n = -1, count=0;
     while ((n=hwloc_bitmap_next(bmp, n)) != -1) count++;
 
-    // Check if we actually have logical processors
+    // Check if we actually have any logical processors
     if (count == 0) {
         fprintf(stderr, "Lace error: trying to pin a worker on an empty core?\n");
         exit(-1);
@@ -365,13 +368,42 @@ lace_init_worker(int worker)
         fprintf(stderr, "Lace warning: hwloc_set_cpubind returned -1!\n");
     }
 
-    // Free allocated memory
+    // Free our copy of the bitmap
     hwloc_bitmap_free(bmp);
 
-    // Get allocated memory
-    Worker *wt = &workers_memory[worker]->worker_public;
-    WorkerP *w = &workers_memory[worker]->worker_private;
+    // Pin the memory area (using the appropriate hwloc function)
+#ifdef HWLOC_MEMBIND_BYNODESET
+    int res = hwloc_set_area_membind(topo, workers_memory[worker], workers_memory_size, pu->nodeset, HWLOC_MEMBIND_BIND, HWLOC_MEMBIND_STRICT | HWLOC_MEMBIND_MIGRATE | HWLOC_MEMBIND_BYNODESET);
+#else
+    int res = hwloc_set_area_membind_nodeset(topo, workers_memory[worker], workers_memory_size, pu->nodeset, HWLOC_MEMBIND_BIND, HWLOC_MEMBIND_STRICT | HWLOC_MEMBIND_MIGRATE);
+#endif
+    if (res != 0) {
+        fprintf(stderr, "Lace error: Unable to bind worker memory to node!\n");
+    }
+
+    // Check if everything is on the correct node
+    lace_check_memory();
+}
+
+void
+lace_init_worker(unsigned int worker)
+{
+    // Allocate our memory
+    workers_memory[worker] = mmap(NULL, workers_memory_size, PROT_READ|PROT_WRITE, MAP_PRIVATE|MAP_ANONYMOUS, -1, 0);
+    if (workers_memory[worker] == MAP_FAILED) {
+        fprintf(stderr, "Lace error: Unable to allocate memory for the Lace worker!\n");
+        exit(1);
+    }
+
+    // Set pointers
+    Worker *wt = workers[worker] = &workers_memory[worker]->worker_public;
+    WorkerP *w = workers_p[worker] = &workers_memory[worker]->worker_private;
     w->dq = workers_memory[worker]->deque;
+#ifdef __linux__
+    current_worker = w;
+#else
+    pthread_setspecific(worker_key, w);
+#endif
 
     // Initialize public worker data
     wt->dq = w->dq;
@@ -395,19 +427,9 @@ lace_init_worker(int worker)
     w->rng = (((uint64_t)rand())<<32 | rand());
 
 #if LACE_COUNT_EVENTS
-    // Reset counters
+    // Initialize counters
     { int k; for (k=0; k<CTR_MAX; k++) w->ctr[k] = 0; }
 #endif
-
-    // Set pointers
-#ifdef __linux__
-    current_worker = w;
-#else
-    pthread_setspecific(worker_key, w);
-#endif
-
-    // Check if everything is on the correct node
-    lace_check_memory();
 
     // Synchronize with others
     lace_barrier();
@@ -420,8 +442,6 @@ lace_init_worker(int worker)
     if (worker == 0) {
         lace_time_event(w, 1);
     }
-
-    return w;
 }
 
 /**
@@ -619,8 +639,9 @@ static lace_startup_cb main_cb;
 static void*
 lace_main_wrapper(void *arg)
 {
-    WorkerP *__lace_worker = lace_init_worker(0);
-    Task *__lace_dq_head = __lace_worker->dq;
+    lace_init_worker(0);
+    lace_pin_worker();
+    LACE_ME;
     WRAP(main_cb, arg);
     lace_exit();
 
@@ -702,13 +723,10 @@ lace_init_main()
  * For worker 0, use lace_init_main
  */
 void
-lace_run_worker(int worker)
+lace_run_worker(void)
 {
-    // Initialize local datastructure
-    WorkerP *__lace_worker = lace_init_worker(worker);
-    Task *__lace_dq_head = __lace_worker->dq;
-
     // Run the steal loop
+    LACE_ME;
     CALL(lace_steal_loop, &lace_quits);
 
     // Time worker exit event
@@ -721,7 +739,10 @@ lace_run_worker(int worker)
 static void*
 lace_default_worker_thread(void* arg)
 {
-    lace_run_worker((int)(size_t)arg);
+    int worker = (int)(size_t)arg;
+    lace_init_worker(worker);
+    lace_pin_worker();
+    lace_run_worker();
     return NULL;
 }
 
@@ -792,10 +813,10 @@ lace_init(unsigned int _n_workers, size_t dqsize)
     n_pus = hwloc_get_nbobjs_by_type(topo, HWLOC_OBJ_PU);
 
     // Initialize globals
-    n_workers = _n_workers;
-    if (n_workers == 0) n_workers = n_pus;
+    n_workers = _n_workers == 0 ? n_pus : _n_workers;
     enabled_workers = n_workers;
     if (dqsize != 0) default_dqsize = dqsize;
+    else dqsize = default_dqsize;
     lace_quits = 0;
 
     // Initialize Lace barrier
@@ -814,33 +835,6 @@ lace_init(unsigned int _n_workers, size_t dqsize)
 
     // Compute memory size for each worker
     workers_memory_size = sizeof(worker_data) + sizeof(Task) * dqsize;
-
-    // Allocate memory for each worker
-    for (unsigned int i=0; i<n_workers; i++) {
-        workers_memory[i] = mmap(NULL, workers_memory_size, PROT_READ|PROT_WRITE, MAP_PRIVATE|MAP_ANONYMOUS, -1, 0);
-        if (workers_memory[i] == MAP_FAILED) {
-            fprintf(stderr, "Lace error: Unable to allocate memory for the Lace worker!\n");
-            exit(1);
-        }
-        workers[i] = &workers_memory[i]->worker_public;
-        workers_p[i] = &workers_memory[i]->worker_private;
-    }
-
-    // Pin allocated memory of each worker
-    for (unsigned int i=0; i<n_workers; i++) {
-        // Get our core
-        hwloc_obj_t core = hwloc_get_obj_by_type(topo, HWLOC_OBJ_CORE, i % n_cores);
-
-        // Pin the memory area
-#ifdef HWLOC_MEMBIND_BYNODESET
-        int res = hwloc_set_area_membind(topo, workers_memory[i], workers_memory_size, core->nodeset, HWLOC_MEMBIND_BIND, HWLOC_MEMBIND_STRICT | HWLOC_MEMBIND_MIGRATE | HWLOC_MEMBIND_BYNODESET);
-#else
-        int res = hwloc_set_area_membind_nodeset(topo, workers_memory[i], workers_memory_size, core->nodeset, HWLOC_MEMBIND_BIND, HWLOC_MEMBIND_STRICT | HWLOC_MEMBIND_MIGRATE);
-#endif
-        if (res != 0) {
-            fprintf(stderr, "Lace error: Unable to bind worker memory to node!\n");
-        }
-    }
 
     // Create pthread key
 #ifndef __linux__
