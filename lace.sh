@@ -36,210 +36,6 @@ echo '
 extern "C" {
 #endif /* __cplusplus */
 
-/* Some flags */
-
-#ifndef LACE_DEBUG_PROGRAMSTACK /* Write to stderr when 95% program stack reached */
-#define LACE_DEBUG_PROGRAMSTACK 0
-#endif
-
-#ifndef LACE_LEAP_RANDOM /* Use random leaping when leapfrogging fails */
-#define LACE_LEAP_RANDOM 1
-#endif
-
-#ifndef LACE_PIE_TIMES /* Record time spent stealing and leapfrogging */
-#define LACE_PIE_TIMES 0
-#endif
-
-#ifndef LACE_COUNT_TASKS /* Count number of tasks executed */
-#define LACE_COUNT_TASKS 0
-#endif
-
-#ifndef LACE_COUNT_STEALS /* Count number of steals performed */
-#define LACE_COUNT_STEALS 0
-#endif
-
-#ifndef LACE_COUNT_SPLITS /* Count number of times the split point is moved */
-#define LACE_COUNT_SPLITS 0
-#endif
-
-#ifndef LACE_COUNT_EVENTS
-#define LACE_COUNT_EVENTS (LACE_PIE_TIMES || LACE_COUNT_TASKS || LACE_COUNT_STEALS || LACE_COUNT_SPLITS)
-#endif
-
-/* Typical cacheline size of system architectures */
-#ifndef LINE_SIZE
-#define LINE_SIZE 64
-#endif
-
-/* The size of a pointer, 8 bytes on a 64-bit architecture */
-#define P_SZ (sizeof(void *))
-
-#define PAD(x,b) ( ( (b) - ((x)%(b)) ) & ((b)-1) ) /* b must be power of 2 */
-#define ROUND(x,b) ( (x) + PAD( (x), (b) ) )
-
-/* The size is in bytes. Note that this is without the extra overhead from Lace.
-   The value must be greater than or equal to the maximum size of your tasks.
-   The task size is the maximum of the size of the result or of the sum of the parameter sizes. */
-#ifndef LACE_TASKSIZE
-#define LACE_TASKSIZE ('$k')*P_SZ
-#endif
-
-/* Some fences */
-#ifndef compiler_barrier
-#define compiler_barrier() { asm volatile("" ::: "memory"); }
-#endif
-
-#ifndef mfence
-#define mfence() { asm volatile("mfence" ::: "memory"); }
-#endif
-
-/* Compiler specific branch prediction optimization */
-#ifndef likely
-#define likely(x)       __builtin_expect((x),1)
-#endif
-
-#ifndef unlikely
-#define unlikely(x)     __builtin_expect((x),0)
-#endif
-
-#if LACE_PIE_TIMES
-/* High resolution timer */
-static inline uint64_t gethrtime()
-{
-    uint32_t hi, lo;
-    asm volatile ("rdtsc" : "=a"(lo), "=d"(hi) :: "memory");
-    return (uint64_t)hi<<32 | lo;
-}
-#endif
-
-#if LACE_COUNT_EVENTS
-void lace_count_reset();
-void lace_count_report_file(FILE *file);
-#endif
-
-#if LACE_COUNT_TASKS
-#define PR_COUNTTASK(s) PR_INC(s,CTR_tasks)
-#else
-#define PR_COUNTTASK(s) /* Empty */
-#endif
-
-#if LACE_COUNT_STEALS
-#define PR_COUNTSTEALS(s,i) PR_INC(s,i)
-#else
-#define PR_COUNTSTEALS(s,i) /* Empty */
-#endif
-
-#if LACE_COUNT_SPLITS
-#define PR_COUNTSPLITS(s,i) PR_INC(s,i)
-#else
-#define PR_COUNTSPLITS(s,i) /* Empty */
-#endif
-
-#if LACE_COUNT_EVENTS
-#define PR_ADD(s,i,k) ( ((s)->ctr[i])+=k )
-#else
-#define PR_ADD(s,i,k) /* Empty */
-#endif
-#define PR_INC(s,i) PR_ADD(s,i,1)
-
-typedef enum {
-#ifdef LACE_COUNT_TASKS
-    CTR_tasks,       /* Number of tasks spawned */
-#endif
-#ifdef LACE_COUNT_STEALS
-    CTR_steal_tries, /* Number of steal attempts */
-    CTR_leap_tries,  /* Number of leap attempts */
-    CTR_steals,      /* Number of succesful steals */
-    CTR_leaps,       /* Number of succesful leaps */
-    CTR_steal_busy,  /* Number of steal busies */
-    CTR_leap_busy,   /* Number of leap busies */
-#endif
-#ifdef LACE_COUNT_SPLITS
-    CTR_split_grow,  /* Number of split right */
-    CTR_split_shrink,/* Number of split left */
-    CTR_split_req,   /* Number of split requests */
-#endif
-    CTR_fast_sync,   /* Number of fast syncs */
-    CTR_slow_sync,   /* Number of slow syncs */
-#ifdef LACE_PIE_TIMES
-    CTR_init,        /* Timer for initialization */
-    CTR_close,       /* Timer for shutdown */
-    CTR_wapp,        /* Timer for application code (steal) */
-    CTR_lapp,        /* Timer for application code (leap) */
-    CTR_wsteal,      /* Timer for steal code (steal) */
-    CTR_lsteal,      /* Timer for steal code (leap) */
-    CTR_wstealsucc,  /* Timer for succesful steal code (steal) */
-    CTR_lstealsucc,  /* Timer for succesful steal code (leap) */
-    CTR_wsignal,     /* Timer for signal after work (steal) */
-    CTR_lsignal,     /* Timer for signal after work (leap) */
-#endif
-    CTR_MAX
-} CTR_index;
-
-struct _WorkerP;
-struct _Worker;
-struct _Task;
-
-#define THIEF_EMPTY     ((struct _Worker*)0x0)
-#define THIEF_TASK      ((struct _Worker*)0x1)
-#define THIEF_COMPLETED ((struct _Worker*)0x2)
-
-#define TASK_COMMON_FIELDS(type)                               \
-    void (*f)(struct _WorkerP *, struct _Task *, struct type *);  \
-    struct _Worker * volatile thief;
-
-struct __lace_common_fields_only { TASK_COMMON_FIELDS(_Task) };
-#define LACE_COMMON_FIELD_SIZE sizeof(struct __lace_common_fields_only)
-
-typedef struct _Task {
-    TASK_COMMON_FIELDS(_Task);
-    char p1[PAD(LACE_COMMON_FIELD_SIZE, P_SZ)];
-    char d[LACE_TASKSIZE];
-    char p2[PAD(ROUND(LACE_COMMON_FIELD_SIZE, P_SZ) + LACE_TASKSIZE, LINE_SIZE)];
-} Task;
-
-typedef union __attribute__((packed)) {
-    struct {
-        uint32_t tail;
-        uint32_t split;
-    } ts;
-    uint64_t v;
-} TailSplit;
-
-typedef struct _Worker {
-    Task *dq;
-    TailSplit ts;
-    uint8_t allstolen;
-
-    char pad1[PAD(P_SZ+sizeof(TailSplit)+1, LINE_SIZE)];
-
-    uint8_t movesplit;
-} Worker;
-
-typedef struct _WorkerP {
-    Task *dq;                   // same as dq
-    Task *split;                // same as dq+ts.ts.split
-    Task *end;                  // dq+dq_size
-    Worker *_public;            // pointer to public Worker struct
-    size_t stack_trigger;       // for stack overflow detection
-    uint64_t rng;               // my random seed (for lace_trng)
-    uint32_t seed;              // my random seed (for lace_steal_random)
-    uint16_t worker;            // what is my worker id?
-    uint8_t allstolen;          // my allstolen
-    volatile int8_t enabled;    // if this worker is enabled
-
-#if LACE_COUNT_EVENTS
-    uint64_t ctr[CTR_MAX];      // counters
-    volatile uint64_t time;
-    volatile int level;
-#endif
-
-    int16_t pu;                 // my pu (for HWLOC)
-} WorkerP;
-
-#define LACE_TYPEDEF_CB(t, f, ...) typedef t (*f)(WorkerP *, Task *, ##__VA_ARGS__);
-LACE_TYPEDEF_CB(void, lace_startup_cb, void*);
-
 /**
  * Using Lace.
  *
@@ -263,6 +59,25 @@ LACE_TYPEDEF_CB(void, lace_startup_cb, void*);
  * - Call lace_startup without a callback to create N-1 threads.
  *   Returns control to the caller. When lace_exit is called, all created threads are terminated.
  */
+
+/**
+ * Type definitions used in the functions below.
+ * - WorkerP contains the (private) Worker data
+ * - Task contains a single Task
+ */
+typedef struct _WorkerP WorkerP;
+typedef struct _Task Task;
+
+/**
+ * The macro LACE_TYPEDEF_CB(typedefname, taskname, parametertypes) defines
+ * a Task for use as a callback function.
+ */
+#define LACE_TYPEDEF_CB(t, f, ...) typedef t (*f)(WorkerP *, Task *, ##__VA_ARGS__);
+
+/**
+ * The lace_startup_cb type for a void Task with one void* parameter.
+ */
+LACE_TYPEDEF_CB(void, lace_startup_cb, void*);
 
 /**
  * Set verbosity level (0 = no startup messages, 1 = startup messages)
@@ -462,9 +277,206 @@ void lace_yield(WorkerP *__lace_worker, Task *__lace_dq_head);
  */
 #define LACE_TRNG (__lace_worker->rng = 2862933555777941757ULL * __lace_worker->rng + 3037000493ULL)
 
+/* Some flags that influence Lace behavior */
+
+#ifndef LACE_DEBUG_PROGRAMSTACK /* Write to stderr when 95% program stack reached */
+#define LACE_DEBUG_PROGRAMSTACK 0
+#endif
+
+#ifndef LACE_LEAP_RANDOM /* Use random leaping when leapfrogging fails */
+#define LACE_LEAP_RANDOM 1
+#endif
+
+#ifndef LACE_PIE_TIMES /* Record time spent stealing and leapfrogging */
+#define LACE_PIE_TIMES 0
+#endif
+
+#ifndef LACE_COUNT_TASKS /* Count number of tasks executed */
+#define LACE_COUNT_TASKS 0
+#endif
+
+#ifndef LACE_COUNT_STEALS /* Count number of steals performed */
+#define LACE_COUNT_STEALS 0
+#endif
+
+#ifndef LACE_COUNT_SPLITS /* Count number of times the split point is moved */
+#define LACE_COUNT_SPLITS 0
+#endif
+
+#ifndef LACE_COUNT_EVENTS
+#define LACE_COUNT_EVENTS (LACE_PIE_TIMES || LACE_COUNT_TASKS || LACE_COUNT_STEALS || LACE_COUNT_SPLITS)
+#endif
+
 /**
  * Now follows the implementation of Lace
  */
+
+/* Typical cacheline size of system architectures */
+#ifndef LINE_SIZE
+#define LINE_SIZE 64
+#endif
+
+/* The size of a pointer, 8 bytes on a 64-bit architecture */
+#define P_SZ (sizeof(void *))
+
+#define PAD(x,b) ( ( (b) - ((x)%(b)) ) & ((b)-1) ) /* b must be power of 2 */
+#define ROUND(x,b) ( (x) + PAD( (x), (b) ) )
+
+/* The size is in bytes. Note that this is without the extra overhead from Lace.
+   The value must be greater than or equal to the maximum size of your tasks.
+   The task size is the maximum of the size of the result or of the sum of the parameter sizes. */
+#ifndef LACE_TASKSIZE
+#define LACE_TASKSIZE ('$k')*P_SZ
+#endif
+
+/* Some fences */
+#ifndef compiler_barrier
+#define compiler_barrier() { asm volatile("" ::: "memory"); }
+#endif
+
+#ifndef mfence
+#define mfence() { asm volatile("mfence" ::: "memory"); }
+#endif
+
+/* Compiler specific branch prediction optimization */
+#ifndef likely
+#define likely(x)       __builtin_expect((x),1)
+#endif
+
+#ifndef unlikely
+#define unlikely(x)     __builtin_expect((x),0)
+#endif
+
+#if LACE_PIE_TIMES
+/* High resolution timer */
+static inline uint64_t gethrtime()
+{
+    uint32_t hi, lo;
+    asm volatile ("rdtsc" : "=a"(lo), "=d"(hi) :: "memory");
+    return (uint64_t)hi<<32 | lo;
+}
+#endif
+
+#if LACE_COUNT_EVENTS
+void lace_count_reset();
+void lace_count_report_file(FILE *file);
+#endif
+
+#if LACE_COUNT_TASKS
+#define PR_COUNTTASK(s) PR_INC(s,CTR_tasks)
+#else
+#define PR_COUNTTASK(s) /* Empty */
+#endif
+
+#if LACE_COUNT_STEALS
+#define PR_COUNTSTEALS(s,i) PR_INC(s,i)
+#else
+#define PR_COUNTSTEALS(s,i) /* Empty */
+#endif
+
+#if LACE_COUNT_SPLITS
+#define PR_COUNTSPLITS(s,i) PR_INC(s,i)
+#else
+#define PR_COUNTSPLITS(s,i) /* Empty */
+#endif
+
+#if LACE_COUNT_EVENTS
+#define PR_ADD(s,i,k) ( ((s)->ctr[i])+=k )
+#else
+#define PR_ADD(s,i,k) /* Empty */
+#endif
+#define PR_INC(s,i) PR_ADD(s,i,1)
+
+typedef enum {
+#ifdef LACE_COUNT_TASKS
+    CTR_tasks,       /* Number of tasks spawned */
+#endif
+#ifdef LACE_COUNT_STEALS
+    CTR_steal_tries, /* Number of steal attempts */
+    CTR_leap_tries,  /* Number of leap attempts */
+    CTR_steals,      /* Number of succesful steals */
+    CTR_leaps,       /* Number of succesful leaps */
+    CTR_steal_busy,  /* Number of steal busies */
+    CTR_leap_busy,   /* Number of leap busies */
+#endif
+#ifdef LACE_COUNT_SPLITS
+    CTR_split_grow,  /* Number of split right */
+    CTR_split_shrink,/* Number of split left */
+    CTR_split_req,   /* Number of split requests */
+#endif
+    CTR_fast_sync,   /* Number of fast syncs */
+    CTR_slow_sync,   /* Number of slow syncs */
+#ifdef LACE_PIE_TIMES
+    CTR_init,        /* Timer for initialization */
+    CTR_close,       /* Timer for shutdown */
+    CTR_wapp,        /* Timer for application code (steal) */
+    CTR_lapp,        /* Timer for application code (leap) */
+    CTR_wsteal,      /* Timer for steal code (steal) */
+    CTR_lsteal,      /* Timer for steal code (leap) */
+    CTR_wstealsucc,  /* Timer for succesful steal code (steal) */
+    CTR_lstealsucc,  /* Timer for succesful steal code (leap) */
+    CTR_wsignal,     /* Timer for signal after work (steal) */
+    CTR_lsignal,     /* Timer for signal after work (leap) */
+#endif
+    CTR_MAX
+} CTR_index;
+
+#define THIEF_EMPTY     ((struct _Worker*)0x0)
+#define THIEF_TASK      ((struct _Worker*)0x1)
+#define THIEF_COMPLETED ((struct _Worker*)0x2)
+
+#define TASK_COMMON_FIELDS(type)                               \
+    void (*f)(struct _WorkerP *, struct _Task *, struct type *);  \
+    struct _Worker * volatile thief;
+
+struct __lace_common_fields_only { TASK_COMMON_FIELDS(_Task) };
+#define LACE_COMMON_FIELD_SIZE sizeof(struct __lace_common_fields_only)
+
+typedef struct _Task {
+    TASK_COMMON_FIELDS(_Task);
+    char p1[PAD(LACE_COMMON_FIELD_SIZE, P_SZ)];
+    char d[LACE_TASKSIZE];
+    char p2[PAD(ROUND(LACE_COMMON_FIELD_SIZE, P_SZ) + LACE_TASKSIZE, LINE_SIZE)];
+} Task;
+
+typedef union __attribute__((packed)) {
+    struct {
+        uint32_t tail;
+        uint32_t split;
+    } ts;
+    uint64_t v;
+} TailSplit;
+
+typedef struct _Worker {
+    Task *dq;
+    TailSplit ts;
+    uint8_t allstolen;
+
+    char pad1[PAD(P_SZ+sizeof(TailSplit)+1, LINE_SIZE)];
+
+    uint8_t movesplit;
+} Worker;
+
+typedef struct _WorkerP {
+    Task *dq;                   // same as dq
+    Task *split;                // same as dq+ts.ts.split
+    Task *end;                  // dq+dq_size
+    Worker *_public;            // pointer to public Worker struct
+    size_t stack_trigger;       // for stack overflow detection
+    uint64_t rng;               // my random seed (for lace_trng)
+    uint32_t seed;              // my random seed (for lace_steal_random)
+    uint16_t worker;            // what is my worker id?
+    uint8_t allstolen;          // my allstolen
+    volatile int8_t enabled;    // if this worker is enabled
+
+#if LACE_COUNT_EVENTS
+    uint64_t ctr[CTR_MAX];      // counters
+    volatile uint64_t time;
+    volatile int level;
+#endif
+
+    int16_t pu;                 // my pu (for HWLOC)
+} WorkerP;
 
 #define LACE_STOLEN   ((Worker*)0)
 #define LACE_BUSY     ((Worker*)1)
