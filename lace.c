@@ -55,8 +55,8 @@ static int verbosity = 0;
 /**
  * Number of workers and number of enabled/active workers
  */
-static int n_workers = 0;
-static int enabled_workers = 0;
+static unsigned int n_workers = 0;
+static unsigned int enabled_workers = 0;
 
 /**
  * Datastructure of the task deque etc for each worker.
@@ -184,7 +184,7 @@ lace_get_head(WorkerP *self)
 /**
  * Get the number of workers
  */
-size_t
+unsigned int
 lace_workers()
 {
     return n_workers;
@@ -246,7 +246,7 @@ void
 lace_barrier()
 {
     int wait = lace_bar.wait;
-    if (enabled_workers == __sync_add_and_fetch(&lace_bar.count, 1)) {
+    if ((int)enabled_workers == __sync_add_and_fetch(&lace_bar.count, 1)) {
         lace_bar.count = 0;
         lace_bar.leaving = enabled_workers;
         lace_bar.wait = 1 - wait; // flip wait
@@ -520,9 +520,9 @@ lace_resume()
  * If the given worker is the current worker, this function does nothing.
  */
 void
-lace_disable_worker(int worker)
+lace_disable_worker(unsigned int worker)
 {
-    int self = lace_get_worker()->worker;
+    unsigned int self = lace_get_worker()->worker;
     if (worker == self) return;
     if (workers_p[worker]->enabled == 1) {
         workers_p[worker]->enabled = 0;
@@ -535,9 +535,9 @@ lace_disable_worker(int worker)
  * If the given worker is the current worker, this function does nothing.
  */
 void
-lace_enable_worker(int worker)
+lace_enable_worker(unsigned int worker)
 {
-    int self = lace_get_worker()->worker;
+    unsigned int self = lace_get_worker()->worker;
     if (worker == self) return;
     if (workers_p[worker]->enabled == 0) {
         workers_p[worker]->enabled = 1;
@@ -552,15 +552,14 @@ lace_enable_worker(int worker)
  * The number of workers is never reduces below 1.
  */
 void
-lace_set_workers(int workercount)
+lace_set_workers(unsigned int workercount)
 {
     if (workercount < 1) workercount = 1;
     if (workercount > n_workers) workercount = n_workers;
     enabled_workers = workercount;
-    int self = lace_get_worker()->worker;
+    unsigned int self = lace_get_worker()->worker;
     if (self >= workercount) workercount--;
-    int i;
-    for (i=0; i<n_workers; i++) {
+    for (unsigned int i=0; i<n_workers; i++) {
         workers_p[i]->enabled = (i < workercount || i == self) ? 1 : 0;
     }
 }
@@ -568,7 +567,7 @@ lace_set_workers(int workercount)
 /**
  * Get the number of currently enabled workers.
  */
-int
+unsigned int
 lace_enabled_workers()
 {
     return enabled_workers;
@@ -782,7 +781,7 @@ lace_set_verbosity(int level)
  * each worker gets a task deque with <dqsize> elements.
  */
 void
-lace_init(int _n_workers, size_t dqsize)
+lace_init(unsigned int _n_workers, size_t dqsize)
 {
     // Initialize topology and information about cpus
     hwloc_topology_init(&topo);
@@ -817,7 +816,7 @@ lace_init(int _n_workers, size_t dqsize)
     workers_memory_size = sizeof(worker_data) + sizeof(Task) * dqsize;
 
     // Allocate memory for each worker
-    for (int i=0; i<n_workers; i++) {
+    for (unsigned int i=0; i<n_workers; i++) {
         workers_memory[i] = mmap(NULL, workers_memory_size, PROT_READ|PROT_WRITE, MAP_PRIVATE|MAP_ANONYMOUS, -1, 0);
         if (workers_memory[i] == MAP_FAILED) {
             fprintf(stderr, "Lace error: Unable to allocate memory for the Lace worker!\n");
@@ -828,7 +827,7 @@ lace_init(int _n_workers, size_t dqsize)
     }
 
     // Pin allocated memory of each worker
-    for (int i=0; i<n_workers; i++) {
+    for (unsigned int i=0; i<n_workers; i++) {
         // Get our core
         hwloc_obj_t core = hwloc_get_obj_by_type(topo, HWLOC_OBJ_CORE, i % n_cores);
 
@@ -899,8 +898,7 @@ lace_startup(size_t stacksize, lace_startup_cb cb, void *arg)
     }
 
     /* Spawn all other workers */
-    int i;
-    for (i=1; i<n_workers; i++) lace_spawn_worker(i, stacksize, 0, 0);
+    for (unsigned int i=1; i<n_workers; i++) lace_spawn_worker(i, stacksize, 0, 0);
 
     if (cb != 0) {
         /* If cb set, spawn worker 0 */

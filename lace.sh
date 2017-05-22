@@ -224,7 +224,7 @@ typedef struct _WorkerP {
     size_t stack_trigger;       // for stack overflow detection
     uint64_t rng;               // my random seed (for lace_trng)
     uint32_t seed;              // my random seed (for lace_steal_random)
-    int16_t worker;             // what is my worker id?
+    uint16_t worker;            // what is my worker id?
     uint8_t allstolen;          // my allstolen
     volatile int8_t enabled;    // if this worker is enabled
 
@@ -273,7 +273,7 @@ void lace_set_verbosity(int level);
  * Does not create new threads.
  * Tries to detect number of cpus, if n_workers equals 0.
  */
-void lace_init(int n_workers, size_t dqsize);
+void lace_init(unsigned int n_workers, size_t dqsize);
 
 /**
  * After lace_init, start all worker threads.
@@ -327,27 +327,27 @@ void lace_resume();
  * You can never disable the current worker or reduce the number of workers below 1.
  * You cannot add workers.
  */
-void lace_set_workers(int workercount);
+void lace_set_workers(unsigned int workercount);
 
 /**
  * Disable a suspended worker.
  */
-void lace_disable_worker(int worker);
+void lace_disable_worker(unsigned int worker);
 
 /**
  * Enable a suspended worker.
  */
-void lace_enable_worker(int worker);
+void lace_enable_worker(unsigned int worker);
 
 /**
  * Retrieve the number of enabled/active workers.
  */
-int lace_enabled_workers();
+unsigned int lace_enabled_workers();
 
 /**
  * Retrieve the number of Lace workers
  */
-size_t lace_workers();
+unsigned int lace_workers();
 
 /**
  * Retrieve the default program stack size
