@@ -417,6 +417,10 @@ lace_init_worker(int worker)
     w->level = 0;
 #endif
 
+    if (worker == 0) {
+        lace_time_event(w, 1);
+    }
+
     return w;
 }
 
@@ -616,8 +620,8 @@ static lace_startup_cb main_cb;
 static void*
 lace_main_wrapper(void *arg)
 {
-    lace_init_main();
-    LACE_ME;
+    WorkerP *__lace_worker = lace_init_worker(0);
+    Task *__lace_dq_head = __lace_worker->dq;
     WRAP(main_cb, arg);
     lace_exit();
 
@@ -689,8 +693,7 @@ VOID_TASK_1(lace_steal_loop, int*, quit)
 void
 lace_init_main()
 {
-    WorkerP * __attribute__((unused)) __lace_worker = lace_init_worker(0);
-    lace_time_event(__lace_worker, 1);
+    lace_init_worker(0);
 }
 
 /**
@@ -911,7 +914,6 @@ lace_startup(size_t stacksize, lace_startup_cb cb, void *arg)
     } else {
         /* If cb not set, use current thread as worker 0 */
         lace_init_worker(0);
-        lace_time_event(lace_get_worker(), 1);
     }
 }
 
