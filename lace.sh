@@ -204,17 +204,17 @@ void lace_exit();
 /**
  * Sync a task.
  */
-#define SYNC(f)           ( __lace_dq_head--, WRAP(f##_SYNC) )
+#define SYNC(f)           ( __lace_dq_head-=1, WRAP(f##_SYNC) )
 
 /**
  * Sync a task, but if the task is not stolen, then do not execute it.
  */
-#define DROP()            ( __lace_dq_head--, WRAP(lace_drop) )
+#define DROP()            ( __lace_dq_head-=1, WRAP(lace_drop) )
 
 /**
  * Spawn a task.
  */
-#define SPAWN(f, ...)     ( WRAP(f##_SPAWN, ##__VA_ARGS__), __lace_dq_head++ )
+#define SPAWN(f, ...)     ( WRAP(f##_SPAWN, ##__VA_ARGS__), (__lace_dq_head+=1)-1 )
 
 /**
  * Directly execute a task.
@@ -424,6 +424,7 @@ typedef enum {
 #define THIEF_EMPTY     ((struct _Worker*)0x0)
 #define THIEF_TASK      ((struct _Worker*)0x1)
 #define THIEF_COMPLETED ((struct _Worker*)0x2)
+#define THIEF_RUNNING   ((struct _Worker*)0x3)
 
 #define TASK_COMMON_FIELDS(type)                               \
     void (*f)(struct _WorkerP *, struct _Task *, struct type *);  \
@@ -638,6 +639,10 @@ lace_steal(WorkerP *self, Task *__dq_head, Worker *victim)
             if (__sync_bool_compare_and_swap(&victim->ts.v, ts.v, ts_new.v)) {
                 // Stolen
                 Task *t = &victim->dq[ts.ts.tail];
+                if (t->thief == THIEF_RUNNING) {
+                    lace_time_event(self, 7);
+                    return LACE_BUSY;
+                }
                 t->thief = self->_public;
                 lace_time_event(self, 1);
                 t->f(self, __dq_head, t);
@@ -910,8 +915,12 @@ $RTYPE NAME##_SYNC_SLOW(WorkerP *w, Task *__dq_head)
     compiler_barrier();
 
     t = (TD_##NAME *)__dq_head;
+    t->thief = THIEF_RUNNING;
+    $SAVE_RVAL NAME##_CALL(w, __dq_head+1 $TASK_GET_FROM_t);
+
+    compiler_barrier();
     t->thief = THIEF_EMPTY;
-    return NAME##_CALL(w, __dq_head $TASK_GET_FROM_t);
+    return $RETURN_RES;
 }
 
 static inline __attribute__((unused))
@@ -922,8 +931,11 @@ $RTYPE NAME##_SYNC(WorkerP *w, Task *__dq_head)
     if (likely(0 == w->_public->movesplit)) {
         if (likely(w->split <= __dq_head)) {
             TD_##NAME *t = (TD_##NAME *)__dq_head;
+            t->thief = THIEF_RUNNING;
+            $SAVE_RVAL NAME##_CALL(w, __dq_head+1 $TASK_GET_FROM_t);
+            compiler_barrier();
             t->thief = THIEF_EMPTY;
-            return NAME##_CALL(w, __dq_head $TASK_GET_FROM_t);
+            return $RETURN_RES;
         }
     }
 
