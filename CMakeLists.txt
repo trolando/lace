@@ -21,13 +21,16 @@ option(LACE_PIE_TIMES "Record Pie Times" OFF)
 option(LACE_COUNT_TASKS "Count Tasks in Lace" OFF)
 option(LACE_COUNT_STEALS "Count Steals and Leaps in Lace" OFF)
 option(LACE_COUNT_SPLITS "Count Splits in Lace" OFF)
+option(LACE_USE_HWLOC "Enable/disable using libhwloc to pin threads and memory" OFF)
 
 option(BUILD_SHARED_LIBS "Enable/disable creation of shared libraries" OFF)
 option(BUILD_STATIC_LIBS "Enable/disable creation of static libraries" ON)
 
 option(LACE_BUILD_BENCHMARKS "Build benchmark programs" OFF)
 
-find_package(Hwloc REQUIRED)
+if(LACE_USE_HWLOC)
+    find_package(Hwloc REQUIRED)
+endif()
 
 add_library(lace lace.c lace.h)
 target_include_directories(lace PUBLIC ${CMAKE_CURRENT_BINARY_DIR})
