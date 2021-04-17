@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.1)
 
-project(lace VERSION 1.0 LANGUAGES C)
+project(lace VERSION 1.1 LANGUAGES C)
 
 include(CTest)
 
@@ -22,6 +22,7 @@ option(LACE_COUNT_TASKS "Count Tasks in Lace" OFF)
 option(LACE_COUNT_STEALS "Count Steals and Leaps in Lace" OFF)
 option(LACE_COUNT_SPLITS "Count Splits in Lace" OFF)
 option(LACE_USE_HWLOC "Enable/disable using libhwloc to pin threads and memory" OFF)
+option(LACE_USE_MMAP "Enable/disable using mmap to allocate memory" OFF)
 
 option(BUILD_SHARED_LIBS "Enable/disable creation of shared libraries" OFF)
 option(BUILD_STATIC_LIBS "Enable/disable creation of static libraries" ON)

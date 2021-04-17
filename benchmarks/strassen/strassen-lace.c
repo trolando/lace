@@ -745,8 +745,7 @@ int main(int argc, char *argv[])
 
     int n = atoi(argv[optind]);
 
-    lace_init(workers, dqsize);
-    lace_startup(0, 0, 0);
+    lace_start(workers, dqsize);
 
     REAL *A, *B, *C1, *C2;
 
@@ -764,10 +763,8 @@ int main(int argc, char *argv[])
     init_matrix(n, A, n);
     init_matrix(n, B, n);
 
-    LACE_ME;
-
     double t1=wctime();
-    CALL(OptimizedStrassenMultiply, C2, A, B, n, n, n, n);
+    RUN(OptimizedStrassenMultiply, C2, A, B, n, n, n, n);
     double t2=wctime();
 
     if (verify) {
@@ -781,7 +778,7 @@ int main(int argc, char *argv[])
         printf("Time: %f\n", t2-t1);
     }
 
-    lace_exit();
+    lace_stop();
 
     return 0;
 }

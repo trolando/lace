@@ -56,21 +56,18 @@ int main(int argc, char **argv)
         exit(1);
     }
 
-    lace_init(workers, dqsize);
-    lace_startup(0, 0, 0);
-
-    LACE_ME;
+    lace_start(workers, dqsize);
 
     int n = atoi(argv[optind]);
 
     double t1 = wctime();
-    int m = CALL(pfib, n);
+    int m = RUN(pfib, n);
     double t2 = wctime();
 
     printf("fib(%d) = %d\n", n, m);
     printf("Time: %f\n", t2-t1);
 
-    lace_exit();
+    lace_stop();
     return 0;
 }
 

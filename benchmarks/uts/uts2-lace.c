@@ -153,15 +153,12 @@ int main(int argc, char *argv[]) {
   uts_printParams();
   uts_initRoot(&root, type);
   
-  lace_init(_lace_workers, _lace_dqsize);
-  lace_startup(32*1024*1024, 0, 0);
+  lace_start(_lace_workers, _lace_dqsize);
 
   printf("Initialized Lace with %d workers, dqsize=%d\n", _lace_workers, _lace_dqsize);
 
-  LACE_ME;
-
   t1 = uts_wctime();
-  Result r = CALL(parTreeSearch, 0, &root);
+  Result r = RUN(parTreeSearch, 0, &root);
   t2 = uts_wctime();
 
   maxTreeDepth = r.maxdepth;
@@ -172,7 +169,7 @@ int main(int argc, char *argv[]) {
 
   printf("Time: %f\n", t2-t1);
 
-  lace_exit();
+  lace_stop();
 
   return 0;
 }

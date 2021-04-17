@@ -72,11 +72,9 @@ int main(int argc, char **argv)
         exit(1);
     }
 
-    int d, m;
-    lace_init(workers, dqsize);
-    lace_startup(0, 0, 0);
+    lace_start(workers, dqsize);
 
-    LACE_ME;
+    int d, m;
 
     d = atoi(argv[optind]);
     w = atoi(argv[optind+1]);
@@ -87,12 +85,12 @@ int main(int argc, char **argv)
 
     double t1 = wctime();
     int i;
-    for(i=0; i<m; i++) CALL(tree, d);
+    for(i=0; i<m; i++) RUN(tree, d);
     double t2 = wctime();
 
     printf("Time: %f\n", t2-t1);
 
-    lace_exit();
+    lace_stop();
 
     return 0;
 }

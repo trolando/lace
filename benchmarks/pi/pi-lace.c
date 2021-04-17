@@ -60,22 +60,20 @@ int main(int argc, char **argv)
         exit(1);
     }
 
-    lace_init(workers, dqsize);
-    lace_startup(0, 0, 0);
-
-    LACE_ME;
+    lace_start(workers, dqsize);
 
     long n = atol(argv[optind]);
 
     double t1 = wctime();
-    double pi = 4.0*(double)CALL(pi_mc, 0, n)/n;
+    double pi = 4.0*(double)RUN(pi_mc, 0, n)/n;
     double t2 = wctime();
 
     printf("With %zu workers:\n", lace_workers());
     printf("pi(%ld) = %.12lf (accuracy: %.12lf)\n", n, pi, fabs(M_PI-pi)/M_PI);
     printf("Time: %f\n", t2-t1);
 
-    lace_exit();
+    lace_stop();
+
     return 0;
 }
 

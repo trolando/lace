@@ -22,7 +22,8 @@ The main repository of Lace is https://github.com/trolando/lace.
 
 Dependencies
 ------------
-Lace requires **CMake** for compiling and **hwloc** (`libhwloc-dev`) to pin workers and allocate memory on the correct CPUs/memory domains.
+Lace requires **CMake** for compiling.
+Optionally use **hwloc** (`libhwloc-dev`) to pin workers and allocate memory on the correct CPUs/memory domains.
 
 Building
 --------
@@ -35,6 +36,19 @@ make && make test && make install
 ```
 
 It is recommended to use `ccmake` to configure the build settings of Lace.
+
+The build process creates `lace.h` in the `build` directory. This file together with `lace.c` form the library. Lace supports up to 6 parameters for a task. If you need more, use `lace14.h` and `lace14.c` which lets you define tasks with up to 14 parameters.
+
+Usage
+-----
+Start Lace workers using `lace_start` and `lace_stop` methods. 
+This starts 0 (autodetect) or a given number of threads.
+These threads will greedily wait for tasks to execute, increasing your CPU load to 100%. Use `lace_suspend` and `lace_resume` to temporarily stop the work-stealing framework.
+
+See the `benchmarks` directory for examples of using Lace.
+Essentially, define Lace tasks using e.g. `TASK_1(int, fib, int, n) { method body }` to create a Lace task with an int result value and one parameter of type int and variable name n.
+If you are inside a Lace task, use `SPAWN` and `SYNC` to create subtasks and wait for their completion. Use `CALL` to directly execute a subtask.
+If you are not inside a Lace task, use `RUN` to run a task. You can use `RUN` from any thread, including from Lace tasks. The method halts until the task has been run by the work-stealing framework. Example: `int result = RUN(fib, 40)` will run the Lace task `fib` with parameter `40`.
 
 Publications
 ------------

@@ -156,13 +156,10 @@ int main(int argc, char *argv[])
     zero(C1, n);
     zero(C2, n);
 
-    lace_init(workers, dqsize);
-    lace_startup(0, 0, 0);
-
-    LACE_ME;
+    lace_start(workers, dqsize);
 
     double t1 = wctime();
-    CALL(rec_matmul, A, B, C2, n, n, n, n, 0); 
+    RUN(rec_matmul, A, B, C2, n, n, n, n, 0); 
     double t2 = wctime();
 
     printf("Time: %f\n", t2-t1);
@@ -172,7 +169,7 @@ int main(int argc, char *argv[])
 
     printf("Max error matmul(%d x %d) = %g\n", n, n, err);
 */
-    lace_exit();
+    lace_stop();
 
     free(C2);
     free(C1);

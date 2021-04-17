@@ -95,10 +95,7 @@ int main(int argc, char *argv[])
         exit(1);
     }
 
-    lace_init(workers, dqsize);
-    lace_startup(0, 0, 0);
-
-    LACE_ME;
+    lace_stop(workers, dqsize);
 
     int n = atoi(argv[optind]);
 
@@ -107,14 +104,14 @@ int main(int argc, char *argv[])
     printf("running queens %d with %d workers...\n", n, workers);
 
     double t1 = wctime();
-    uint64_t res = CALL(nqueens, n, 0, a);
+    uint64_t res = RUN(nqueens, n, 0, a);
     double t2 = wctime();
 
     printf("Result: Q(%d) = %lu\n", n, res);
 
     printf("Time: %f\n", t2-t1);
 
-    lace_exit();
+    lace_stop();
 
     return 0;
 }

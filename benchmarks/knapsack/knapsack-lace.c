@@ -141,10 +141,7 @@ int main(int argc, char *argv[])
         exit(1);
     }
 
-    lace_init(workers, dqsize);
-    lace_startup(0, 0, 0);
-
-    LACE_ME;
+    lace_start(workers, dqsize);
 
     struct item items[MAX_ITEMS];	/* array of items */
     int n, capacity, sol;
@@ -153,11 +150,13 @@ int main(int argc, char *argv[])
         return 1;
 
     double t1 = wctime();
-    sol = CALL(knapsack, items, capacity, n, 0);
+    sol = RUN(knapsack, items, capacity, n, 0);
     double t2 = wctime();
 
     printf("Best value is %d\n", sol);
     printf("Time: %f\n", t2-t1);
+
+    lace_stop();
 
     return 0;
 }

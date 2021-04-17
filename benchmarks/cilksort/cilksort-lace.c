@@ -477,13 +477,10 @@ int main(int argc, char *argv[])
         fclose(f);
     }
 
-    lace_init(workers, dqsize);
-    lace_startup(0, 0, 0);
-
-    LACE_ME;
+    lace_start(workers, dqsize);
 
     double t1 = wctime();
-    CALL(cilksort, array, tmp, size);
+    RUN(cilksort, array, tmp, size);
     double t2 = wctime();
 
     printf("Time: %f\n", t2-t1);
@@ -498,7 +495,7 @@ int main(int argc, char *argv[])
         printf("SORTING FAILURE");
     */
 
-    lace_exit();
+    lace_stop();
 
     free(array);
     free(tmp);
