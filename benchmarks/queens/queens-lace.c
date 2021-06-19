@@ -95,7 +95,7 @@ int main(int argc, char *argv[])
         exit(1);
     }
 
-    lace_stop(workers, dqsize);
+    lace_start(workers, dqsize);
 
     int n = atoi(argv[optind]);
 
