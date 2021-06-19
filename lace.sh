@@ -567,10 +567,10 @@ lace_steal(WorkerP *self, Task *__dq_head, Worker *victim)
            compiler will 'optimize' extra memory accesses to victim->ts instead
            of comparing the local values ts.ts.tail and ts.ts.split, causing
            thieves to steal non existent tasks! */
-        register TailSplit ts;
+        TailSplit ts;
         ts.v = *(volatile uint64_t *)&victim->ts.v;
         if (ts.ts.tail < ts.ts.split) {
-            register TailSplit ts_new;
+            TailSplit ts_new;
             ts_new.v = ts.v;
             ts_new.ts.tail++;
             if (__sync_bool_compare_and_swap(&victim->ts.v, ts.v, ts_new.v)) {
