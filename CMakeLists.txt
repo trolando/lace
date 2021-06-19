@@ -9,7 +9,7 @@ else()
   set(subproject OFF)
 endif()
 
-project(lace VERSION 1.1 LANGUAGES C)
+project(lace VERSION 1.2 LANGUAGES C)
 
 include(CheckSymbolExists)
 include(CMakeDependentOption)
