@@ -39,15 +39,6 @@ script:
 
 after_success:
 - cpack
-- benchmarks/fib-lace -w 1 42
-- benchmarks/fib-lace -w 2 42
-- benchmarks/fib-lace -w 4 42
-- benchmarks/queens-lace -w 1 13
-- benchmarks/queens-lace -w 2 13
-- benchmarks/queens-lace -w 4 13
-- benchmarks/pi-lace -w 1 200000000
-- benchmarks/pi-lace -w 2 200000000
-- benchmarks/pi-lace -w 4 200000000
 
 notifications:
   email: false
