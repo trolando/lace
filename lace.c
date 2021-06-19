@@ -23,7 +23,19 @@
 #include <string.h> // for memset
 #include <sys/time.h> // for gettimeofday
 #include <pthread.h> // for POSIX threading
+
+#if defined(__APPLE__)
+/* Mac OS X defines sem_init but actually does not implement them */
+#include <mach/mach.h>
+
+typedef semaphore_t sem_t;
+#define sem_init(sem, x, value)	semaphore_create(mach_task_self(), sem, SYNC_POLICY_FIFO, value)
+#define sem_wait(sem)           semaphore_wait(*sem)
+#define sem_post(sem)           semaphore_signal(*sem)
+#define sem_destroy(sem)        semaphore_destroy(mach_task_self(), *sem)
+#else
 #include <semaphore.h> // for sem_*
+#endif
 
 #include <lace.h>
 
