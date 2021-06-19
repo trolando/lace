@@ -1,0 +1,93 @@
+os:
+- linux
+- osx
+# - windows
+
+## For now, no support for Windows. Windows has no sys/time.h
+
+dist:
+- focal
+- bionic
+
+osx_image:
+- xcode9.4.1
+- xcode12.3
+
+env:
+  matrix:
+    - BUILD_TYPE="RelWithDebInfo"
+    - BUILD_TYPE="Debug"
+
+language:
+- c
+
+compiler:
+- gcc
+- clang
+
+addons:
+  apt:
+    packages:
+      - cmake
+      - cmake-data
+      - build-essential
+   
+script:
+- cmake . -DCMAKE_BUILD_TYPE=${BUILD_TYPE} -DLACE_BUILD_BENCHMARKS=ON
+- cmake --build . -j 2
+- ctest
+
+after_success:
+- cpack
+- benchmarks/fib-lace -w 1 42
+- benchmarks/fib-lace -w 2 42
+- benchmarks/fib-lace -w 4 42
+- benchmarks/queens-lace -w 1 13
+- benchmarks/queens-lace -w 2 13
+- benchmarks/queens-lace -w 4 13
+- benchmarks/pi-lace -w 1 200000000
+- benchmarks/pi-lace -w 2 200000000
+- benchmarks/pi-lace -w 4 200000000
+
+notifications:
+  email: false
+
+branches:
+  only: master
+
+### A bunch of code from Travis website to help build on Windows...
+
+before_install:
+- |-
+    case $TRAVIS_OS_NAME in
+      windows)
+        [[ ! -f C:/tools/msys64/msys2_shell.cmd ]] && rm -rf C:/tools/msys64
+        choco uninstall -y mingw
+        choco upgrade --no-progress -y msys2
+        export msys2='cmd //C RefreshEnv.cmd '
+        export msys2+='& set MSYS=winsymlinks:nativestrict '
+        export msys2+='& C:\\tools\\msys64\\msys2_shell.cmd -defterm -no-start'
+        export mingw64="$msys2 -mingw64 -full-path -here -c "\"\$@"\" --"
+        export msys2+=" -msys2 -c "\"\$@"\" --"
+        $msys2 pacman --sync --noconfirm --needed mingw-w64-x86_64-toolchain
+        ## Install more MSYS2 packages from https://packages.msys2.org/base here
+        taskkill //IM gpg-agent.exe //F  # https://travis-ci.community/t/4967
+        export PATH=/C/tools/msys64/mingw64/bin:$PATH
+        export MAKE=mingw32-make  # so that Autotools can find it
+        ;;
+    esac
+
+before_cache:
+- |-
+    case $TRAVIS_OS_NAME in
+      windows)
+        # https://unix.stackexchange.com/a/137322/107554
+        $msys2 pacman --sync --clean --noconfirm
+        ;;
+    esac
+
+cache:
+  directories:
+    - $HOME/AppData/Local/Temp/chocolatey
+    - /C/tools/msys64
+
