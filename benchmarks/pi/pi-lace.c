@@ -68,7 +68,7 @@ int main(int argc, char **argv)
     double pi = 4.0*(double)RUN(pi_mc, 0, n)/n;
     double t2 = wctime();
 
-    printf("With %zu workers:\n", lace_workers());
+    printf("With %u workers:\n", lace_workers());
     printf("pi(%ld) = %.12lf (accuracy: %.12lf)\n", n, pi, fabs(M_PI-pi)/M_PI);
     printf("Time: %f\n", t2-t1);
 

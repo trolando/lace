@@ -84,7 +84,7 @@ int main(int argc, char *argv[])
     uint64_t res = nqueens(n, 0, a);
     double t2 = wctime();
 
-    printf("Result: Q(%d) = %lu\n", n, res);
+    printf("Result: Q(%d) = %llu\n", n, res);
 
     printf("Time: %f\n", t2-t1);
 
