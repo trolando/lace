@@ -919,7 +919,7 @@ void lace_stop()
     lace_barrier_destroy();
     sem_destroy(&suspend_semaphore);
 #ifndef __linux__
-    pthread_key_delete(&worker_key);
+    pthread_key_delete(worker_key);
 #endif
 
     for (unsigned int i=0; i<n_workers; i++) {
