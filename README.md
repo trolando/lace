@@ -1,4 +1,4 @@
-Lace
+Lace [![Build Status](https://www.travis-ci.com/trolando/lace.svg?branch=master)](https://www.travis-ci.com/trolando/lace)
 ======
 Lace is a work-stealing framework for multi-core fork-join parallelism.
 The framework is written in C and implements work-stealing in a style similar to frameworks like Cilk and Wool.
