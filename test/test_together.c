@@ -43,7 +43,7 @@ VOID_TASK_0(test_something)
 
 VOID_TASK_1(_main, void*, arg)
 {
-    fprintf(stdout, "Testing TOGETHER and NEWFRAME with %zu workers...\n", lace_workers());
+    fprintf(stdout, "Testing TOGETHER and NEWFRAME with %u workers...\n", lace_workers());
 
     for (int i=0; i<10; i++) {
         NEWFRAME(test_newframe, 5);
