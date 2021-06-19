@@ -25,7 +25,8 @@ Dependencies
 ------------
 Lace requires **CMake** for compiling.
 Optionally use **hwloc** (`libhwloc-dev`) to pin workers and allocate memory on the correct CPUs/memory domains.
-Ideally, Lace is used on a system that supports the `mmap` functionality to allocate a large amount of **virtual** memory. Typically this memory is not actually used, but we delegate actual allocation to the OS. If this is not available, `posix_memalign` will be used.
+
+Ideally, Lace is used on a system that supports the `mmap` functionality to allocate a large amount of **virtual** memory. Typically this memory is not actually used, but we delegate actual allocation of memory to the OS. This is done automatically when memory is accessed, thus in most use cases Lace has a low memory overhead. If `mmap` is not available, `posix_memalign` will be used instead.
 
 Building
 --------
@@ -43,12 +44,13 @@ The build process creates `lace.h` in the `build` directory. This file together 
 
 Usage
 -----
-Start Lace workers using `lace_start` and `lace_stop` methods. 
-This starts 0 (autodetect number of available hardware threads) or a given number of threads.
-These threads will greedily wait for tasks to execute, increasing your CPU load to 100%. Use `lace_suspend` and `lace_resume` to temporarily stop the work-stealing framework.
+Start the Lace framework using the `lace_start` and `lace_stop` methods. 
+This starts Lace with the given number of workers, but if you call `lace_start` with 0 workers, then Lace automatically detects the maximum number of workers for your system.
+This is only recommended if your application is the only application on the system.
+Lace workers will greedily wait for tasks to execute, increasing your CPU load to 100%. Use `lace_suspend` and `lace_resume` to temporarily stop the work-stealing framework.
 Calls to `lace_start`, `lace_suspend` and `lace_resume` should not incur much overhead. Typically suspending and resuming requires 1-2 ms if you use the maximum number of workers and much less if you do not use the maximum number of workers.
 
-If your application is single-threaded, calls to Lace tasks block the calling thread until Lace is done. If your application is single-threaded and spends most of its time running Lace tasks, it is recommended to use the maximum number of workers, obtained via `lace_get_pu_count()` or by setting the number of workers in `lace_start` to 0.
+Calls to Lace tasks block the calling thread until Lace is done. If your application is single-threaded and spends most of its time running Lace tasks, it is recommended to use the maximum number of workers, obtained via `lace_get_pu_count()` or by setting the number of workers in `lace_start` to 0.
 If your application is single-threaded but only occasionally uses Lace, you can still use the maximum number of workers, but use `lace_suspend` and `lace_resume` to suspend Lace while no Lace tasks are used.
 If your application is multi-threaded and you do not use Lace for your other threads, then it is recommended to use fewer workers, since the Lace workers use 100% CPU time while trying to acquire work.
 
@@ -57,7 +59,7 @@ In essence, you define Lace tasks using e.g. `TASK_1(int, fib, int, n) { method 
 If you are inside a Lace task, use `SPAWN` and `SYNC` to create subtasks and wait for their completion. Use `CALL` to directly execute a subtask.
 If you are not inside a Lace task, use `RUN` to run a task. You can use `RUN` from any thread, including from Lace tasks. The method halts until the task has been run by the work-stealing framework. Example: `int result = RUN(fib, 40)` will run the Lace task `fib` with parameter `40`.
 
-If you use C++, you can use Lace via friend functions. However, proper C++ task scheduling is currently not implemented. It is certainly technically possible, so if you are interested in working on this, please reach out.
+If you use C++, you can use Lace via friend functions. However, proper task scheduling for C++ classes is currently not implemented. It is certainly technically possible, so if you are interested in working on this, please reach out.
 
 Publications
 ------------
