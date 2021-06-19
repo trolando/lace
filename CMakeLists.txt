@@ -1,10 +1,18 @@
-cmake_minimum_required(VERSION 3.1)
+cmake_minimum_required(VERSION 3.8)
+list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_LIST_DIR}/cmake/")
+
+# Check if we are solo or as part of a larger project
+# If we're a subproject, this disabled testing/benchmark tools
+if(DEFINED PROJECT_NAME)
+  set(subproject ON)
+else()
+  set(subproject OFF)
+endif()
 
 project(lace VERSION 1.1 LANGUAGES C)
 
 include(CheckSymbolExists)
-include(CTest)
-include(GNUInstallDirs)
+include(CMakeDependentOption)
 
 set(PROJECT_DESCRIPTION "Lace, a work-stealing framework for multi-core fork-join parallelism")
 set(PROJECT_URL "https://github.com/trolando/lace")
@@ -14,20 +22,21 @@ message(STATUS "OS: ${CMAKE_SYSTEM_NAME}")
 message(STATUS "Compiler: ${CMAKE_C_COMPILER_ID}")
 
 if(NOT CMAKE_BUILD_TYPE)
-    set(CMAKE_BUILD_TYPE Release CACHE STRING "Choose the type of build, options are: None Debug Release RelWithDebInfo MinSizeRel." FORCE)
+    set(CMAKE_BUILD_TYPE RelWithDebInfo CACHE STRING "Choose the type of build, options are: None Debug Release RelWithDebInfo MinSizeRel." FORCE)
 endif(NOT CMAKE_BUILD_TYPE)
 
-set(CMAKE_MODULE_PATH "${PROJECT_SOURCE_DIR}/cmake/")
+# Set the C standard; this is a directory scope variable, so does not propagate to parent scopes
+set(CMAKE_C_STANDARD 11)
+set(CMAKE_C_STANDARD_REQUIRED ON)
 
-option(LACE_PIE_TIMES "Record Pie Times" OFF)
-option(LACE_COUNT_TASKS "Count Tasks in Lace" OFF)
-option(LACE_COUNT_STEALS "Count Steals and Leaps in Lace" OFF)
-option(LACE_COUNT_SPLITS "Count Splits in Lace" OFF)
-option(LACE_USE_HWLOC "Enable/disable using libhwloc to pin threads and memory" OFF)
-option(LACE_USE_MMAP "Enable/disable using mmap to allocate memory" OFF)
-
-
-option(LACE_BUILD_BENCHMARKS "Build benchmark programs" OFF)
+option(LACE_PIE_TIMES "Let Lace record Pie times" OFF)
+option(LACE_COUNT_TASKS "Let Lace record the number of tasks" OFF)
+option(LACE_COUNT_STEALS "Let Lace count #steals and #leaps" OFF)
+option(LACE_COUNT_SPLITS "Let Lace count #splits" OFF)
+option(LACE_USE_HWLOC "Let Lace pin threads/memory using libhwloc" OFF)
+option(LACE_USE_MMAP "Let Lace use mmap to allocate memory" ON)
+cmake_dependent_option(LACE_TEST "Build and run Lace tests" ON "NOT subproject" OFF)
+cmake_dependent_option(LACE_BUILD_BENCHMARKS "Build Lace benchmark programs" OFF "NOT subproject" OFF)
 
 check_symbol_exists(mmap "sys/mman.h" HAVE_MMAP)
 if(LACE_USE_MMAP AND NOT HAVE_MMAP)
@@ -49,8 +58,6 @@ target_include_directories(lace14 PUBLIC ${CMAKE_CURRENT_BINARY_DIR})
 target_link_libraries(lace14 rt pthread ${HWLOC_LIBRARIES})
 target_compile_options(lace14 PRIVATE -Wall -Wextra -Werror -fno-strict-aliasing)
 
-set_target_properties(lace lace14 PROPERTIES C_STANDARD 11)
-
 configure_file(lace_config.h.in lace_config.h)
 add_custom_command(OUTPUT lace.h lace14.h lace14.c COMMAND ./gen.sh "${CMAKE_CURRENT_BINARY_DIR}" WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR} DEPENDS lace.sh lace.c)
 
@@ -58,18 +65,35 @@ if(LACE_BUILD_BENCHMARKS)
     add_subdirectory(benchmarks)
 endif()
 
-# Add test directory and tests
-add_subdirectory(test)
+if(LACE_TEST)
+    # Add test directory and tests
+    include(CTest)
+    add_subdirectory(test)
+endif()
 
-# Setup installing and pkg-config
-configure_file("${CMAKE_CURRENT_SOURCE_DIR}/lace.pc.in" "${CMAKE_CURRENT_BINARY_DIR}/lace.pc" @ONLY)
+if(NOT subproject)
+    # Setup installing and pkg-config
+    configure_file("${CMAKE_CURRENT_SOURCE_DIR}/lace.pc.in" "${CMAKE_CURRENT_BINARY_DIR}/lace.pc" @ONLY)
 
-install(TARGETS lace lace14 DESTINATION "${CMAKE_INSTALL_LIBDIR}")
-install(FILES
-    ${CMAKE_CURRENT_BINARY_DIR}/lace.h
-    ${CMAKE_CURRENT_BINARY_DIR}/lace14.h
-    ${CMAKE_CURRENT_BINARY_DIR}/lace_config.h
-    DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
-install(FILES
-    ${CMAKE_CURRENT_BINARY_DIR}/lace.pc
-    DESTINATION ${CMAKE_INSTALL_LIBDIR}/pkgconfig)
+    include(GNUInstallDirs)
+    install(TARGETS lace lace14 DESTINATION "${CMAKE_INSTALL_LIBDIR}")
+    install(FILES
+        ${CMAKE_CURRENT_BINARY_DIR}/lace.h
+        ${CMAKE_CURRENT_BINARY_DIR}/lace14.h
+        ${CMAKE_CURRENT_BINARY_DIR}/lace_config.h
+        DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
+    install(FILES
+        ${CMAKE_CURRENT_BINARY_DIR}/lace.pc
+        DESTINATION ${CMAKE_INSTALL_LIBDIR}/pkgconfig)
+
+    # Setup basic CPack support
+    set(CPACK_PACKAGE_VENDOR "tvandijk")
+    set(CPACK_PACKAGE_DESCRIPTION_SUMMARY ${PROJECT_DESCRIPTION})
+    set(CMAKE_PROJECT_HOMEPAGE ${PROJECT_URL})
+    set(CMAKE_RESOURCE_FILE_LICENSE "${PROJECT_SOURCE_DIR}/LICENSE")
+    set(CMAKE_RESOURCE_FILE_README "${PROJECT_SOURCE_DIR}/Readme.md")
+    set(CPACK_PACKAGE_VERSION_MAJOR "${PROJECT_VERSION_MAJOR}")
+    set(CPACK_PACKAGE_VERSION_MINOR "${PROJECT_VERSION_MINOR}")
+    set(CPACK_PACKAGE_VERSION_PATCH "${PROJECT_VERSION_PATCH}")
+    include(CPack)
+endif()
