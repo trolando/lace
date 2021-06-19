@@ -51,11 +51,11 @@ endif()
 add_library(lace STATIC lace.c lace.h)
 target_include_directories(lace PUBLIC ${CMAKE_CURRENT_BINARY_DIR})
 target_compile_options(lace PRIVATE -Wall -Wextra -Werror -fno-strict-aliasing)
-target_link_libraries(lace rt pthread ${HWLOC_LIBRARIES})
+target_link_libraries(lace pthread ${HWLOC_LIBRARIES})
 
 add_library(lace14 STATIC lace14.c lace14.h)
 target_include_directories(lace14 PUBLIC ${CMAKE_CURRENT_BINARY_DIR})
-target_link_libraries(lace14 rt pthread ${HWLOC_LIBRARIES})
+target_link_libraries(lace14 pthread ${HWLOC_LIBRARIES})
 target_compile_options(lace14 PRIVATE -Wall -Wextra -Werror -fno-strict-aliasing)
 
 configure_file(lace_config.h.in lace_config.h)
