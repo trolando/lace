@@ -655,6 +655,20 @@ lace_set_stacksize(size_t new_stacksize)
     stacksize = new_stacksize;
 }
 
+unsigned int
+lace_get_pu_count(void)
+{
+#if defined(sched_getaffinity)
+    cpu_set_t cs;
+    CPU_ZERO(&cs);
+    sched_getaffinity(0, sizeof(cs), &cs);
+    unsigned int n_pus = CPU_COUNT(&cs);
+#else
+    unsigned int n_pus = sysconf(_SC_NPROCESSORS_ONLN);
+#endif
+    return n_pus;
+}
+
 /**
  * Initialize Lace for work-stealing with <n> workers, where
  * each worker gets a task deque with <dqsize> elements.
@@ -670,13 +684,8 @@ lace_start(unsigned int _n_workers, size_t dqsize)
     n_nodes = hwloc_get_nbobjs_by_type(topo, HWLOC_OBJ_NODE);
     n_cores = hwloc_get_nbobjs_by_type(topo, HWLOC_OBJ_CORE);
     n_pus = hwloc_get_nbobjs_by_type(topo, HWLOC_OBJ_PU);
-#elif defined(sched_getaffinity)
-    cpu_set_t cs;
-    CPU_ZERO(&cs);
-    sched_getaffinity(0, sizeof(cs), &cs);
-    unsigned int n_pus = CPU_COUNT(&cs);
 #else
-    unsigned int n_pus = sysconf(_SC_NPROCESSORS_ONLN);
+    unsigned int n_pus = lace_get_pu_count();
 #endif
 
     // Initialize globals
