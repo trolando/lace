@@ -24,8 +24,6 @@ option(LACE_COUNT_SPLITS "Count Splits in Lace" OFF)
 option(LACE_USE_HWLOC "Enable/disable using libhwloc to pin threads and memory" OFF)
 option(LACE_USE_MMAP "Enable/disable using mmap to allocate memory" OFF)
 
-option(BUILD_SHARED_LIBS "Enable/disable creation of shared libraries" OFF)
-option(BUILD_STATIC_LIBS "Enable/disable creation of static libraries" ON)
 
 option(LACE_BUILD_BENCHMARKS "Build benchmark programs" OFF)
 
@@ -33,12 +31,12 @@ if(LACE_USE_HWLOC)
     find_package(Hwloc REQUIRED)
 endif()
 
-add_library(lace lace.c lace.h)
+add_library(lace STATIC lace.c lace.h)
 target_include_directories(lace PUBLIC ${CMAKE_CURRENT_BINARY_DIR})
 target_compile_options(lace PRIVATE -Wall -Wextra -Werror -fno-strict-aliasing)
 target_link_libraries(lace rt pthread ${HWLOC_LIBRARIES})
 
-add_library(lace14 lace14.c lace14.h)
+add_library(lace14 STATIC lace14.c lace14.h)
 target_include_directories(lace14 PUBLIC ${CMAKE_CURRENT_BINARY_DIR})
 target_link_libraries(lace14 rt pthread ${HWLOC_LIBRARIES})
 target_compile_options(lace14 PRIVATE -Wall -Wextra -Werror -fno-strict-aliasing)
