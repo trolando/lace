@@ -2,7 +2,9 @@ cmake_minimum_required(VERSION 3.1)
 
 project(lace VERSION 1.1 LANGUAGES C)
 
+include(CheckSymbolExists)
 include(CTest)
+include(GNUInstallDirs)
 
 set(PROJECT_DESCRIPTION "Lace, a work-stealing framework for multi-core fork-join parallelism")
 set(PROJECT_URL "https://github.com/trolando/lace")
@@ -26,6 +28,12 @@ option(LACE_USE_MMAP "Enable/disable using mmap to allocate memory" OFF)
 
 
 option(LACE_BUILD_BENCHMARKS "Build benchmark programs" OFF)
+
+check_symbol_exists(mmap "sys/mman.h" HAVE_MMAP)
+if(LACE_USE_MMAP AND NOT HAVE_MMAP)
+  message(WARNING "mmap not found: disabling mmap support")
+  set(LACE_USE_MMAP OFF)
+endif()
 
 if(LACE_USE_HWLOC)
     find_package(Hwloc REQUIRED)
@@ -56,7 +64,6 @@ add_subdirectory(test)
 # Setup installing and pkg-config
 configure_file("${CMAKE_CURRENT_SOURCE_DIR}/lace.pc.in" "${CMAKE_CURRENT_BINARY_DIR}/lace.pc" @ONLY)
 
-include(GNUInstallDirs)
 install(TARGETS lace lace14 DESTINATION "${CMAKE_INSTALL_LIBDIR}")
 install(FILES
     ${CMAKE_CURRENT_BINARY_DIR}/lace.h
