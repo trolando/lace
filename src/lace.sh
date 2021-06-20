@@ -31,18 +31,7 @@ echo '
 #ifndef __LACE_H__
 #define __LACE_H__
 
-#ifdef __has_include
-#  if __has_include("lace_config.h")
-#    include <lace_config.h>
-#  else
-#    define LACE_PIE_TIMES     0
-#    define LACE_COUNT_TASKS   0
-#    define LACE_COUNT_STEALS  0
-#    define LACE_COUNT_SPLITS  0
-#    define LACE_USE_HWLOC     0
-#    define LACE_USE_MMAP      0
-#  endif
-#endif
+LACE_CONFIG_HERE
 
 #ifdef __cplusplus
 extern "C" {

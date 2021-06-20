@@ -94,6 +94,7 @@ jobs:
         then
           brew install ${{matrix.cc.cc}}@${{matrix.cc.v}}
         fi
+        brew install gawk
 
     - name: CMake Build
       run: |
