@@ -1,0 +1,114 @@
+name: CI testing 
+
+on:
+  push:
+    branches: [ master ]
+  pull_request:
+    branches: [ master ]
+
+jobs:
+  linux-build:
+    name: 'Linux ${{matrix.cc.cc}}-${{ matrix.cc.v}} ${{matrix.build_type}}'
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        config:
+        - {
+            name: "GCC", artifact: "Linux.tar.xz",
+            cc: "gcc", cxx: "g++"
+          }
+        - {
+            name: "Clang",
+            cc: "clang", cxx: "clang++"
+          }
+        build_type:
+        - RelWithDebInfo
+        - Debug
+        cc:
+        - { cc: gcc, v: 7, cxx: g++}
+        - { cc: gcc, v: 9, cxx: g++}
+        - { cc: gcc, v: 11, cxx: g++}
+        - { cc: clang, v: 7, cxx: clang++ }
+        - { cc: clang, v: 11, cxx: clang++ }
+    env:
+      cc: ${{matrix.cc.cc}}-${{matrix.cc.v}}
+      cxx: ${{matrix.cc.cxx}}-${{matrix.cc.v}}
+
+    steps:
+    - uses: actions/checkout@v2
+
+    - name: Install packages
+      run: |
+        sudo apt update
+        sudo apt install cmake cmake-data build-essential
+        sudo apt install ${{matrix.cc.cc}}-${{matrix.cc.v}}
+
+    - name: CMake Build
+      run: |
+        export CC=${{env.cc}}
+        export CXX=${{env.cxx}}
+        cmake -B ${{github.workspace}}/build -DCMAKE_BUILD_TYPE=${{matrix.build_type}} -DLACE_BUILD_BENCHMARKS=ON
+        cmake --build ${{github.workspace}}/build --config ${{matrix.build_type}}
+
+    - name: Test
+      working-directory: ${{github.workspace}}/build
+      run:  |
+        ctest -C ${{ matrix.build_type }} -VV --timeout 30
+
+  macos-build:
+    name: 'OSX ${{matrix.cc.cc}}@${{matrix.cc.v || matrix.cc.xcode}} ${{matrix.build_type}}'
+    runs-on: macos-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        config:
+        - {
+            name: "GCC", artifact: "Linux.tar.xz",
+            cc: "gcc", cxx: "g++"
+          }
+        - {
+            name: "Clang",
+            cc: "clang", cxx: "clang++"
+          }
+        build_type:
+        - RelWithDebInfo
+        - Debug
+        cc:
+        - { cc: gcc, v: 7, cxx: g++, xcode: latest }
+        - { cc: gcc, v: 11, cxx: g++, xcode: latest }
+        - { cc: clang, cxx: clang++, xcode: 10.0 }
+        - { cc: clang, cxx: clang++, xcode: 11.0 }
+        - { cc: clang, cxx: clang++, xcode: 12.0 }
+    env:
+      cc: ${{matrix.cc.cc}}-${{matrix.cc.v}}
+      cxx: ${{matrix.cc.cxx}}-${{matrix.cc.v}}
+
+    steps:
+    - uses: actions/checkout@v2
+
+    - name: Install packages
+      run: |
+        brew update
+        if ["${{matrix.cc.cc}}" == "gcc"];
+        then
+          brew install ${{matrix.cc.cc}}@${{matrix.cc.v}}
+        fi
+
+    - name: CMake Build
+      run: |
+        if [ "${{ matrix.cc.cc }}" == "gcc" ] ;
+        then
+          export CC=/usr/bin/${{matrix.cc.cc}}
+          export CXX=/usr/bin/${{matrix.cc.cxx}}
+        else
+          export CC=${{matrix.cc.cc}}
+          export CXX=${{matrix.cc.cxx}}
+        fi
+        cmake -B ${{github.workspace}}/build -DCMAKE_BUILD_TYPE=${{matrix.build_type}} -DLACE_BUILD_BENCHMARKS=ON
+        cmake --build ${{github.workspace}}/build --config ${{matrix.build_type}}
+
+    - name: Test
+      working-directory: ${{github.workspace}}/build
+      run:  |
+        ctest -C ${{ matrix.build_type }} -VV --timeout 30
