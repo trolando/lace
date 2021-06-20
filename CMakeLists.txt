@@ -1,8 +1,8 @@
-cmake_minimum_required(VERSION 3.8)
+cmake_minimum_required(VERSION 3.10)
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_LIST_DIR}/cmake/")
 
 # Check if we are solo or as part of a larger project
-# If we're a subproject, this disabled testing/benchmark tools
+# If we're a subproject, disable testing/benchmark tools
 if(DEFINED PROJECT_NAME)
   set(subproject ON)
 else()
@@ -26,8 +26,8 @@ if(NOT CMAKE_BUILD_TYPE)
 endif(NOT CMAKE_BUILD_TYPE)
 
 # Set the C standard; this is a directory scope variable, so does not propagate to parent scopes
-set(CMAKE_C_STANDARD 11)
-set(CMAKE_C_STANDARD_REQUIRED ON)
+# set(CMAKE_C_STANDARD 11)
+# set(CMAKE_C_STANDARD_REQUIRED ON)
 
 option(LACE_PIE_TIMES "Let Lace record Pie times" OFF)
 option(LACE_COUNT_TASKS "Let Lace record the number of tasks" OFF)
@@ -44,19 +44,24 @@ if(LACE_USE_MMAP AND NOT HAVE_MMAP)
   set(LACE_USE_MMAP OFF)
 endif()
 
-if(LACE_USE_HWLOC)
-    find_package(Hwloc REQUIRED)
-endif()
 
 add_library(lace STATIC lace.c lace.h)
 target_include_directories(lace PUBLIC ${CMAKE_CURRENT_BINARY_DIR})
 target_compile_options(lace PRIVATE -Wall -Wextra -Werror -fno-strict-aliasing)
-target_link_libraries(lace pthread ${HWLOC_LIBRARIES})
+target_compile_features(lace PRIVATE c_std_11)
+target_link_libraries(lace PUBLIC pthread)
 
 add_library(lace14 STATIC lace14.c lace14.h)
 target_include_directories(lace14 PUBLIC ${CMAKE_CURRENT_BINARY_DIR})
-target_link_libraries(lace14 pthread ${HWLOC_LIBRARIES})
 target_compile_options(lace14 PRIVATE -Wall -Wextra -Werror -fno-strict-aliasing)
+target_compile_features(lace14 PRIVATE c_std_11)
+target_link_libraries(lace14 PUBLIC pthread)
+
+if(LACE_USE_HWLOC)
+    find_package(Hwloc REQUIRED)
+    target_link_libraries(lace PUBLIC ${HWLOC_LIBRARIES})
+    target_link_libraries(lace14 PUBLIC ${HWLOC_LIBRARIES})
+endif()
 
 configure_file(lace_config.h.in lace_config.h)
 add_custom_command(OUTPUT lace.h lace14.h lace14.c COMMAND ./gen.sh "${CMAKE_CURRENT_BINARY_DIR}" WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR} DEPENDS lace.sh lace.c)
@@ -71,21 +76,21 @@ if(LACE_TEST)
     add_subdirectory(test)
 endif()
 
+# Setup installing and pkg-config
+configure_file("${CMAKE_CURRENT_SOURCE_DIR}/lace.pc.in" "${CMAKE_CURRENT_BINARY_DIR}/lace.pc" @ONLY)
+
+include(GNUInstallDirs)
+install(TARGETS lace lace14 DESTINATION "${CMAKE_INSTALL_LIBDIR}")
+install(FILES
+    ${CMAKE_CURRENT_BINARY_DIR}/lace.h
+    ${CMAKE_CURRENT_BINARY_DIR}/lace14.h
+    ${CMAKE_CURRENT_BINARY_DIR}/lace_config.h
+    DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
+install(FILES
+    ${CMAKE_CURRENT_BINARY_DIR}/lace.pc
+    DESTINATION ${CMAKE_INSTALL_LIBDIR}/pkgconfig)
+
 if(NOT subproject)
-    # Setup installing and pkg-config
-    configure_file("${CMAKE_CURRENT_SOURCE_DIR}/lace.pc.in" "${CMAKE_CURRENT_BINARY_DIR}/lace.pc" @ONLY)
-
-    include(GNUInstallDirs)
-    install(TARGETS lace lace14 DESTINATION "${CMAKE_INSTALL_LIBDIR}")
-    install(FILES
-        ${CMAKE_CURRENT_BINARY_DIR}/lace.h
-        ${CMAKE_CURRENT_BINARY_DIR}/lace14.h
-        ${CMAKE_CURRENT_BINARY_DIR}/lace_config.h
-        DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
-    install(FILES
-        ${CMAKE_CURRENT_BINARY_DIR}/lace.pc
-        DESTINATION ${CMAKE_INSTALL_LIBDIR}/pkgconfig)
-
     # Setup basic CPack support
     set(CPACK_PACKAGE_VENDOR "tvandijk")
     set(CPACK_PACKAGE_DESCRIPTION_SUMMARY ${PROJECT_DESCRIPTION})
