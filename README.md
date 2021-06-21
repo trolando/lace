@@ -78,6 +78,17 @@ If you use C++, you can parallelize class methods via friend functions, but not 
 Proper task scheduling for C++ classes is currently not implemented.
 It is certainly technically possible, so if you are interested in working on this, please reach out.
 
+Benchmarking
+------------
+Lace comes with a number of example multi-threaded programs, which can be used to test the performance of Lace.
+After building Lace with `LACE_BUILD_BENCHMARKS` set to `ON`, you can enter the `benchmarks` subdirectory of the build directory, and run the Python script `bench.py`.
+This script runs the benchmarks `fib 50`, `uts t2l`, `uts t3l`, `queens 15`, `matmul 4096` in random order.
+Each benchmark is run with 1 worker, with the maximum number of workers, and sequentially.
+Workloads such as `matmul` and `queens` are easy to load balance.
+The `fib` workload has a very high number of nearly empty tasks and is therefore a stress test on the overhead of the framework, but is not very representative for real world workloads.
+The `uts t3l` is a more challenging workload as it offers a unpredictable tree search.
+See for further details the academic publications on Lace mentioned below.
+
 Publications
 ------------
 The following two academic publications are directly related to Lace.

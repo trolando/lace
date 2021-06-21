@@ -67,11 +67,6 @@ typedef struct _Task Task;
 #define LACE_TYPEDEF_CB(t, f, ...) typedef t (*f)(WorkerP *, Task *, ##__VA_ARGS__);
 
 /**
- * The lace_startup_cb type for a void Task with one void* parameter.
- */
-LACE_TYPEDEF_CB(void, lace_startup_cb, void*);
-
-/**
  * Set verbosity level (0 = no startup messages, 1 = startup messages)
  * Default level: 0
  */
@@ -84,7 +79,7 @@ void lace_set_stacksize(size_t stacksize);
 
 /**
  * Get the program stack size of Lace worker threads.
- * If this returns 0, it uses the default...
+ * If this returns 0, it uses the default.
  */
 size_t lace_get_stacksize(void);
 
@@ -102,16 +97,19 @@ void lace_start(unsigned int n_workers, size_t dqsize);
 
 /**
  * Suspend all workers.
+ * Call this method from outside Lace threads.
  */
 void lace_suspend(void);
 
 /**
  * Resume all workers.
+ * Call this method from outside Lace threads.
  */
 void lace_resume(void);
 
 /**
  * Stop Lace.
+ * Call this method from outside Lace threads.
  */
 void lace_stop(void);
 
@@ -148,17 +146,20 @@ Task *lace_get_head(WorkerP *);
 
 /**
  * Helper function to call from outside Lace threads.
+ * This helper function is used by the _RUN methods for the RUN() macro.
  */
 void lace_run_task(Task *task);
 
 /**
  * Helper function to start a new task execution (task frame) on a given task.
+ * This helper function is used by the _NEWFRAME methods for the NEWFRAME() macro
  * Only when the task is done, do workers continue with the previous task frame.
  */
 void lace_run_newframe(Task *task);
 
 /**
  * Helper function to make all run a given task together.
+ * This helper function is used by the _TOGETHER methods for the TOGETHER() macro
  * They all start the task in a lace_barrier and complete it with a lace barrier.
  * Meaning they all start together, and all end together.
  */
@@ -226,6 +227,7 @@ void lace_run_together(Task *task);
 
 /**
  * Initialize local variables __lace_worker and __lace_dq_head which are required for most Lace functionality.
+ * This only works inside a Lace thread.
  */
 #define LACE_VARS WorkerP * __attribute__((unused)) __lace_worker = lace_get_worker(); Task * __attribute__((unused)) __lace_dq_head = lace_get_head(__lace_worker);
 
