@@ -2,14 +2,14 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <memory.h>
-#include <sys/time.h>
+#include <time.h>
 #include <getopt.h>
 
 double wctime() 
 {
-    struct timeval tv;
-    gettimeofday(&tv, NULL);
-    return (tv.tv_sec + 1E-6 * tv.tv_usec);
+    struct timespec tv;
+    clock_gettime(CLOCK_MONOTONIC, &tv);
+    return (tv.tv_sec + 1E-9 * tv.tv_nsec);
 }
 
 /*

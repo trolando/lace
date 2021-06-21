@@ -17,7 +17,7 @@
 #include <string.h>
 #include <stdio.h>
 #include <math.h>
-#include <sys/time.h>
+#include <time.h>
 
 #include "uts.h"
 
@@ -107,10 +107,11 @@ void uts_error(char *str) {
  *   for detailed accounting of work, this needs
  *   high resolution
  */
-double uts_wctime() {
-  struct timeval tv;
-  gettimeofday(&tv, NULL);
-  return (tv.tv_sec + 1E-6 * tv.tv_usec);
+double uts_wctime() 
+{
+    struct timespec tv;
+    clock_gettime(CLOCK_MONOTONIC, &tv);
+    return (tv.tv_sec + 1E-9 * tv.tv_nsec);
 }
 
 

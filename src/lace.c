@@ -21,7 +21,7 @@
 #include <stdio.h>  // for fprintf
 #include <stdlib.h> // for memalign, malloc
 #include <string.h> // for memset
-#include <sys/time.h> // for gettimeofday
+#include <time.h> // for clock_gettime
 #include <pthread.h> // for POSIX threading
 
 #if defined(__APPLE__)
@@ -199,26 +199,22 @@ lace_get_stacksize()
  */
 #if LACE_PIE_TIMES
 static uint64_t count_at_start, count_at_end;
-static long long unsigned us_elapsed_timer;
+static uint64_t us_elapsed_timer;
 
 static void
 us_elapsed_start(void)
 {
-    struct timeval now;
-    gettimeofday(&now, NULL);
-    us_elapsed_timer = now.tv_sec * 1000000LL + now.tv_usec;
+    struct timespec ts_now;
+    clock_gettime(CLOCK_MONOTONIC, &ts_now);
+    us_elapsed_timer = ts_now.tv_sec * 1000000LL + ts_now.tv_nsec/1000;
 }
 
 static long long unsigned
 us_elapsed(void)
 {
-    struct timeval now;
-    long long unsigned t;
-
-    gettimeofday( &now, NULL );
-
-    t = now.tv_sec * 1000000LL + now.tv_usec;
-
+    struct timespec ts_now;
+    clock_gettime(CLOCK_MONOTONIC, &ts_now);
+    uint64_t t = ts_now.tv_sec * 1000000LL + ts_now.tv_nsec/1000;
     return t - us_elapsed_timer;
 }
 #endif

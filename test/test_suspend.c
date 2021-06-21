@@ -1,6 +1,6 @@
 #include <stdio.h>
 #include <stdlib.h>
-#include <sys/time.h>
+#include <time.h>
 
 #include <lace.h>
 
@@ -24,9 +24,9 @@ TASK_1(int, pfib, int, n)
 
 double wctime() 
 {
-    struct timeval tv;
-    gettimeofday(&tv, NULL);
-    return (tv.tv_sec + 1E-6 * tv.tv_usec);
+    struct timespec tv;
+    clock_gettime(CLOCK_MONOTONIC, &tv);
+    return (tv.tv_sec + 1E-9 * tv.tv_nsec);
 }
 
 void

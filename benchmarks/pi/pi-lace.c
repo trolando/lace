@@ -2,7 +2,7 @@
 #include <math.h>
 #include <stdio.h> // for printf, fprintf
 #include <stdlib.h> // for exit, atol
-#include <sys/time.h>
+#include <time.h>
 #include <getopt.h>
 
 static __thread unsigned int seed = 0;
@@ -23,9 +23,9 @@ TASK_2(uint64_t, pi_mc, long, start, long, cnt)
 
 double wctime() 
 {
-    struct timeval tv;
-    gettimeofday(&tv, NULL);
-    return (tv.tv_sec + 1E-6 * tv.tv_usec);
+    struct timespec tv;
+    clock_gettime(CLOCK_MONOTONIC, &tv);
+    return (tv.tv_sec + 1E-9 * tv.tv_nsec);
 }
 
 void usage(char *s)
