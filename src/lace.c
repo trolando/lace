@@ -715,6 +715,9 @@ lace_start(unsigned int _n_workers, size_t dqsize)
         exit(1);
     }
 
+    // Ensure worker array is set to 0 initially
+    memset(workers, 0, n_workers*sizeof(Worker*));
+
     // Compute memory size for each worker
     workers_memory_size = sizeof(worker_data) + sizeof(Task) * dqsize;
 
