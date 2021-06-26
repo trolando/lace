@@ -558,7 +558,7 @@ static void lace_time_event( WorkerP *w, int event )
 static Worker* __attribute__((noinline))
 lace_steal(WorkerP *self, Task *__dq_head, Worker *victim)
 {
-    if (!victim->allstolen) {
+    if (victim != NULL && !victim->allstolen) {
         /* Must be a volatile. In GCC 4.8, if it is not declared volatile, the
            compiler will 'optimize' extra memory accesses to victim->ts instead
            of comparing the local values ts.ts.tail and ts.ts.split, causing

@@ -433,9 +433,6 @@ lace_init_worker(unsigned int worker)
     { int k; for (k=0; k<CTR_MAX; k++) w->ctr[k] = 0; }
 #endif
 
-    // Synchronize with others
-    lace_barrier();
-
 #if LACE_PIE_TIMES
     w->time = gethrtime();
     w->level = 0;
@@ -767,9 +764,6 @@ lace_start(unsigned int _n_workers, size_t dqsize)
     }
 
     pthread_attr_destroy(&worker_attr);
-
-    /* Wait until all are running */
-    while (workers_running != n_workers) {}
 }
 
 
@@ -915,6 +909,9 @@ lace_count_report_file(FILE *file)
  */
 void lace_stop()
 {
+    // Do not stop if not all workers are running yet
+    while (workers_running != n_workers) {}
+
     lace_quits = 1;
 
     while (workers_running != 0) {}
