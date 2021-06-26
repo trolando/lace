@@ -294,22 +294,22 @@ lace_check_memory(void)
     hwloc_membind_policy_t policy;
     int res = hwloc_get_area_membind_nodeset(topo, mem, sizeof(worker_data), memlocation, &policy, HWLOC_MEMBIND_STRICT);
     if (res == -1) {
-        fprintf(stderr, "Lace warning: hwloc_get_area_membind_nodeset returned -1!\n");
+        fprintf(stdout, "Lace warning: hwloc_get_area_membind_nodeset returned -1!\n");
     }
     if (policy != HWLOC_MEMBIND_BIND) {
-        fprintf(stderr, "Lace warning: Lace worker memory not bound with BIND policy!\n");
+        fprintf(stdout, "Lace warning: Lace worker memory not bound with BIND policy!\n");
     }
 #endif
 
     // check if CPU and node are on the same place
     if (!hwloc_bitmap_isincluded(memlocation, cpunodes)) {
-        fprintf(stderr, "Lace warning: Lace thread not on same memory domain as data!\n");
+        fprintf(stdout, "Lace warning: Lace thread not on same memory domain as data!\n");
 
         char *strp, *strp2, *strp3;
         hwloc_bitmap_list_asprintf(&strp, cpuset);
         hwloc_bitmap_list_asprintf(&strp2, cpunodes);
         hwloc_bitmap_list_asprintf(&strp3, memlocation);
-        fprintf(stderr, "Worker %d is pinned on PUs %s, node %s; memory is pinned on node %s\n", w->worker, strp, strp2, strp3);
+        fprintf(stdout, "Worker %d is pinned on PUs %s, node %s; memory is pinned on node %s\n", w->worker, strp, strp2, strp3);
         free(strp);
         free(strp2);
         free(strp3);
@@ -737,9 +737,9 @@ lace_start(unsigned int _n_workers, size_t dqsize)
 
     if (verbosity) {
 #if LACE_USE_HWLOC
-        fprintf(stderr, "Initializing Lace, %u nodes, %u cores, %u logical processors, %d workers.\n", n_nodes, n_cores, n_pus, n_workers);
+        fprintf(stdout, "Initializing Lace, %u nodes, %u cores, %u logical processors, %d workers.\n", n_nodes, n_cores, n_pus, n_workers);
 #else
-        fprintf(stderr, "Initializing Lace, %u available cores, %d workers.\n", n_pus, n_workers);
+        fprintf(stdout, "Initializing Lace, %u available cores, %d workers.\n", n_pus, n_workers);
 #endif
     }
 
@@ -754,7 +754,7 @@ lace_start(unsigned int _n_workers, size_t dqsize)
 
     /* Report startup if verbose */
     if (verbosity) {
-        fprintf(stderr, "Lace startup, creating %d worker threads with program stack %zu bytes.\n", n_workers, stacksize);
+        fprintf(stdout, "Lace startup, creating %d worker threads with program stack %zu bytes.\n", n_workers, stacksize);
     }
 
     /* Spawn all workers */
@@ -917,7 +917,7 @@ void lace_stop()
     while (workers_running != 0) {}
 
 #if LACE_COUNT_EVENTS
-    lace_count_report_file(stderr);
+    lace_count_report_file(stdout);
 #endif
 
     // finally, destroy the barriers
