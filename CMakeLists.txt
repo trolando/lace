@@ -81,10 +81,10 @@ add_custom_command(
         ${CMAKE_CURRENT_BINARY_DIR}/lace14.c
     COMMAND src/gen.sh "${CMAKE_CURRENT_BINARY_DIR}"
     WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
-    DEPENDS src/lace.sh src/lace.c lace_config.h
+    DEPENDS src/lace.sh src/lace.c ${CMAKE_CURRENT_BINARY_DIR}/lace_config.h
 )
 
-configure_file(src/lace_config.h.in lace_config.h)
+configure_file(src/lace_config.h.in ${CMAKE_CURRENT_BINARY_DIR}/lace_config.h)
 
 if(LACE_BUILD_BENCHMARKS)
     add_subdirectory(benchmarks)
