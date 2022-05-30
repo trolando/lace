@@ -26,6 +26,7 @@ echo '
 #include <unistd.h>
 #include <stdint.h>
 #include <stdio.h>
+#include <stdatomic.h>
 #include <pthread.h> /* for pthread_t */
 
 #ifndef __LACE_H__
@@ -289,15 +290,6 @@ void lace_yield(WorkerP *__lace_worker, Task *__lace_dq_head);
 #define LACE_TASKSIZE ('$k')*P_SZ
 #endif
 
-/* Some fences */
-#ifndef compiler_barrier
-#define compiler_barrier() { asm volatile("" ::: "memory"); }
-#endif
-
-#ifndef mfence
-#define mfence() { asm volatile("mfence" ::: "memory"); }
-#endif
-
 /* Compiler specific branch prediction optimization */
 #ifndef likely
 #define likely(x)       __builtin_expect((x),1)
@@ -399,12 +391,13 @@ typedef struct _Task {
     char p2[PAD(ROUND(LACE_COMMON_FIELD_SIZE, P_SZ) + LACE_TASKSIZE, LINE_SIZE)];
 } Task;
 
-typedef union __attribute__((packed)) {
+/* hopefully packed? */
+typedef union {
     struct {
-        uint32_t tail;
-        uint32_t split;
+        _Atomic uint32_t tail;
+        _Atomic uint32_t split;
     } ts;
-    uint64_t v;
+    _Atomic uint64_t v;
 } TailSplit;
 
 typedef struct _Worker {
@@ -564,12 +557,12 @@ lace_steal(WorkerP *self, Task *__dq_head, Worker *victim)
            of comparing the local values ts.ts.tail and ts.ts.split, causing
            thieves to steal non existent tasks! */
         TailSplit ts;
-        ts.v = *(volatile uint64_t *)&victim->ts.v;
+        atomic_store_explicit(&ts.v, victim->ts.v, memory_order_relaxed);
         if (ts.ts.tail < ts.ts.split) {
             TailSplit ts_new;
-            ts_new.v = ts.v;
+            atomic_store_explicit(&ts_new.v, ts.v, memory_order_relaxed);
             ts_new.ts.tail++;
-            if (__sync_bool_compare_and_swap(&victim->ts.v, ts.v, ts_new.v)) {
+            if (atomic_compare_exchange_weak(&victim->ts.v, &ts.v, ts_new.v)) {
                 // Stolen
                 Task *t = &victim->dq[ts.ts.tail];
                 t->thief = self->_public;
@@ -607,7 +600,7 @@ lace_shrink_shared(WorkerP *w)
     if (tail != split) {
         uint32_t newsplit = (tail + split)/2;
         wt->ts.ts.split = newsplit;
-        mfence();
+        atomic_thread_fence(memory_order_seq_cst);
         tail = *(volatile uint32_t *)&(wt->ts.ts.tail);
         if (tail != split) {
             if (unlikely(tail > newsplit)) {
@@ -650,13 +643,14 @@ lace_leapfrog(WorkerP *__lace_worker, Task *__lace_dq_head)
             } else if (res == LACE_BUSY) {
                 PR_COUNTSTEALS(__lace_worker, CTR_leap_busy);
             }
-            compiler_barrier();
+            atomic_thread_fence(memory_order_acquire);
             thief = t->thief;
         }
 
         /* POST-LEAP: really pop the finished task */
         /*            no need to decrease __lace_dq_head, since it is a local variable */
-        compiler_barrier();
+        atomic_thread_fence(memory_order_acquire);
+        /*compiler_barrier();*/
         if (__lace_worker->allstolen == 0) {
             /* Assume: tail = split = head (pre-pop) */
             /* Now we do a 'real pop' ergo either decrease tail,split,head or declare allstolen */
@@ -666,7 +660,8 @@ lace_leapfrog(WorkerP *__lace_worker, Task *__lace_dq_head)
         }
     }
 
-    compiler_barrier();
+    /*compiler_barrier();*/
+    atomic_thread_fence(memory_order_acquire);
     t->thief = THIEF_EMPTY;
     lace_time_event(__lace_worker, 4);
 }
@@ -769,7 +764,8 @@ void NAME##_SPAWN(WorkerP *w, Task *__dq_head $FUN_ARGS)
     t->f = &NAME##_WRAP;
     t->thief = THIEF_TASK;
     $TASK_INIT
-    compiler_barrier();
+    /*compiler_barrier();*/
+    atomic_thread_fence(memory_order_acquire);
 
     Worker *wt = w->_public;
     if (unlikely(w->allstolen)) {
@@ -777,7 +773,7 @@ void NAME##_SPAWN(WorkerP *w, Task *__dq_head $FUN_ARGS)
         head = __dq_head - w->dq;
         ts = (TailSplit){{head,head+1}};
         wt->ts.v = ts.v;
-        compiler_barrier();
+        /*compiler_barrier();*/
         wt->allstolen = 0;
         w->split = __dq_head+1;
         w->allstolen = 0;
@@ -787,7 +783,7 @@ void NAME##_SPAWN(WorkerP *w, Task *__dq_head $FUN_ARGS)
         newsplit = (split + head + 2)/2;
         wt->ts.ts.split = newsplit;
         w->split = w->dq + newsplit;
-        compiler_barrier();
+        /*compiler_barrier();*/
         wt->movesplit = 0;
         PR_COUNTSPLITS(w, CTR_split_grow);
     }
@@ -839,7 +835,7 @@ $RTYPE NAME##_SYNC_SLOW(WorkerP *w, Task *__dq_head)
         return $RETURN_RES;
     }
 
-    compiler_barrier();
+    /*compiler_barrier();*/
 
     Worker *wt = w->_public;
     if (wt->movesplit) {
@@ -848,12 +844,12 @@ $RTYPE NAME##_SYNC_SLOW(WorkerP *w, Task *__dq_head)
         diff = (diff + 1) / 2;
         w->split = t + diff;
         wt->ts.ts.split += diff;
-        compiler_barrier();
+        /*compiler_barrier();*/
         wt->movesplit = 0;
         PR_COUNTSPLITS(w, CTR_split_grow);
     }
 
-    compiler_barrier();
+    /*compiler_barrier();*/
 
     t = (TD_##NAME *)__dq_head;
     t->thief = THIEF_EMPTY;
