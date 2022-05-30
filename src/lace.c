@@ -24,7 +24,6 @@
 #include <time.h> // for clock_gettime
 #include <pthread.h> // for POSIX threading
 #include <stdatomic.h>
-#include <threads.h>
 
 #if defined(__APPLE__)
 /* Mac OS X defines sem_init but actually does not implement them */
@@ -37,6 +36,10 @@ typedef semaphore_t sem_t;
 #define sem_destroy(sem)        semaphore_destroy(mach_task_self(), *sem)
 #else
 #include <semaphore.h> // for sem_*
+#endif
+
+#if ! __STDC_NO_THREADS__
+#include <threads.h>   // for thread_local
 #endif
 
 #include <lace.h>
@@ -114,7 +117,11 @@ static atomic_uint workers_running = 0;
 /**
  * Thread-specific mechanism to access current worker data
  */
+#if ! __STDC_NO_THREADS__
 static thread_local WorkerP *current_worker;
+#else
+static __thread WorkerP *current_worker; // fallback option
+#endif
 
 /**
  * Global newframe variable used for the implementation of NEWFRAME and TOGETHER
@@ -907,9 +914,6 @@ void lace_stop()
     // finally, destroy the barriers
     lace_barrier_destroy();
     sem_destroy(&suspend_semaphore);
-#ifndef __linux__
-    pthread_key_delete(worker_key);
-#endif
 
     for (unsigned int i=0; i<n_workers; i++) {
 #if LACE_USE_MMAP
