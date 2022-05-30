@@ -236,7 +236,7 @@ void lace_run_together(Task *task);
  * Check if current tasks must be interrupted, and if so, interrupt.
  */
 void lace_yield(WorkerP *__lace_worker, Task *__lace_dq_head);
-#define YIELD_NEWFRAME() { if (unlikely((*(Task* volatile *)&lace_newframe.t) != NULL)) lace_yield(__lace_worker, __lace_dq_head); }
+#define YIELD_NEWFRAME() { if (unlikely(atomic_load_explicit(&lace_newframe.t, memory_order_relaxed) != NULL)) lace_yield(__lace_worker, __lace_dq_head); }
 
 /**
  * True if the given task is stolen, False otherwise.
@@ -438,7 +438,7 @@ void lace_abort_stack_overflow(void) __attribute__((noreturn));
 
 typedef struct
 {
-    Task *t;
+    Task* _Atomic t;
     char pad[LINE_SIZE-sizeof(Task *)];
 } lace_newframe_t;
 
