@@ -728,7 +728,7 @@ lace_start(unsigned int _n_workers, size_t dqsize)
     }
 
     // Prepare lace_init structure
-    lace_newframe.t = NULL;
+    atomic_store_explicit(&lace_newframe.t, NULL, memory_order_relaxed);
 
 #if LACE_PIE_TIMES
     // Initialize counters for pie times
@@ -1031,7 +1031,7 @@ VOID_TASK_1(lace_wrap_together, Task*, task)
     /* now try to be the one who sets it! */
     while (1) {
         Task *expected = 0;
-        if (__atomic_compare_exchange_n(&lace_newframe.t, &expected, &_t2, 0, __ATOMIC_SEQ_CST, __ATOMIC_SEQ_CST)) break;
+        if (atomic_compare_exchange_weak(&lace_newframe.t, &expected, &_t2)) break;
         lace_yield(__lace_worker, __lace_dq_head);
     }
 
@@ -1039,7 +1039,7 @@ VOID_TASK_1(lace_wrap_together, Task*, task)
     lace_barrier();
 
     // reset the newframe struct
-    lace_newframe.t = 0;
+    atomic_store_explicit(&lace_newframe.t, NULL, memory_order_relaxed);
 
     lace_exec_in_new_frame(__lace_worker, __lace_dq_head, &_t2);
 }
@@ -1065,7 +1065,7 @@ VOID_TASK_1(lace_wrap_newframe, Task*, task)
     /* now try to be the one who sets it! */
     while (1) {
         Task *expected = 0;
-        if (__atomic_compare_exchange_n(&lace_newframe.t, &expected, &_s, 0, __ATOMIC_SEQ_CST, __ATOMIC_SEQ_CST)) break;
+        if (atomic_compare_exchange_weak(&lace_newframe.t, &expected, &_s)) break;
         lace_yield(__lace_worker, __lace_dq_head);
     }
 
@@ -1073,7 +1073,7 @@ VOID_TASK_1(lace_wrap_newframe, Task*, task)
     lace_barrier();
 
     // reset the newframe struct, then wrap and run ours
-    lace_newframe.t = 0;
+    atomic_store_explicit(&lace_newframe.t, NULL, memory_order_relaxed);
 
     /* wrap task in lace_newframe_root */
     Task _t2;
