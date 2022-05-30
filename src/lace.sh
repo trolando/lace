@@ -379,7 +379,7 @@ typedef enum {
 
 #define TASK_COMMON_FIELDS(type)                               \
     void (*f)(struct _WorkerP *, struct _Task *, struct type *);  \
-    struct _Worker * volatile thief;
+    struct _Worker* _Atomic thief;
 
 struct __lace_common_fields_only { TASK_COMMON_FIELDS(_Task) };
 #define LACE_COMMON_FIELD_SIZE sizeof(struct __lace_common_fields_only)
@@ -565,11 +565,11 @@ lace_steal(WorkerP *self, Task *__dq_head, Worker *victim)
             if (atomic_compare_exchange_weak(&victim->ts.v, &ts.v, ts_new.v)) {
                 // Stolen
                 Task *t = &victim->dq[ts.ts.tail];
-                t->thief = self->_public;
+                atomic_store_explicit(&t->thief, self->_public, memory_order_relaxed);
                 lace_time_event(self, 1);
                 t->f(self, __dq_head, t);
                 lace_time_event(self, 2);
-                t->thief = THIEF_COMPLETED;
+                atomic_store_explicit(&t->thief, THIEF_COMPLETED, memory_order_release);
                 lace_time_event(self, 8);
                 return LACE_STOLEN;
             }
@@ -662,7 +662,7 @@ lace_leapfrog(WorkerP *__lace_worker, Task *__lace_dq_head)
 
     /*compiler_barrier();*/
     atomic_thread_fence(memory_order_acquire);
-    t->thief = THIEF_EMPTY;
+    atomic_store_explicit(&t->thief, THIEF_EMPTY, memory_order_relaxed);
     lace_time_event(__lace_worker, 4);
 }
 
@@ -762,7 +762,7 @@ void NAME##_SPAWN(WorkerP *w, Task *__dq_head $FUN_ARGS)
 
     t = (TD_##NAME *)__dq_head;
     t->f = &NAME##_WRAP;
-    t->thief = THIEF_TASK;
+    atomic_store_explicit(&t->thief, THIEF_TASK, memory_order_relaxed);
     $TASK_INIT
     /*compiler_barrier();*/
     atomic_thread_fence(memory_order_acquire);
@@ -795,7 +795,7 @@ $RTYPE NAME##_NEWFRAME($FUN_ARGS_NC)
     Task _t;
     TD_##NAME *t = (TD_##NAME *)&_t;
     t->f = &NAME##_WRAP;
-    t->thief = THIEF_TASK;
+    atomic_store_explicit(&t->thief, THIEF_TASK, memory_order_relaxed);
     $TASK_INIT
     lace_run_newframe(&_t);
     return $RETURN_RES;
@@ -807,7 +807,7 @@ void NAME##_TOGETHER($FUN_ARGS_NC)
     Task _t;
     TD_##NAME *t = (TD_##NAME *)&_t;
     t->f = &NAME##_WRAP;
-    t->thief = THIEF_TASK;
+    atomic_store_explicit(&t->thief, THIEF_TASK, memory_order_relaxed);
     $TASK_INIT
     lace_run_together(&_t);
 }
@@ -818,7 +818,7 @@ $RTYPE NAME##_RUN($FUN_ARGS_NC)
     Task _t;
     TD_##NAME *t = (TD_##NAME *)&_t;
     t->f = &NAME##_WRAP;
-    t->thief = THIEF_TASK;
+    atomic_store_explicit(&t->thief, THIEF_TASK, memory_order_relaxed);
     $TASK_INIT
     lace_run_task(&_t);
     return $RETURN_RES;
@@ -852,7 +852,7 @@ $RTYPE NAME##_SYNC_SLOW(WorkerP *w, Task *__dq_head)
     /*compiler_barrier();*/
 
     t = (TD_##NAME *)__dq_head;
-    t->thief = THIEF_EMPTY;
+    atomic_store_explicit(&t->thief, THIEF_EMPTY, memory_order_relaxed);
     return NAME##_CALL(w, __dq_head $TASK_GET_FROM_t);
 }
 
@@ -864,7 +864,7 @@ $RTYPE NAME##_SYNC(WorkerP *w, Task *__dq_head)
     if (likely(0 == w->_public->movesplit)) {
         if (likely(w->split <= __dq_head)) {
             TD_##NAME *t = (TD_##NAME *)__dq_head;
-            t->thief = THIEF_EMPTY;
+            atomic_store_explicit(&t->thief, THIEF_EMPTY, memory_order_relaxed);
             return NAME##_CALL(w, __dq_head $TASK_GET_FROM_t);
         }
     }

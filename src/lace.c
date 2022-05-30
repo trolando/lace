@@ -487,7 +487,7 @@ lace_run_task(Task *task)
     } else {
         ExtTask et;
         et.task = task;
-        et.task->thief = 0;
+        atomic_store_explicit(&et.task->thief, 0, memory_order_relaxed);
         sem_init(&et.sem, 0, 0);
 
         ExtTask *exp = 0;
@@ -505,13 +505,14 @@ lace_steal_external(WorkerP *self, Task *dq_head)
     if (stolen_task != 0) {
         // execute task
         stolen_task->task->thief = self->_public;
+        atomic_store_explicit(&stolen_task->task->thief, self->_public, memory_order_relaxed);
         lace_time_event(self, 1);
         // atomic_thread_fence(memory_order_relaxed);
         stolen_task->task->f(self, dq_head, stolen_task->task);
         // atomic_thread_fence(memory_order_relaxed);
         lace_time_event(self, 2);
         // atomic_thread_fence(memory_order_relaxed);
-        stolen_task->task->thief = THIEF_COMPLETED;
+        atomic_store_explicit(&stolen_task->task->thief, THIEF_COMPLETED, memory_order_relaxed);
         // atomic_thread_fence(memory_order_relaxed);
         sem_post(&stolen_task->sem);
         lace_time_event(self, 8);
@@ -1024,7 +1025,7 @@ VOID_TASK_1(lace_wrap_together, Task*, task)
     Task _t2;
     TD_lace_together_root *t2 = (TD_lace_together_root *)&_t2;
     t2->f = lace_together_root_WRAP;
-    t2->thief = THIEF_TASK;
+    atomic_store_explicit(&t2->thief, THIEF_TASK, memory_order_relaxed);
     t2->d.args.arg_1 = task;
     t2->d.args.arg_2 = &done;
 
@@ -1059,7 +1060,7 @@ VOID_TASK_1(lace_wrap_newframe, Task*, task)
     Task _s;
     TD_lace_steal_loop *s = (TD_lace_steal_loop *)&_s;
     s->f = &lace_steal_loop_WRAP;
-    s->thief = THIEF_TASK;
+    atomic_store_explicit(&s->thief, THIEF_TASK, memory_order_relaxed);
     s->d.args.arg_1 = &done;
 
     /* now try to be the one who sets it! */
@@ -1079,7 +1080,7 @@ VOID_TASK_1(lace_wrap_newframe, Task*, task)
     Task _t2;
     TD_lace_newframe_root *t2 = (TD_lace_newframe_root *)&_t2;
     t2->f = lace_newframe_root_WRAP;
-    t2->thief = THIEF_TASK;
+    atomic_store_explicit(&t2->thief, THIEF_TASK, memory_order_relaxed);
     t2->d.args.arg_1 = task;
     t2->d.args.arg_2 = &done;
 
