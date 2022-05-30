@@ -430,8 +430,8 @@ typedef struct _WorkerP {
 
 #if LACE_COUNT_EVENTS
     uint64_t ctr[CTR_MAX];      // counters
-    volatile uint64_t time;
-    volatile int level;
+    uint64_t time;
+    int level;
 #endif
 
     int16_t pu;                 // my pu (for HWLOC)
