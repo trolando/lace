@@ -400,6 +400,14 @@ typedef union {
     _Atomic uint64_t v;
 } TailSplit;
 
+typedef union {
+    struct {
+        uint32_t tail;
+        uint32_t split;
+    } ts;
+    uint64_t v;
+} TailSplitNA;
+
 typedef struct _Worker {
     Task *dq;
     TailSplit ts;
@@ -592,20 +600,20 @@ static int
 lace_shrink_shared(WorkerP *w)
 {
     Worker *wt = w->_public;
-    TailSplit ts;
+    TailSplitNA ts; /* Use non-atomic version to emit better code */
     ts.v = wt->ts.v; /* Force in 1 memory read */
     uint32_t tail = ts.ts.tail;
     uint32_t split = ts.ts.split;
 
     if (tail != split) {
         uint32_t newsplit = (tail + split)/2;
-        wt->ts.ts.split = newsplit;
+        atomic_store_explicit(&wt->ts.ts.split, newsplit, memory_order_relaxed); /* emit normal write */
         atomic_thread_fence(memory_order_seq_cst);
-        tail = *(volatile uint32_t *)&(wt->ts.ts.tail);
+        tail = wt->ts.ts.tail;
         if (tail != split) {
             if (unlikely(tail > newsplit)) {
                 newsplit = (tail + split) / 2;
-                wt->ts.ts.split = newsplit;
+                atomic_store_explicit(&wt->ts.ts.split, newsplit, memory_order_relaxed); /* emit normal write */
             }
             w->split = w->dq + newsplit;
             PR_COUNTSPLITS(w, CTR_split_shrink);
