@@ -230,7 +230,7 @@ void
 lace_barrier()
 {
     int wait = lace_bar.wait;
-    if ((int)n_workers == (lace_bar.count+=1)) {
+    if ((int)n_workers == 1+(atomic_fetch_add_explicit(&lace_bar.count, 1, memory_order_relaxed))) {
         // we know for sure no other thread can be here
         atomic_store_explicit(&lace_bar.count, 0, memory_order_relaxed);
         atomic_store_explicit(&lace_bar.leaving, n_workers, memory_order_relaxed);
@@ -474,7 +474,7 @@ typedef struct _ExtTask {
     sem_t sem;
 } ExtTask;
 
-static ExtTask* _Atomic external_task = 0;
+static ExtTask* _Atomic external_task = NULL;
 
 void
 lace_run_task(Task *task)
