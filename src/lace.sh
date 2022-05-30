@@ -559,11 +559,11 @@ static Worker* __attribute__((noinline))
 lace_steal(WorkerP *self, Task *__dq_head, Worker *victim)
 {
     if (victim != NULL && !victim->allstolen) {
-        TailSplit ts;
-        atomic_store_explicit(&ts.v, victim->ts.v, memory_order_relaxed);
+        TailSplitNA ts;
+        ts.v = victim->ts.v;
         if (ts.ts.tail < ts.ts.split) {
-            TailSplit ts_new;
-            atomic_store_explicit(&ts_new.v, ts.v, memory_order_relaxed);
+            TailSplitNA ts_new;
+            ts_new.v = ts.v;
             ts_new.ts.tail++;
             if (atomic_compare_exchange_weak(&victim->ts.v, &ts.v, ts_new.v)) {
                 // Stolen
@@ -758,7 +758,7 @@ void NAME##_SPAWN(WorkerP *w, Task *__dq_head $FUN_ARGS)
     PR_COUNTTASK(w);
 
     TD_##NAME *t;
-    TailSplit ts;
+    TailSplitNA ts;
     uint32_t head, split, newsplit;
 
     if (__dq_head == w->end) lace_abort_stack_overflow();
@@ -774,7 +774,7 @@ void NAME##_SPAWN(WorkerP *w, Task *__dq_head $FUN_ARGS)
     if (unlikely(w->allstolen)) {
         if (wt->movesplit) wt->movesplit = 0;
         head = __dq_head - w->dq;
-        ts = (TailSplit){{head,head+1}};
+        ts = (TailSplitNA){{head,head+1}};
         wt->ts.v = ts.v;
         /*compiler_barrier();*/
         wt->allstolen = 0;
