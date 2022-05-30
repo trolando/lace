@@ -940,7 +940,7 @@ void lace_stop()
 void
 lace_exec_in_new_frame(WorkerP *__lace_worker, Task *__lace_dq_head, Task *root)
 {
-    TailSplit old;
+    TailSplitNA old;
     uint8_t old_as;
 
     // save old tail, split, allstolen and initiate new frame
@@ -954,7 +954,7 @@ lace_exec_in_new_frame(WorkerP *__lace_worker, Task *__lace_dq_head, Task *root)
         atomic_thread_fence(memory_order_seq_cst);
         old.ts.tail = wt->ts.ts.tail;
 
-        TailSplit ts_new;
+        TailSplitNA ts_new;
         ts_new.ts.tail = __lace_dq_head - __lace_worker->dq;
         ts_new.ts.split = __lace_dq_head - __lace_worker->dq;
         wt->ts.v = ts_new.v;
