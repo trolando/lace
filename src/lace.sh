@@ -379,7 +379,7 @@ typedef enum {
 
 #define TASK_COMMON_FIELDS(type)                               \
     void (*f)(struct _WorkerP *, struct _Task *, struct type *);  \
-    struct _Worker* _Atomic thief;
+    _Atomic(struct _Worker*) thief;
 
 struct __lace_common_fields_only { TASK_COMMON_FIELDS(_Task) };
 #define LACE_COMMON_FIELD_SIZE sizeof(struct __lace_common_fields_only)
@@ -394,10 +394,10 @@ typedef struct _Task {
 /* hopefully packed? */
 typedef union {
     struct {
-        _Atomic uint32_t tail;
-        _Atomic uint32_t split;
+        _Atomic(uint32_t) tail;
+        _Atomic(uint32_t) split;
     } ts;
-    _Atomic uint64_t v;
+    _Atomic(uint64_t) v;
 } TailSplit;
 
 typedef union {
@@ -445,7 +445,7 @@ void lace_abort_stack_overflow(void) __attribute__((noreturn));
 
 typedef struct
 {
-    Task* _Atomic t;
+    _Atomic(Task*) t;
     char pad[LINE_SIZE-sizeof(Task *)];
 } lace_newframe_t;
 

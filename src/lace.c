@@ -481,7 +481,7 @@ typedef struct _ExtTask {
     sem_t sem;
 } ExtTask;
 
-static ExtTask* _Atomic external_task = NULL;
+static _Atomic(ExtTask*) external_task = NULL;
 
 void
 lace_run_task(Task *task)
