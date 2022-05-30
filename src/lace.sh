@@ -427,7 +427,6 @@ typedef struct _WorkerP {
     uint32_t seed;              // my random seed (for lace_steal_random)
     uint16_t worker;            // what is my worker id?
     uint8_t allstolen;          // my allstolen
-    volatile int8_t enabled;    // if this worker is enabled
 
 #if LACE_COUNT_EVENTS
     uint64_t ctr[CTR_MAX];      // counters
@@ -560,10 +559,6 @@ static Worker* __attribute__((noinline))
 lace_steal(WorkerP *self, Task *__dq_head, Worker *victim)
 {
     if (victim != NULL && !victim->allstolen) {
-        /* Must be a volatile. In GCC 4.8, if it is not declared volatile, the
-           compiler will 'optimize' extra memory accesses to victim->ts instead
-           of comparing the local values ts.ts.tail and ts.ts.split, causing
-           thieves to steal non existent tasks! */
         TailSplit ts;
         atomic_store_explicit(&ts.v, victim->ts.v, memory_order_relaxed);
         if (ts.ts.tail < ts.ts.split) {

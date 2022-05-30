@@ -213,7 +213,7 @@ us_elapsed(void)
 #endif
 
 /**
- * Lace barrier implementation, that synchronizes on all currently enabled workers.
+ * Lace barrier implementation, that synchronizes on all workers.
  */
 typedef struct {
     atomic_int __attribute__((aligned(LINE_SIZE))) count;
@@ -415,7 +415,6 @@ lace_init_worker(unsigned int worker)
 #else
     w->pu = -1;
 #endif
-    w->enabled = 1;
     w->rng = (((uint64_t)rand())<<32 | rand());
 
 #if LACE_COUNT_EVENTS
@@ -889,7 +888,7 @@ lace_count_report_file(FILE *file)
 }
 
 /**
- * End Lace. All disabled threads are re-enabled, and then all Workers are signaled to quit.
+ * End Lace. All Workers are signaled to quit.
  * This function waits until all threads are done, then returns.
  */
 void lace_stop()
