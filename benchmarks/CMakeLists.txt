@@ -12,6 +12,10 @@ add_executable(fib-lace fib/fib-lace.c)
 set_property(TARGET fib-lace PROPERTY C_STANDARD 11)
 target_link_libraries(fib-lace m lace)
 
+add_executable(fib-lace-cpp fib/fib-lace.cpp)
+set_property(TARGET fib-lace-cpp PROPERTY CXX_STANDARD 11)
+target_link_libraries(fib-lace-cpp m lace)
+
 add_executable(pi-lace pi/pi-lace.c)
 set_property(TARGET pi-lace PROPERTY C_STANDARD 11)
 target_link_libraries(pi-lace m lace)

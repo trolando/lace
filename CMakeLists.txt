@@ -13,7 +13,7 @@ project(lace
     VERSION 1.2
     DESCRIPTION "Lace, a work-stealing framework for multi-core fork-join parallelism"
     HOMEPAGE_URL "https://github.com/trolando/lace"
-    LANGUAGES C
+    LANGUAGES C CXX
 )
 
 include(CheckSymbolExists)

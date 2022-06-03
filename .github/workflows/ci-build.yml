@@ -41,7 +41,7 @@ jobs:
       run: |
         sudo apt update
         sudo apt install cmake cmake-data build-essential
-        sudo apt install ${{matrix.cc.cc}}-${{matrix.cc.v}}
+        sudo apt install gcc-${{matrix.cc.v}} g++-${{matrix.cc.v}} clang-${{matrix.cc.v}}
 
     - name: CMake Build
       run: |

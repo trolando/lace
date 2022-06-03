@@ -26,8 +26,19 @@ echo '
 #include <unistd.h>
 #include <stdint.h>
 #include <stdio.h>
-#include <stdatomic.h>
 #include <pthread.h> /* for pthread_t */
+
+#ifndef __cplusplus
+  #include <stdatomic.h>
+#else
+  // Compatibility with C11
+  #include <atomic>
+  #define _Atomic(T) std::atomic<T>
+  using std::memory_order_relaxed;
+  using std::memory_order_acquire;
+  using std::memory_order_release;
+  using std::memory_order_seq_cst;
+#endif
 
 #ifndef __LACE_H__
 #define __LACE_H__
