@@ -144,6 +144,11 @@ void lace_barrier(void);
 unsigned int lace_workers(void);
 
 /**
+ * Retrieve whether we are running in a Lace worker. Returns 1 if this is the case, 0 otherwise.
+ */
+int lace_is_worker(void);
+
+/**
  * Retrieve the current worker data.
  * Only run this from inside a Lace task.
  * (Used by LACE_VARS)

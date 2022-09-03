@@ -129,6 +129,15 @@ static __thread WorkerP *current_worker; // fallback option
 lace_newframe_t lace_newframe;
 
 /**
+ * Retrieve whether we are running as a Lace worker
+ */
+int
+lace_is_worker()
+{
+    return current_worker != NULL ? 1 : 0;
+}
+
+/**
  * Get the private Worker data of the current thread
  */
 WorkerP*
