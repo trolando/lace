@@ -40,10 +40,10 @@ echo '
   using std::memory_order_seq_cst;
 #endif
 
+#include <lace_config.h>
+
 #ifndef __LACE_H__
 #define __LACE_H__
-
-LACE_CONFIG_HERE
 
 #ifdef __cplusplus
 extern "C" {

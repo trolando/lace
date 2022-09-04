@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.13)
 
 project(lace
-    VERSION 1.3.0
+    VERSION 1.3.1
     DESCRIPTION "Lace, a work-stealing framework for multi-core fork-join parallelism"
     HOMEPAGE_URL "https://github.com/trolando/lace"
     LANGUAGES C CXX
@@ -29,10 +29,10 @@ add_library(lace14 STATIC)
 add_library(lace::lace ALIAS lace)
 add_library(lace::lace14 ALIAS lace14)
 
-target_sources(lace PRIVATE src/lace.c ${CMAKE_CURRENT_BINARY_DIR}/include/lace.h)
-target_sources(lace14 PRIVATE ${CMAKE_CURRENT_BINARY_DIR}/lace14.c ${CMAKE_CURRENT_BINARY_DIR}/include/lace14.h)
-target_include_directories(lace PUBLIC ${CMAKE_CURRENT_BINARY_DIR}/include)
-target_include_directories(lace14 PUBLIC ${CMAKE_CURRENT_BINARY_DIR}/include)
+target_sources(lace PRIVATE src/lace.c PUBLIC src/lace.h)
+target_sources(lace14 PRIVATE src/lace14.c PUBLIC src/lace14.h)
+target_include_directories(lace PUBLIC ${CMAKE_CURRENT_LIST_DIR}/src ${CMAKE_CURRENT_BINARY_DIR})
+target_include_directories(lace14 PUBLIC ${CMAKE_CURRENT_LIST_DIR}/src ${CMAKE_CURRENT_BINARY_DIR})
 target_compile_options(lace PRIVATE -Wall -Wextra -Werror -fno-strict-aliasing)
 target_compile_options(lace14 PRIVATE -Wall -Wextra -Werror -fno-strict-aliasing)
 target_compile_features(lace PRIVATE c_std_11)
@@ -45,17 +45,6 @@ if(LACE_USE_HWLOC)
     target_link_libraries(lace PUBLIC ${HWLOC_LIBRARIES})
     target_link_libraries(lace14 PUBLIC ${HWLOC_LIBRARIES})
 endif()
-
-add_custom_command(
-    PRE_BUILD
-    OUTPUT
-        ${CMAKE_CURRENT_BINARY_DIR}/include/lace.h
-        ${CMAKE_CURRENT_BINARY_DIR}/include/lace14.h
-        ${CMAKE_CURRENT_BINARY_DIR}/lace14.c
-    COMMAND src/gen.sh "${CMAKE_CURRENT_BINARY_DIR}"
-    WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
-    DEPENDS src/lace.sh src/lace.c ${CMAKE_CURRENT_BINARY_DIR}/lace_config.h
-)
 
 configure_file(src/lace_config.h.in ${CMAKE_CURRENT_BINARY_DIR}/lace_config.h)
 
