@@ -1,9 +1,9 @@
-#include "lace.h"
 #include <stdlib.h>
 #include <stdio.h>
 #include <memory.h>
 #include <time.h>
 #include <getopt.h>
+#include <lace.h>
 
 double wctime() 
 {
@@ -41,7 +41,7 @@ int ok(int n, char *a)
  * Does not side-effect <a>.
  */
 
-TASK_3(uint64_t, nqueens, int, n, int, j, char *, a)
+TASK_3(long, nqueens, int, n, int, j, char *, a)
 {
     if (n == j) return 1;
 
@@ -58,7 +58,7 @@ TASK_3(uint64_t, nqueens, int, n, int, j, char *, a)
         }
     }
 
-    uint64_t res = 0;
+    long res = 0;
     for (i=0; i<k; i++) res += SYNC(nqueens);
     return res;
 }
@@ -104,10 +104,10 @@ int main(int argc, char *argv[])
     printf("running queens %d with %d workers...\n", n, workers);
 
     double t1 = wctime();
-    uint64_t res = RUN(nqueens, n, 0, a);
+    long res = RUN(nqueens, n, 0, a);
     double t2 = wctime();
 
-    printf("Result: Q(%d) = %llu\n", n, res);
+    printf("Result: Q(%d) = %ld\n", n, res);
 
     printf("Time: %f\n", t2-t1);
 

@@ -41,20 +41,19 @@ int ok(int n, char *a)
  * Does not side-effect <a>.
  */
 
-uint64_t nqueens(int n, int j, char *a)
+long nqueens(int n, int j, char *a)
 {
     if (n == j) return 1;
 
     /* try each possible position for queen <j> */
-    int i, k = 0;
-    uint64_t res = 0L;
+    int i;
+    long res = 0L;
     for (i = 0; i < n; i++) {
         /* allocate a temporary array and copy <a> into it */
         char *b = (char *)alloca((j + 1) * sizeof(char));
         memcpy(b, a, j * sizeof(char));
         b[j] = i;
         if (ok(j + 1, b)) {
-            k++;
             res += nqueens(n, j+1, b);
         }
     }
@@ -81,10 +80,10 @@ int main(int argc, char *argv[])
     printf("running queens %d sequentially...\n", n);
 
     double t1 = wctime();
-    uint64_t res = nqueens(n, 0, a);
+    long res = nqueens(n, 0, a);
     double t2 = wctime();
 
-    printf("Result: Q(%d) = %llu\n", n, res);
+    printf("Result: Q(%d) = %ld\n", n, res);
 
     printf("Time: %f\n", t2-t1);
 
