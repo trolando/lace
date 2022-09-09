@@ -37,7 +37,7 @@ def run_item_file(name, args, workers, filename, dry=False, fresh=False):
             times = proc_result(out.read())
         if times and 'Ti' in times:
             if fresh: return None
-            print("Retrieved {}-{} from previous run... {} seconds!".format(name, workers, times["Ti"]))
+            # print("Retrieved {}-{} from previous run... {} seconds!".format(name, workers, times["Ti"]))
             return times
         else:
             print("Discarding previous run of {}-{}.".format(name, workers))
@@ -165,26 +165,26 @@ if __name__ == "__main__":
     # determine number of cores
     max_cores = multiprocessing.cpu_count()
 
-    for w in (1,max_cores):
+    for w in (1,2,max_cores):
         if os.path.isfile('fib-lace'):
-            experiments.append(("fib",("./fib-lace", "-w", str(w), "50"), w))
+            experiments.append(("fib",("./fib-lace", "-w", str(w), "46"), w))
         if os.path.isfile('uts-lace'):
             experiments.append(("uts-t2l",["./uts-lace", "-w", str(w)] + globals()["T2L"].split(), w))
             experiments.append(("uts-t3l",["./uts-lace", "-w", str(w)] + globals()["T3L"].split(), w))
         if os.path.isfile('queens-lace'):
-            experiments.append(("queens",("./queens-lace", "-w", str(w), "15"), w))
+            experiments.append(("queens",("./queens-lace", "-w", str(w), "14"), w))
         if os.path.isfile('matmul-lace'):
-            experiments.append(("matmul",("./matmul-lace", "-w", str(w), "4096"), w))
+            experiments.append(("matmul",("./matmul-lace", "-w", str(w), "2048"), w))
 
     if os.path.isfile('fib-seq'):
-        experiments.append(("fib-seq",("./fib-seq", "50"), 1))
+        experiments.append(("fib-seq",("./fib-seq", "46"), 1))
     if os.path.isfile('uts-seq'):
         experiments.append(("uts-t2l-seq",["./uts-seq"] + globals()["T2L"].split(), 1))
         experiments.append(("uts-t3l-seq",["./uts-seq"] + globals()["T3L"].split(), 1))
     if os.path.isfile('queens-seq'):
-        experiments.append(("queens-seq",("./queens-seq", "15"), 1))
+        experiments.append(("queens-seq",("./queens-seq", "14"), 1))
     if os.path.isfile('matmul-seq'):
-        experiments.append(("matmul-seq",("./matmul-seq", "4096"), 1))
+        experiments.append(("matmul-seq",("./matmul-seq", "2048"), 1))
 
     outdir = 'exp-out'
 
