@@ -123,10 +123,19 @@ static atomic_uint workers_running = 0;
  * Thread-specific mechanism to access current worker data
  */
 #ifdef __linux__
-static __thread WorkerP *current_worker;
+__thread WorkerP *lace_thread_worker;
 #else
-static pthread_key_t current_worker_key;
+pthread_key_t lace_thread_worker_key;
 #endif
+
+#ifndef LACE_LEAP_RANDOM /* Use random leaping when leapfrogging fails */
+#define LACE_LEAP_RANDOM 1
+#endif
+
+Worker* lace_steal(WorkerP *self, Worker *victim);
+int lace_shrink_shared(WorkerP *w);
+void lace_leapfrog(WorkerP *__lace_worker);
+void lace_drop_slow(WorkerP *w, Task *head);
 
 /**
  * Global newframe variable used for the implementation of NEWFRAME and TOGETHER
@@ -134,71 +143,10 @@ static pthread_key_t current_worker_key;
 lace_newframe_t lace_newframe;
 
 /**
- * Retrieve whether we are running as a Lace worker
- */
-int
-lace_is_worker()
-{
-    return lace_get_worker() != NULL ? 1 : 0;
-}
-
-/**
- * Get the private Worker data of the current thread
- */
-WorkerP*
-lace_get_worker()
-{
-#ifdef __linux__
-    return current_worker;
-#else
-    return (WorkerP*)pthread_getspecific(current_worker_key);
-#endif
-}
-
-/**
- * Find the head of the task deque, using the given private Worker data
- */
-Task*
-lace_get_head(WorkerP *self)
-{
-    Task *dq = self->dq;
-
-    /* First check the first tasks linearly */
-    if (dq[0].thief == 0) return dq;
-    if (dq[1].thief == 0) return dq+1;
-    if (dq[2].thief == 0) return dq+2;
-    if (dq[3].thief == 0) return dq+3;
-
-    /* Then fast search for a low/high bound using powers of 2: 4, 8, 16... */
-    size_t low = 2;
-    size_t high = self->end - self->dq;
-
-    for (;;) {
-        if (low*2 >= high) {
-            break;
-        } else if (dq[low*2].thief == 0) {
-            high=low*2;
-            break;
-        } else {
-            low*=2;
-        }
-    }
-
-    /* Finally zoom in using binary search */
-    while (low < high) {
-        size_t mid = low + (high-low)/2;
-        if (dq[mid].thief == 0) high = mid;
-        else low = mid + 1;
-    }
-
-    return dq+low;
-}
-
-/**
  * Get the number of workers
  */
 unsigned int
-lace_workers()
+lace_worker_count()
 {
     return n_workers;
 }
@@ -428,10 +376,11 @@ lace_init_worker(unsigned int worker)
     Worker *wt = workers[worker] = &workers_memory[worker]->worker_public;
     WorkerP *w = workers_p[worker] = &workers_memory[worker]->worker_private;
     w->dq = workers_memory[worker]->deque;
+    w->head = w->dq;
 #ifdef __linux__
-    current_worker = w;
+    lace_thread_worker = w;
 #else
-    pthread_setspecific(current_worker_key, w);
+    pthread_setspecific(lace_thread_worker_key, w);
 #endif
 
     // Initialize public worker data
@@ -550,7 +499,7 @@ lace_run_task(Task *task)
     // check if we are really not in a Lace thread
     WorkerP* self = lace_get_worker();
     if (self != 0) {
-        task->f(self, lace_get_head(self), task);
+        task->f(task);
     } else {
         // if needed, wake up the workers
         lace_resume();
@@ -572,7 +521,7 @@ lace_run_task(Task *task)
 }
 
 static inline void
-lace_steal_external(WorkerP *self, Task *dq_head) 
+lace_steal_external(WorkerP *self) 
 {
     ExtTask *stolen_task = atomic_exchange(&external_task, NULL);
     if (stolen_task != 0) {
@@ -581,7 +530,7 @@ lace_steal_external(WorkerP *self, Task *dq_head)
         atomic_store_explicit(&stolen_task->task->thief, self->_public, memory_order_relaxed);
         lace_time_event(self, 1);
         // atomic_thread_fence(memory_order_relaxed);
-        stolen_task->task->f(self, dq_head, stolen_task->task);
+        stolen_task->task->f(stolen_task->task);
         // atomic_thread_fence(memory_order_relaxed);
         lace_time_event(self, 2);
         // atomic_thread_fence(memory_order_relaxed);
@@ -595,17 +544,19 @@ lace_steal_external(WorkerP *self, Task *dq_head)
 /**
  * (Try to) steal and execute a task from a random worker.
  */
-VOID_TASK_0(lace_steal_random)
+//VOID_TASK_0(lace_steal_random);
+void lace_steal_random(void)
 {
-    YIELD_NEWFRAME();
+    WorkerP *__lace_worker = lace_get_worker();
+    lace_check_yield();
 
-    if (unlikely(atomic_load_explicit(&external_task, memory_order_acquire) != 0)) {
-        lace_steal_external(__lace_worker, __lace_dq_head);
+    if (__builtin_expect(atomic_load_explicit(&external_task, memory_order_acquire) != 0, 0)) {
+        lace_steal_external(__lace_worker);
     } else if (n_workers > 1) {
         Worker *victim = workers[(__lace_worker->worker + 1 + rng(&__lace_worker->seed, n_workers-1)) % n_workers];
 
         PR_COUNTSTEALS(__lace_worker, CTR_steal_tries);
-        Worker *res = lace_steal(__lace_worker, __lace_dq_head, victim);
+        Worker *res = lace_steal(__lace_worker, victim);
         if (res == LACE_STOLEN) {
             PR_COUNTSTEALS(__lace_worker, CTR_steals);
         } else if (res == LACE_BUSY) {
@@ -618,10 +569,12 @@ VOID_TASK_0(lace_steal_random)
  * Main Lace worker implementation.
  * Steal from random victims until "quit" is set.
  */
-VOID_TASK_1(lace_steal_loop, atomic_int*, quit)
+VOID_TASK_1(lace_steal_loop, atomic_int*, quit);
+
+void lace_steal_loop(atomic_int* quit)
 {
     // Determine who I am
-    const int worker_id = __lace_worker->worker;
+    const int worker_id = lace_get_worker()->worker;
 
     // Prepare self, victim
     Worker ** const self = &workers[worker_id];
@@ -650,7 +603,7 @@ VOID_TASK_1(lace_steal_loop, atomic_int*, quit)
             }
 
             PR_COUNTSTEALS(__lace_worker, CTR_steal_tries);
-            Worker *res = lace_steal(__lace_worker, __lace_dq_head, *victim);
+            Worker *res = lace_steal(lace_get_worker(), *victim);
             if (res == LACE_STOLEN) {
                 PR_COUNTSTEALS(__lace_worker, CTR_steals);
             } else if (res == LACE_BUSY) {
@@ -658,13 +611,13 @@ VOID_TASK_1(lace_steal_loop, atomic_int*, quit)
             }
         }
 
-        YIELD_NEWFRAME();
+        lace_check_yield();
 
-        if (unlikely(atomic_load_explicit(&external_task, memory_order_acquire) != 0)) {
-            lace_steal_external(__lace_worker, __lace_dq_head);
+        if (__builtin_expect(atomic_load_explicit(&external_task, memory_order_acquire) != 0, 0)) {
+            lace_steal_external(lace_get_worker());
         }
 
-        if (unlikely(atomic_load_explicit(&must_suspend, memory_order_acquire))) {
+        if (__builtin_expect(atomic_load_explicit(&must_suspend, memory_order_acquire), 0)) {
             workers_running -= 1;
             sem_wait(&suspend_semaphore);
             lace_barrier(); // ensure we're all back before continuing
@@ -695,9 +648,7 @@ lace_worker_thread(void* arg)
     workers_running += 1;
 
     // Run the steal loop
-    WorkerP *__lace_worker = lace_get_worker();
-    Task *__lace_dq_head = lace_get_head(__lace_worker);
-    lace_steal_loop_WORK(__lace_worker, __lace_dq_head, &lace_quits);
+    lace_steal_loop(&lace_quits);
 
     // Time worker exit event
     lace_time_event(__lace_worker, 9);
@@ -807,7 +758,7 @@ lace_start(unsigned int _n_workers, size_t dqsize)
 
 #ifndef __linux__
     // Create pthread key
-    pthread_key_create(&current_worker_key, NULL);
+    pthread_key_create(&lace_thread_worker_key, NULL);
 #endif
 
     // Prepare structures for thread creation
@@ -1063,8 +1014,11 @@ void lace_stop()
  * 5) Restore the old frame
  */
 void
-lace_exec_in_new_frame(WorkerP *__lace_worker, Task *__lace_dq_head, Task *root)
+lace_exec_in_new_frame(Task *root)
 {
+    WorkerP *__lace_worker = lace_get_worker();
+    Task *__lace_dq_head = __lace_worker->head;
+
     TailSplitNA old;
     uint8_t old_as;
 
@@ -1092,7 +1046,7 @@ lace_exec_in_new_frame(WorkerP *__lace_worker, Task *__lace_dq_head, Task *root)
     lace_barrier();
 
     // execute task
-    root->f(__lace_worker, __lace_dq_head, root);
+    root->f(root);
 
     // wait until all workers are back (else they may steal from previous frame)
     lace_barrier();
@@ -1112,7 +1066,7 @@ lace_exec_in_new_frame(WorkerP *__lace_worker, Task *__lace_dq_head, Task *root)
  * Each Lace worker executes lace_yield to execute the task in a new frame.
  */
 void
-lace_yield(WorkerP *__lace_worker, Task *__lace_dq_head)
+lace_yield(void)
 {
     // make a local copy of the task
     Task _t;
@@ -1121,26 +1075,32 @@ lace_yield(WorkerP *__lace_worker, Task *__lace_dq_head)
     // wait until all workers have made a local copy
     lace_barrier();
 
-    lace_exec_in_new_frame(__lace_worker, __lace_dq_head, &_t);
+    lace_exec_in_new_frame(&_t);
 }
 
 /**
  * Root task for the TOGETHER method.
  * Ensures after executing, to steal random tasks until done.
  */
-VOID_TASK_2(lace_together_root, Task*, t, atomic_int*, finished)
+VOID_TASK_2(lace_together_root, Task*, t, atomic_int*, finished);
+
+void
+lace_together_root(Task* t, atomic_int* finished)
 {
     // run the root task
-    t->f(__lace_worker, __lace_dq_head, t);
+    t->f(t);
 
     // signal out completion
     *finished -= 1;
 
     // while threads aren't done, steal randomly
-    while (*finished != 0) STEAL_RANDOM();
+    while (*finished != 0) lace_steal_random();
 }
 
-VOID_TASK_1(lace_wrap_together, Task*, task)
+VOID_TASK_1(lace_wrap_together, Task*, task);
+
+void
+lace_wrap_together(Task* task)
 {
     /* synchronization integer (decrease by 1 when done...) */
     atomic_int done = n_workers;
@@ -1157,7 +1117,7 @@ VOID_TASK_1(lace_wrap_together, Task*, task)
     while (1) {
         Task *expected = 0;
         if (atomic_compare_exchange_weak(&lace_newframe.t, &expected, &_t2)) break;
-        lace_yield(__lace_worker, __lace_dq_head);
+        lace_yield();
     }
 
     // wait until other workers have made a local copy
@@ -1166,16 +1126,21 @@ VOID_TASK_1(lace_wrap_together, Task*, task)
     // reset the newframe struct
     atomic_store_explicit(&lace_newframe.t, NULL, memory_order_relaxed);
 
-    lace_exec_in_new_frame(__lace_worker, __lace_dq_head, &_t2);
+    lace_exec_in_new_frame(&_t2);
 }
 
-VOID_TASK_2(lace_newframe_root, Task*, t, atomic_int*, done)
+VOID_TASK_2(lace_newframe_root, Task*, t, atomic_int*, done);
+void
+lace_newframe_root(Task* t, atomic_int *done)
 {
-    t->f(__lace_worker, __lace_dq_head, t);
+    t->f(t);
     *done = 1;
 }
 
-VOID_TASK_1(lace_wrap_newframe, Task*, task)
+VOID_TASK_1(lace_wrap_newframe, Task*, task);
+
+void
+lace_wrap_newframe(Task *task)
 {
     /* synchronization integer (set to 1 when done...) */
     atomic_int done = 0;
@@ -1191,7 +1156,7 @@ VOID_TASK_1(lace_wrap_newframe, Task*, task)
     while (1) {
         Task *expected = 0;
         if (atomic_compare_exchange_weak(&lace_newframe.t, &expected, &_s)) break;
-        lace_yield(__lace_worker, __lace_dq_head);
+        lace_yield();
     }
 
     // wait until other workers have made a local copy
@@ -1208,7 +1173,7 @@ VOID_TASK_1(lace_wrap_newframe, Task*, task)
     t2->d.args.arg_1 = task;
     t2->d.args.arg_2 = &done;
 
-    lace_exec_in_new_frame(__lace_worker, __lace_dq_head, &_t2);
+    lace_exec_in_new_frame(&_t2);
 }
 
 void
@@ -1216,9 +1181,9 @@ lace_run_together(Task *t)
 {
     WorkerP* self = lace_get_worker();
     if (self != 0) {
-        lace_wrap_together_CALL(self, lace_get_head(self), t);
+        lace_wrap_together(t);
     } else {
-        RUN(lace_wrap_together, t);
+        lace_wrap_together_RUN(t);
     }
 }
 
@@ -1227,9 +1192,9 @@ lace_run_newframe(Task *t)
 {
     WorkerP* self = lace_get_worker();
     if (self != 0) {
-        lace_wrap_newframe_CALL(self, lace_get_head(self), t);
+        lace_wrap_newframe(t);
     } else {
-        RUN(lace_wrap_newframe, t);
+        lace_wrap_newframe_RUN(t);
     }
 }
 
@@ -1242,3 +1207,159 @@ lace_abort_stack_overflow(void)
     fprintf(stderr, "Lace fatal error: Task stack overflow! Aborting.\n");
     exit(-1);
 }
+
+Worker*
+lace_steal(WorkerP *self, Worker *victim)
+{
+    if (victim != NULL && !victim->allstolen) {
+        TailSplitNA ts;
+        ts.v = victim->ts.v;
+        if (ts.ts.tail < ts.ts.split) {
+            TailSplitNA ts_new;
+            ts_new.v = ts.v;
+            ts_new.ts.tail++;
+            if (atomic_compare_exchange_weak(&victim->ts.v, &ts.v, ts_new.v)) {
+                // Stolen
+                Task *t = &victim->dq[ts.ts.tail];
+                atomic_store_explicit(&t->thief, self->_public, memory_order_relaxed);
+                lace_time_event(self, 1);
+                t->f(t);
+                lace_time_event(self, 2);
+                atomic_store_explicit(&t->thief, THIEF_COMPLETED, memory_order_release);
+                lace_time_event(self, 8);
+                return LACE_STOLEN;
+            }
+
+            lace_time_event(self, 7);
+            return LACE_BUSY;
+        }
+
+        if (victim->movesplit == 0) {
+            victim->movesplit = 1;
+            PR_COUNTSPLITS(self, CTR_split_req);
+        }
+    }
+
+    lace_time_event(self, 7);
+    return LACE_NOWORK;
+}
+
+int
+lace_shrink_shared(WorkerP *w)
+{
+    Worker *wt = w->_public;
+    TailSplitNA ts; /* Use non-atomic version to emit better code */
+    ts.v = wt->ts.v; /* Force in 1 memory read */
+    uint32_t tail = ts.ts.tail;
+    uint32_t split = ts.ts.split;
+
+    if (tail != split) {
+        uint32_t newsplit = (tail + split)/2;
+        atomic_store_explicit(&wt->ts.ts.split, newsplit, memory_order_relaxed); /* emit normal write */
+        atomic_thread_fence(memory_order_seq_cst);
+        tail = wt->ts.ts.tail;
+        if (tail != split) {
+            if (__builtin_expect(tail > newsplit, 0)) {
+                newsplit = (tail + split) / 2;
+                atomic_store_explicit(&wt->ts.ts.split, newsplit, memory_order_relaxed); /* emit normal write */
+            }
+            w->split = w->dq + newsplit;
+            PR_COUNTSPLITS(w, CTR_split_shrink);
+            return 0;
+        }
+    }
+
+    wt->allstolen = 1;
+    w->allstolen = 1;
+    return 1;
+}
+
+void
+lace_leapfrog(WorkerP *__lace_worker)
+{
+    lace_time_event(__lace_worker, 3);
+    Task *t = __lace_worker->head;
+    Worker *thief = t->thief;
+    if (thief != THIEF_COMPLETED) {
+        while ((size_t)thief <= 1) thief = t->thief;
+
+        /* PRE-LEAP: increase head again */
+        __lace_worker->head += 1;
+
+        /* Now leapfrog */
+        int attempts = 32;
+        while (thief != THIEF_COMPLETED) {
+            PR_COUNTSTEALS(__lace_worker, CTR_leap_tries);
+            Worker *res = lace_steal(__lace_worker, thief);
+            if (res == LACE_NOWORK) {
+                lace_check_yield();
+                if ((LACE_LEAP_RANDOM) && (--attempts == 0)) { lace_steal_random(); attempts = 32; }
+            } else if (res == LACE_STOLEN) {
+                PR_COUNTSTEALS(__lace_worker, CTR_leaps);
+            } else if (res == LACE_BUSY) {
+                PR_COUNTSTEALS(__lace_worker, CTR_leap_busy);
+            }
+            atomic_thread_fence(memory_order_acquire);
+            thief = t->thief;
+        }
+
+        /* POST-LEAP: really pop the finished task */
+        atomic_thread_fence(memory_order_acquire);
+        if (__lace_worker->allstolen == 0) {
+            /* Assume: tail = split = head (pre-pop) */
+            /* Now we do a real pop ergo either decrease tail,split,head or declare allstolen */
+            Worker *wt = __lace_worker->_public;
+            wt->allstolen = 1;
+            __lace_worker->allstolen = 1;
+        }
+        __lace_worker->head -= 1;
+    }
+
+    /*compiler_barrier();*/
+    atomic_thread_fence(memory_order_acquire);
+    atomic_store_explicit(&t->thief, THIEF_EMPTY, memory_order_relaxed);
+    lace_time_event(__lace_worker, 4);
+}
+
+int
+lace_sync(WorkerP *w, Task *head)
+{
+    if ((w->allstolen) || (w->split > head && lace_shrink_shared(w))) {
+        lace_leapfrog(w);
+        return 1;
+    }
+
+    Worker *wt = w->_public;
+    if (wt->movesplit) {
+        Task *t = w->split;
+        size_t diff = head - t;
+        diff = (diff + 1) / 2;
+        w->split = t + diff;
+        wt->ts.ts.split += diff;
+        wt->movesplit = 0;
+        PR_COUNTSPLITS(w, CTR_split_grow);
+    }
+
+    return 0;
+}
+
+void
+lace_drop_slow(WorkerP *w, Task *head)
+{
+    if ((w->allstolen) || (w->split > head && lace_shrink_shared(w))) lace_leapfrog(w);
+}
+
+void
+lace_drop(void)
+{
+    WorkerP *w = lace_get_worker();
+    Task* lace_head = w->head - 1;
+    w->head = lace_head;
+    if (__builtin_expect(0 == w->_public->movesplit, 1)) {
+        if (__builtin_expect(w->split <= lace_head, 1)) {
+            return;
+        }
+    }
+    lace_drop_slow(w, lace_head);
+}
+
