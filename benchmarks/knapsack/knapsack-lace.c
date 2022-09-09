@@ -67,6 +67,8 @@ int read_input(const char *filename, struct item *items, int *capacity, int *n)
  * capacity c. Value so far is v.
  */
 TASK_4(int, knapsack, struct item *, e, int, c, int, n, int, v)
+
+int knapsack(struct item *e, int c, int n, int v)
 {
     int with, without, best;
     double ub;
@@ -87,12 +89,12 @@ TASK_4(int, knapsack, struct item *, e, int, c, int, n, int, v)
     /* 
      * compute the best solution without the current item in the knapsack 
      */
-    SPAWN(knapsack, e + 1, c, n - 1, v);
+    knapsack_SPAWN(e + 1, c, n - 1, v);
 
     /* compute the best solution with the current item in the knapsack */
-    with = CALL(knapsack, e + 1, c - e->weight, n - 1, v + e->value);
+    with = knapsack(e + 1, c - e->weight, n - 1, v + e->value);
 
-    without = SYNC(knapsack);
+    without = knapsack_SYNC();
 
     best = with > without ? with : without;
 
@@ -150,7 +152,7 @@ int main(int argc, char *argv[])
         return 1;
 
     double t1 = wctime();
-    sol = RUN(knapsack, items, capacity, n, 0);
+    sol = knapsack_RUN(items, capacity, n, 0);
     double t2 = wctime();
 
     printf("Best value is %d\n", sol);

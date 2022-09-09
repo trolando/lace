@@ -14,6 +14,9 @@ static double f(double x)
 }
 
 TASK_5(double, integrate, double, x1, double, y1, double, x2, double, y2, double, area)
+
+double
+integrate(double x1, double y1, double x2, double y2, double area)
 {
     double half = (x2 - x1) / 2;
     double x0 = x1 + half;
@@ -27,9 +30,9 @@ TASK_5(double, integrate, double, x1, double, y1, double, x2, double, y2, double
         return area_x1x2;
     }
 
-    SPAWN(integrate, x1, y1, x0, y0, area_x1x0);
-    area_x0x2 = CALL(integrate, x0, y0, x2, y2, area_x0x2);
-    area_x1x0 = SYNC(integrate);
+    integrate_SPAWN(x1, y1, x0, y0, area_x1x0);
+    area_x0x2 = integrate(x0, y0, x2, y2, area_x0x2);
+    area_x1x0 = integrate_SYNC();
 
     return area_x1x0 + area_x0x2;
 }

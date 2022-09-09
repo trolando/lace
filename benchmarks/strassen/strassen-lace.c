@@ -418,6 +418,9 @@ VOID_TASK_7(OptimizedStrassenMultiply, REAL *, C, REAL *, A, REAL *, B,
         unsigned, RowWidthA,
         unsigned, RowWidthB
         )
+
+void OptimizedStrassenMultiply(REAL * C, REAL * A, REAL * B, unsigned MatrixSize,
+        unsigned RowWidthC, unsigned RowWidthA, unsigned RowWidthB)
 {
     unsigned QuadrantSize = MatrixSize >> 1; /* MatixSize / 2 */
     unsigned QuadrantSizeInBytes = sizeof(REAL) * QuadrantSize * QuadrantSize
@@ -543,43 +546,36 @@ VOID_TASK_7(OptimizedStrassenMultiply, REAL *, C, REAL *, A, REAL *, B,
     } /* end column loop */
 
     /* M2 = A11 x B11 */
-    SPAWN(OptimizedStrassenMultiply, M2, A11, B11, QuadrantSize,
-            QuadrantSize, RowWidthA, RowWidthB);
+    OptimizedStrassenMultiply_SPAWN(M2, A11, B11, QuadrantSize, QuadrantSize, RowWidthA, RowWidthB);
 
     /* M5 = S1 * S5 */
-    SPAWN(OptimizedStrassenMultiply, M5, S1, S5, QuadrantSize,
-            QuadrantSize, QuadrantSize, QuadrantSize);
+    OptimizedStrassenMultiply_SPAWN(M5, S1, S5, QuadrantSize, QuadrantSize, QuadrantSize, QuadrantSize);
 
     /* Step 1 of T1 = S2 x S6 + M2 */
-    SPAWN(OptimizedStrassenMultiply, T1sMULT, S2, S6,  QuadrantSize,
-            QuadrantSize, QuadrantSize, QuadrantSize);
+    OptimizedStrassenMultiply_SPAWN(T1sMULT, S2, S6,  QuadrantSize, QuadrantSize, QuadrantSize, QuadrantSize);
 
     /* Step 1 of T2 = T1 + S3 x S7 */
-    SPAWN(OptimizedStrassenMultiply, C22, S3, S7, QuadrantSize,
-            RowWidthC /*FIXME*/, QuadrantSize, QuadrantSize);
+    OptimizedStrassenMultiply_SPAWN(C22, S3, S7, QuadrantSize, RowWidthC /*FIXME*/, QuadrantSize, QuadrantSize);
 
     /* Step 1 of C11 = M2 + A12 * B21 */
-    SPAWN(OptimizedStrassenMultiply, C11, A12, B21, QuadrantSize,
-            RowWidthC, RowWidthA, RowWidthB);
+    OptimizedStrassenMultiply_SPAWN(C11, A12, B21, QuadrantSize, RowWidthC, RowWidthA, RowWidthB);
 
     /* Step 1 of C12 = S4 x B22 + T1 + M5 */
-    SPAWN(OptimizedStrassenMultiply, C12, S4, B22, QuadrantSize,
-            RowWidthC, QuadrantSize, RowWidthB);
+    OptimizedStrassenMultiply_SPAWN(C12, S4, B22, QuadrantSize, RowWidthC, QuadrantSize, RowWidthB);
 
     /* Step 1 of C21 = T2 - A22 * S8 */
-    SPAWN(OptimizedStrassenMultiply, C21, A22, S8, QuadrantSize,
-            RowWidthC, RowWidthA, QuadrantSize);
+    OptimizedStrassenMultiply_SPAWN(C21, A22, S8, QuadrantSize, RowWidthC, RowWidthA, QuadrantSize);
 
     /**********************************************
      ** Synchronization Point
      **********************************************/
-    SYNC(OptimizedStrassenMultiply);
-    SYNC(OptimizedStrassenMultiply);
-    SYNC(OptimizedStrassenMultiply);
-    SYNC(OptimizedStrassenMultiply);
-    SYNC(OptimizedStrassenMultiply);
-    SYNC(OptimizedStrassenMultiply);
-    SYNC(OptimizedStrassenMultiply);
+    OptimizedStrassenMultiply_SYNC();
+    OptimizedStrassenMultiply_SYNC();
+    OptimizedStrassenMultiply_SYNC();
+    OptimizedStrassenMultiply_SYNC();
+    OptimizedStrassenMultiply_SYNC();
+    OptimizedStrassenMultiply_SYNC();
+    OptimizedStrassenMultiply_SYNC();
 
 
     /***************************************************************************
@@ -764,7 +760,7 @@ int main(int argc, char *argv[])
     init_matrix(n, B, n);
 
     double t1=wctime();
-    RUN(OptimizedStrassenMultiply, C2, A, B, n, n, n, n);
+    OptimizedStrassenMultiply_RUN(C2, A, B, n, n, n, n);
     double t2=wctime();
 
     if (verify) {

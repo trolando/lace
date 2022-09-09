@@ -299,6 +299,8 @@ ELM *binsplit(ELM val, ELM *low, ELM *high)
 }
 
 VOID_TASK_5(cilkmerge, ELM*, low1, ELM*, high1, ELM*, low2, ELM*, high2, ELM*, lowdest)
+
+void cilkmerge(ELM* low1, ELM* high1, ELM* low2, ELM* high2, ELM* lowdest)
 {
     /*
      * Cilkmerge: Merges range [low1, high1] with range [low2, high2] 
@@ -350,14 +352,15 @@ VOID_TASK_5(cilkmerge, ELM*, low1, ELM*, high1, ELM*, low2, ELM*, high2, ELM*, l
      * the appropriate location
      */
     *(lowdest + lowsize + 1) = *split1;
-    SPAWN(cilkmerge, low1, split1 - 1, low2, split2, lowdest);
-    SPAWN(cilkmerge, split1 + 1, high1, split2 + 1, high2, lowdest + lowsize + 2);
-    SYNC(cilkmerge);
-    SYNC(cilkmerge);
+    cilkmerge_SPAWN(low1, split1 - 1, low2, split2, lowdest);
+    cilkmerge(split1 + 1, high1, split2 + 1, high2, lowdest + lowsize + 2);
+    cilkmerge_SYNC();
     return;
 }
 
 VOID_TASK_3(cilksort, ELM*, low, ELM*, tmp, long, size)
+
+void cilksort(ELM* low, ELM* tmp, long size)
 {
     /*
      * divide the input in four parts of the same size (A, B, C, D)
@@ -383,22 +386,20 @@ VOID_TASK_3(cilksort, ELM*, low, ELM*, tmp, long, size)
     D = C + quarter;
     tmpD = tmpC + quarter;
 
-    SPAWN(cilksort, A, tmpA, quarter);
-    SPAWN(cilksort, B, tmpB, quarter);
-    SPAWN(cilksort, C, tmpC, quarter);
-    SPAWN(cilksort, D, tmpD, size - 3 * quarter);
-    SYNC(cilksort);
-    SYNC(cilksort);
-    SYNC(cilksort);
-    SYNC(cilksort);
+    cilksort_SPAWN(A, tmpA, quarter);
+    cilksort_SPAWN(B, tmpB, quarter);
+    cilksort_SPAWN(C, tmpC, quarter);
+    cilksort_SPAWN(D, tmpD, size - 3 * quarter);
+    cilksort_SYNC();
+    cilksort_SYNC();
+    cilksort_SYNC();
+    cilksort_SYNC();
 
-    SPAWN(cilkmerge, A, A + quarter - 1, B, B + quarter - 1, tmpA);
-    SPAWN(cilkmerge, C, C + quarter - 1, D, low + size - 1, tmpC);
-    SYNC(cilkmerge);
-    SYNC(cilkmerge);
+    cilkmerge_SPAWN(A, A + quarter - 1, B, B + quarter - 1, tmpA);
+    cilkmerge(C, C + quarter - 1, D, low + size - 1, tmpC);
+    cilkmerge_SYNC();
 
-    SPAWN(cilkmerge, tmpA, tmpC - 1, tmpC, tmpA + size - 1, A);
-    SYNC(cilkmerge);
+    cilkmerge(tmpA, tmpC - 1, tmpC, tmpA + size - 1, A);
 }
 
 void scramble_array(ELM *arr, unsigned long size)
@@ -480,7 +481,7 @@ int main(int argc, char *argv[])
     lace_start(workers, dqsize);
 
     double t1 = wctime();
-    RUN(cilksort, array, tmp, size);
+    cilksort_RUN(array, tmp, size);
     double t2 = wctime();
 
     printf("Time: %f\n", t2-t1);

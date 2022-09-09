@@ -25,16 +25,18 @@ rng(uint32_t *seed, int max)
 }
 
 TASK_2(uint64_t, pi_mc, long, start, long, cnt)
+
+uint64_t pi_mc(long start, long cnt)
 {
     if (cnt == 1) {
-        if (seed == 0) seed = LACE_WORKER_ID+1;
+        if (seed == 0) seed = lace_worker_id()+1;
         double x = rng(&seed, RAND_MAX)/(double)RAND_MAX;
         double y = rng(&seed, RAND_MAX)/(double)RAND_MAX;
         return sqrt(x*x+y*y) < 1.0 ? 1 : 0;
     }
-    SPAWN(pi_mc, start, cnt/2);
-    uint64_t res = CALL(pi_mc, start+cnt/2, (cnt+1)/2);
-    res += SYNC(pi_mc);
+    pi_mc_SPAWN(start, cnt/2);
+    uint64_t res = pi_mc(start+cnt/2, (cnt+1)/2);
+    res += pi_mc_SYNC();
     return res;    
 }
 
@@ -82,10 +84,10 @@ int main(int argc, char **argv)
     long n = atol(argv[optind]);
 
     double t1 = wctime();
-    double pi = 4.0*(double)RUN(pi_mc, 0, n)/n;
+    double pi = 4.0*(double)pi_mc_RUN(0, n)/n;
     double t2 = wctime();
 
-    printf("With %u workers:\n", lace_workers());
+    printf("With %u workers:\n", lace_worker_count());
     printf("pi(%ld) = %.12lf (accuracy: %.12lf)\n", n, pi, fabs(M_PI-pi)/M_PI);
     printf("Time: %f\n", t2-t1);
 

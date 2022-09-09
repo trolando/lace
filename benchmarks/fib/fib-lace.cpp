@@ -6,14 +6,16 @@
 #include "lace.h"
 
 TASK_1(int, pfib, int, n)
+
+int pfib(int n)
 {
     if( n < 2 ) {
         return n;
     } else {
         int m,k;
-        SPAWN( pfib, n-1 );
-        k = CALL( pfib, n-2 );
-        m = SYNC( pfib );
+        pfib_SPAWN(n-1);
+        k = pfib(n-2);
+        m = pfib_SYNC();
         return m+k;
     }
 }
@@ -62,7 +64,7 @@ int main(int argc, char **argv)
     int n = atoi(argv[optind]);
 
     double t1 = wctime();
-    int m = RUN(pfib, n);
+    int m = pfib_RUN(n);
     double t2 = wctime();
 
     printf("fib(%d) = %d\n", n, m);

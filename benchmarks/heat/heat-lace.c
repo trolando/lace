@@ -43,14 +43,19 @@ double dtdxsq, dtdysq;
 double **  odd;
 double ** even;
 
-VOID_TASK_3(heat, double**, m, int, il, int, iu)
+VOID_TASK_3(heat, double**, m, int, il, int, iu);
+VOID_TASK_5(diffuse, double**, out, double**, in, int, il, int, iu, double, t);
+VOID_TASK_0(prep);
+VOID_TASK_0(test);
+
+void heat(double ** m, int il, int iu)
 {
     if (iu - il > 1) {
         int im = (il + iu) / 2;
 
-        SPAWN(heat, m, il, im);
-        CALL(heat, m, im, iu);
-        SYNC(heat);
+        heat_SPAWN(m, il, im);
+        heat(m, im, iu);
+        heat_SYNC();
 
         return;
     }
@@ -76,14 +81,14 @@ VOID_TASK_3(heat, double**, m, int, il, int, iu)
     }
 }
 
-VOID_TASK_5(diffuse, double**, out, double**, in, int, il, int, iu, double, t)
+void diffuse(double ** out, double ** in, int il, int iu, double t)
 {
     if (iu - il > 1) {
         int im = (il + iu) / 2;
 
-        SPAWN(diffuse, out, in, il, im, t);
-        CALL(diffuse, out, in, im, iu, t);
-        SYNC(diffuse);
+        diffuse_SPAWN(out, in, il, im, t);
+        diffuse(out, in, im, iu, t);
+        diffuse_SYNC();
 
         return;
     }
@@ -140,23 +145,23 @@ void init(int n)
     }
 }
 
-VOID_TASK_0(prep)
+void prep()
 {
-    CALL(heat, even, 0, nx);
+    heat(even, 0, nx);
 }
 
-VOID_TASK_0(test)
+void test()
 {
     double t = tu;
     int i;
 
     for (i = 1; i <= nt; i += 2) {
-        CALL(diffuse, odd, even, 0, nx, t += dt);
-        CALL(diffuse, even, odd, 0, nx, t += dt);
+        diffuse(odd, even, 0, nx, t += dt);
+        diffuse(even, odd, 0, nx, t += dt);
     }
 
     if (nt % 2) {
-        CALL(diffuse, odd, even, 0, nx, t += dt);
+        diffuse(odd, even, 0, nx, t += dt);
     }
 }
 
@@ -243,9 +248,9 @@ int main( int argc, char **argv )
     n = 4096;
 
     init(n);
-    RUN(prep);
+    prep_RUN();
     double t1 = wctime();
-    RUN(test);
+    test_RUN();
     double t2 = wctime();
     verify();
 

@@ -22,11 +22,13 @@ int __attribute__((noinline)) loop()
 }
 
 TASK_1(int, tree, int, d)
+
+int tree(int d)
 {
     if( d>0 ) {
         int i;
-        for (i=0;i<w;i++) SPAWN(tree, d-1);
-        for (i=0;i<w;i++) SYNC(tree);
+        for (i=0;i<w;i++) tree_SPAWN(d-1);
+        for (i=0;i<w;i++) tree_SYNC();
         return 0;
     } else {
         return loop();
@@ -85,7 +87,7 @@ int main(int argc, char **argv)
 
     double t1 = wctime();
     int i;
-    for(i=0; i<m; i++) RUN(tree, d);
+    for(i=0; i<m; i++) tree_RUN(d);
     double t2 = wctime();
 
     printf("Time: %f\n", t2-t1);

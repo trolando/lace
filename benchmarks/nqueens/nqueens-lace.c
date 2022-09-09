@@ -9,6 +9,8 @@
  * Given already placed queens in array a, and we want n queens, place a queen on row d at position i
  */
 TASK_4(int, nqueens, const int*, a, int, n, int, d, int, i)
+
+int nqueens(const int* a, int n, int d, int i)
 {
     // copy queens from a to new array aa and check if ok
     int aa[d + 1];
@@ -30,13 +32,13 @@ TASK_4(int, nqueens, const int*, a, int, n, int, d, int, i)
 
     // if not reached, place the next queen recursively
     for (int k = 0; k<n; k++) {
-        SPAWN(nqueens, aa, n, d, k);
+        nqueens_SPAWN(aa, n, d, k);
     }
 
     // and return the sum of the recursive counts
     int sum = 0;
     for (int k=0; k<n; k++) {
-        sum += SYNC(nqueens);
+        sum += nqueens_SYNC();
     }
     return sum;
 }

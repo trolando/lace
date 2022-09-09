@@ -68,7 +68,8 @@ typedef struct {
   counter_t maxdepth, size, leaves;
 } Result;
 
-TASK_2(Result, parTreeSearch, int, depth, Node *, parent) {
+TASK_2(Result, parTreeSearch, int, depth, Node *, parent)
+Result parTreeSearch(int depth, Node * parent) {
   int numChildren, childType;
   counter_t parentHeight = parent->height;
 
@@ -91,7 +92,7 @@ TASK_2(Result, parTreeSearch, int, depth, Node *, parent) {
       for (j = 0; j < computeGranularity; j++) {
         rng_spawn(parent->state.state, child->state.state, i);
       }
-      SPAWN(parTreeSearch, depth+1, child);
+      parTreeSearch_SPAWN(depth+1, child);
     }
 
     /* Wait a bit */
@@ -99,7 +100,7 @@ TASK_2(Result, parTreeSearch, int, depth, Node *, parent) {
     nanosleep(&tim, NULL);
 
     for (i = 0; i < numChildren; i++) {
-      Result c = SYNC(parTreeSearch);
+      Result c = parTreeSearch_SYNC();
       if (c.maxdepth>r.maxdepth) r.maxdepth = c.maxdepth;
       r.size += c.size;
       r.leaves += c.leaves;
@@ -158,7 +159,7 @@ int main(int argc, char *argv[]) {
   printf("Initialized Lace with %d workers, dqsize=%d\n", _lace_workers, _lace_dqsize);
 
   t1 = uts_wctime();
-  Result r = RUN(parTreeSearch, 0, &root);
+  Result r = parTreeSearch_RUN(0, &root);
   t2 = uts_wctime();
 
   maxTreeDepth = r.maxdepth;
