@@ -98,6 +98,7 @@ To declare tasks with no return value, use the `VOID_TASK_n` macros, for example
 From Lace tasks (running in a Lace thread):
 - Use `SPAWN` to create a task and `SYNC` to obtain the result (if stolen) or execute the task (if not stolen)
 - Use `CALL` to directly execute a task without putting it in the queue
+- Use `DROP` instead of `SYNC` to not execute a task (unless already stolen)
 
 From external methods (not running in a Lace thread):
 - Use `RUN` to offer the task to the Lace framework. This method halts until the task is fully executed
@@ -114,6 +115,9 @@ The `TOGETHER` macro is useful to initialize thread-local variables on each work
 
 Interrupting is cooperative. Lace checks for interrupting tasks when stealing work, i.e., during `SYNC` or when idle.
 Large tasks can use the `YIELD_NEWFRAME()` macro to manually check for interrupting tasks.
+
+Lace offers the `lace_barrier` method to let all Lace workers synchronize.
+Typically used in Lace tasks created using the `TOGETHER` macro.
 
 ### Support for C++
 
