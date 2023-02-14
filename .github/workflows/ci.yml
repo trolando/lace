@@ -6,13 +6,6 @@ on:
   pull_request:
     branches: [ master ]
   workflow_dispatch:
-    inputs:
-      debug_enabled:
-        description: 'Run with tmate'     
-        required: false
-        default: false
-
-
 
 jobs:
   linux-build:
@@ -57,10 +50,6 @@ jobs:
         export CXX=${{env.cxx}}
         cmake -B ${{github.workspace}}/build -DCMAKE_BUILD_TYPE=${{matrix.build_type}} -DLACE_BUILD_BENCHMARKS=ON
         cmake --build ${{github.workspace}}/build --config ${{matrix.build_type}}
-
-    - name: Setup tmate session
-      uses: mxschmitt/action-tmate@v3
-      if: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.debug_enabled }}
 
     - name: Test
       working-directory: ${{github.workspace}}/build
@@ -111,11 +100,51 @@ jobs:
         cmake -B ${{github.workspace}}/build -DCMAKE_BUILD_TYPE=${{matrix.build_type}} -DLACE_BUILD_BENCHMARKS=ON
         cmake --build ${{github.workspace}}/build --config ${{matrix.build_type}}
 
-    - name: Setup tmate session
-      uses: mxschmitt/action-tmate@v3
-      if: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.debug_enabled }}
-
     - name: Test
+      working-directory: ${{github.workspace}}/build
+      run:  |
+        ctest -C ${{ matrix.build_type }} -VV --timeout 30
+
+  windows-build:
+    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { icon: '⬛', sys: mingw32 }
+          - { icon: '🟦', sys: mingw64 }
+          - { icon: '🟨', sys: ucrt64  }
+          - { icon: '🟧', sys: clang64 }
+    name: 🚧${{ matrix.icon }} ${{ matrix.sys }}
+    defaults:
+      run:
+        shell: msys2 {0}
+    steps:
+
+    - name: '🧰 Checkout'
+      uses: actions/checkout@v3
+      with:
+        fetch-depth: 0
+
+    - name: '${{ matrix.icon }} Setup MSYS2'
+      uses: msys2/setup-msys2@v2
+      with:
+        msystem: ${{matrix.sys}}
+        update: true
+        install: >-
+          git
+          make
+        pacboy: >-
+          toolchain:p
+          cmake:p
+          ninja:p
+
+    - name: '🚧 Build TOOL'
+      run: |
+        cmake -G Ninja -B build -DCMAKE_BUILD_TYPE=Release
+        cmake --build build
+
+    - name: 'Test'
       working-directory: ${{github.workspace}}/build
       run:  |
         ctest -C ${{ matrix.build_type }} -VV --timeout 30
