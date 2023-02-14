@@ -25,6 +25,11 @@
 #include <pthread.h> // for POSIX threading
 #include <stdatomic.h>
 
+#ifdef _WIN32
+#include <windows.h> // to use GetSystemInfo
+#undef NEWFRAME // otherwise we can't use NEWFRAME Lace macro
+#endif
+
 #if defined(__APPLE__)
 /* Mac OS X defines sem_init but actually does not implement them */
 #include <mach/mach.h>
@@ -679,7 +684,11 @@ lace_set_stacksize(size_t new_stacksize)
 unsigned int
 lace_get_pu_count(void)
 {
-#if defined(sched_getaffinity)
+#ifdef WIN32
+    SYSTEM_INFO sysinfo;
+    GetSystemInfo(&sysinfo);
+    unsigned int n_pus = sysinfo.dwNumberOfProcessors;
+#elif defined(sched_getaffinity)
     cpu_set_t cs;
     CPU_ZERO(&cs);
     sched_getaffinity(0, sizeof(cs), &cs);
