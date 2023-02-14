@@ -7,12 +7,29 @@
 
 static __thread unsigned int seed = 0;
 
+/**
+ * Simple random number generated (like rand) using the given seed.
+ * (Used for thread-specific (scalable) random number generation.
+ */
+static inline uint32_t
+rng(uint32_t *seed, int max)
+{
+    uint32_t next = *seed;
+
+    next *= 1103515245;
+    next += 12345;
+
+    *seed = next;
+
+    return next % max;
+}
+
 TASK_2(uint64_t, pi_mc, long, start, long, cnt)
 {
     if (cnt == 1) {
         if (seed == 0) seed = LACE_WORKER_ID+1;
-        double x = rand_r(&seed)/(double)RAND_MAX;
-        double y = rand_r(&seed)/(double)RAND_MAX;
+        double x = rng(&seed, RAND_MAX)/(double)RAND_MAX;
+        double y = rng(&seed, RAND_MAX)/(double)RAND_MAX;
         return sqrt(x*x+y*y) < 1.0 ? 1 : 0;
     }
     SPAWN(pi_mc, start, cnt/2);
