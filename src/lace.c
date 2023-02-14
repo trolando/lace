@@ -38,10 +38,6 @@ typedef semaphore_t sem_t;
 #include <semaphore.h> // for sem_*
 #endif
 
-#if ! __STDC_NO_THREADS__
-#include <threads.h>   // for thread_local
-#endif
-
 #include <lace.h>
 
 #if LACE_USE_MMAP
@@ -117,10 +113,10 @@ static atomic_uint workers_running = 0;
 /**
  * Thread-specific mechanism to access current worker data
  */
-#if ! __STDC_NO_THREADS__
-static thread_local WorkerP *current_worker;
+#ifdef __linux__
+static __thread WorkerP *current_worker;
 #else
-static __thread WorkerP *current_worker; // fallback option
+static pthread_key_t current_worker_key;
 #endif
 
 /**
@@ -134,7 +130,7 @@ lace_newframe_t lace_newframe;
 int
 lace_is_worker()
 {
-    return current_worker != NULL ? 1 : 0;
+    return lace_get_worker() != NULL ? 1 : 0;
 }
 
 /**
@@ -143,7 +139,11 @@ lace_is_worker()
 WorkerP*
 lace_get_worker()
 {
+#ifdef __linux__
     return current_worker;
+#else
+    return (WorkerP*)pthread_getspecific(current_worker_key);
+#endif
 }
 
 /**
@@ -412,7 +412,11 @@ lace_init_worker(unsigned int worker)
     Worker *wt = workers[worker] = &workers_memory[worker]->worker_public;
     WorkerP *w = workers_p[worker] = &workers_memory[worker]->worker_private;
     w->dq = workers_memory[worker]->deque;
+#ifdef __linux__
     current_worker = w;
+#else
+    pthread_setspecific(current_worker_key, w);
+#endif
 
     // Initialize public worker data
     wt->dq = w->dq;
@@ -725,6 +729,11 @@ lace_start(unsigned int _n_workers, size_t dqsize)
 
     // Compute memory size for each worker
     workers_memory_size = sizeof(worker_data) + sizeof(Task) * dqsize;
+
+#ifndef __linux__
+    // Create pthread key
+    pthread_key_create(&current_worker_key, NULL);
+#endif
 
     // Prepare structures for thread creation
     pthread_attr_t worker_attr;
