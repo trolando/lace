@@ -56,6 +56,20 @@ jobs:
       run:  |
         ctest -C ${{ matrix.build_type }} -VV --timeout 30
 
+    - name: Performance
+      working-directory: ${{github.workspace}}/build
+      run:  |
+        benchmarks/fib-lace -w 1 38
+        benchmarks/fib-lace -w 2 38
+        benchmarks/pi-lace -w 1 100000000
+        benchmarks/pi-lace -w 2 100000000
+        benchmarks/queens-lace -w 1 12
+        benchmarks/queens-lace -w 2 12
+        benchmarks/matmul-lace -w 1 1024
+        benchmarks/matmul-lace -w 2 1024
+        benchmarks/uts-lace -w 1 -t 0 -b 2000 -q 0.124875 -m 8 -r 42
+        benchmarks/uts-lace -w 2 -t 0 -b 2000 -q 0.124875 -m 8 -r 42
+
   macos-build:
     name: 'OSX ${{matrix.cc.cc}}@${{matrix.cc.v || matrix.cc.xcode}} ${{matrix.build_type}}'
     runs-on: macos-latest
@@ -105,6 +119,20 @@ jobs:
       run:  |
         ctest -C ${{ matrix.build_type }} -VV --timeout 30
 
+    - name: Performance
+      working-directory: ${{github.workspace}}/build
+      run:  |
+        benchmarks/fib-lace -w 1 38
+        benchmarks/fib-lace -w 2 38
+        benchmarks/pi-lace -w 1 100000000
+        benchmarks/pi-lace -w 2 100000000
+        benchmarks/queens-lace -w 1 12
+        benchmarks/queens-lace -w 2 12
+        benchmarks/matmul-lace -w 1 1024
+        benchmarks/matmul-lace -w 2 1024
+        benchmarks/uts-lace -w 1 -t 0 -b 2000 -q 0.124875 -m 8 -r 42
+        benchmarks/uts-lace -w 2 -t 0 -b 2000 -q 0.124875 -m 8 -r 42
+
   windows-build:
     runs-on: windows-latest
     strategy:
@@ -148,3 +176,17 @@ jobs:
       working-directory: ${{github.workspace}}/build
       run:  |
         ctest -C ${{ matrix.build_type }} -VV --timeout 30
+
+    - name: 'Performance'
+      working-directory: ${{github.workspace}}/build
+      run:  |
+        benchmarks/fib-lace -w 1 38
+        benchmarks/fib-lace -w 2 38
+        benchmarks/pi-lace -w 1 100000000
+        benchmarks/pi-lace -w 2 100000000
+        benchmarks/queens-lace -w 1 12
+        benchmarks/queens-lace -w 2 12
+        benchmarks/matmul-lace -w 1 1024
+        benchmarks/matmul-lace -w 2 1024
+        benchmarks/uts-lace -w 1 -t 0 -b 2000 -q 0.124875 -m 8 -r 42
+        benchmarks/uts-lace -w 2 -t 0 -b 2000 -q 0.124875 -m 8 -r 42
