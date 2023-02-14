@@ -11,6 +11,23 @@ double wctime()
     return (tv.tv_sec + 1E-9 * tv.tv_nsec);
 }
 
+/**
+ * Simple random number generated (like rand) using the given seed.
+ * (Used for thread-specific (scalable) random number generation.
+ */
+static inline uint32_t
+rng(uint32_t *seed, int max)
+{
+    uint32_t next = *seed;
+
+    next *= 1103515245;
+    next += 12345;
+
+    *seed = next;
+
+    return next % max;
+}
+
 void usage(char *s)
 {
     fprintf(stderr, "%s <n>\n", s);
@@ -32,8 +49,8 @@ int main(int argc, char **argv)
 
     double t1 = wctime();
     while (m--) {
-        x = rand_r(&seed)/(double)RAND_MAX;
-        y = rand_r(&seed)/(double)RAND_MAX;
+        x = rng(&seed, RAND_MAX)/(double)RAND_MAX;
+        y = rng(&seed, RAND_MAX)/(double)RAND_MAX;
         if (sqrt(x*x+y*y) < 1.0) ++count;
     }
     double pi = 4.0*(double)count/n;

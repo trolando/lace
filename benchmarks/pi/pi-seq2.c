@@ -6,11 +6,28 @@
 
 static unsigned int seed = 1234321;
 
+/**
+ * Simple random number generated (like rand) using the given seed.
+ * (Used for thread-specific (scalable) random number generation.
+ */
+static inline uint32_t
+rng(uint32_t *seed, int max)
+{
+    uint32_t next = *seed;
+
+    next *= 1103515245;
+    next += 12345;
+
+    *seed = next;
+
+    return next % max;
+}
+
 uint64_t pi_mc(long start, long cnt)
 {
     if (cnt == 1) {
-        double x = rand_r(&seed)/(double)RAND_MAX;
-        double y = rand_r(&seed)/(double)RAND_MAX;
+        double x = rng(&seed, RAND_MAX)/(double)RAND_MAX;
+        double y = rng(&seed, RAND_MAX)/(double)RAND_MAX;
         return sqrt(x*x+y*y) < 1.0 ? 1 : 0;
     }
     return pi_mc(start, cnt/2) + pi_mc(start+cnt/2, (cnt+1)/2);
