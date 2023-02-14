@@ -401,7 +401,14 @@ lace_init_worker(unsigned int worker)
         exit(1);
     }
 #else
-    if (posix_memalign((void**)&workers_memory[worker], LINE_SIZE, workers_memory_size) != 0) {
+#if defined(_MSC_VER) || defined(__MINGW64_VERSION_MAJOR)
+    workers_memory[worker] = _aligned_malloc(workers_memory_size, LINE_SIZE);
+#elif defined(__MINGW32__)
+    workers_memory[worker] = __mingw_aligned_malloc(workers_memory_size, LINE_SIZE);
+#else
+    workers_memory[worker] = aligned_alloc(LINE_SIZE, workers_memory_size);
+#endif
+    if (workers_memory[worker] == 0) {
         fprintf(stderr, "Lace error: Unable to allocate memory for the Lace worker!\n");
         exit(1);
     }
@@ -717,9 +724,23 @@ lace_start(unsigned int _n_workers, size_t dqsize)
     sem_init(&suspend_semaphore, 0, 0);
 
     // Allocate array with all workers
-    if (posix_memalign((void**)&workers, LINE_SIZE, n_workers*sizeof(Worker*)) != 0 ||
-        posix_memalign((void**)&workers_p, LINE_SIZE, n_workers*sizeof(WorkerP*)) != 0 ||
-        posix_memalign((void**)&workers_memory, LINE_SIZE, n_workers*sizeof(worker_data*)) != 0) {
+    // first make sure that the amount to allocate (n_workers times pointer) is a multiple of LINE_SIZE
+    size_t to_allocate = n_workers * sizeof(void*);
+    to_allocate = (to_allocate+LINE_SIZE-1) & (~(LINE_SIZE-1));
+#if defined(_MSC_VER) || defined(__MINGW64_VERSION_MAJOR)
+    workers = _aligned_malloc(to_allocate, LINE_SIZE);
+    workers_p = _aligned_malloc(to_allocate, LINE_SIZE);
+    workers_memory = _aligned_malloc(to_allocate, LINE_SIZE);
+#elif defined(__MINGW32__)
+    workers = __mingw_aligned_malloc(to_allocate, LINE_SIZE);
+    workers_p = __mingw_aligned_malloc(to_allocate, LINE_SIZE);
+    workers_memory = __mingw_aligned_malloc(to_allocate, LINE_SIZE);
+#else
+    workers = aligned_alloc(LINE_SIZE, to_allocate);
+    workers_p = aligned_alloc(LINE_SIZE, to_allocate);
+    workers_memory = aligned_alloc(LINE_SIZE, to_allocate);
+#endif
+    if (workers == 0 || workers_p == 0 || workers_memory == 0) {
         fprintf(stderr, "Lace error: unable to allocate memory!\n");
         exit(1);
     }
@@ -936,18 +957,31 @@ void lace_stop()
     for (unsigned int i=0; i<n_workers; i++) {
 #if LACE_USE_MMAP
         munmap(workers_memory[i], workers_memory_size);
+#elif defined(_MSC_VER) || defined(__MINGW64_VERSION_MAJOR)
+	_aligned_free(workers_memory[i]);
+#elif defined(__MINGW32__)
+	__mingw_aligned_free(workers_memory[i]);
 #else
         free(workers_memory[i]);
 #endif
     }
 
+#if defined(_MSC_VER) || defined(__MINGW64_VERSION_MAJOR)
+    _aligned_free(workers);
+    _aligned_free(workers_p);
+    _aligned_free(workers_memory);
+#elif defined(__MINGW32__)
+    __mingw_aligned_free(workers);
+    __mingw_aligned_free(workers_p);
+    __mingw_aligned_free(workers_memory);
+#else
     free(workers);
-    workers = 0;
-
     free(workers_p);
-    workers_p = 0;
-
     free(workers_memory);
+#endif
+
+    workers = 0;
+    workers_p = 0;
     workers_memory = 0;
 }
 
