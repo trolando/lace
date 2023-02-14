@@ -25,11 +25,10 @@ jobs:
         - RelWithDebInfo
         - Debug
         cc:
-        - { cc: gcc, v: 7, cxx: g++}
         - { cc: gcc, v: 9, cxx: g++}
-        - { cc: gcc, v: 11, cxx: g++}
-        - { cc: clang, v: 7, cxx: clang++ }
+        - { cc: gcc, v: 12, cxx: g++}
         - { cc: clang, v: 11, cxx: clang++ }
+        - { cc: clang, v: 15, cxx: clang++ }
     env:
       cc: ${{matrix.cc.cc}}-${{matrix.cc.v}}
       cxx: ${{matrix.cc.cxx}}-${{matrix.cc.v}}
@@ -41,7 +40,16 @@ jobs:
       run: |
         sudo apt update
         sudo apt install cmake cmake-data build-essential
-        sudo apt install gcc-${{matrix.cc.v}} g++-${{matrix.cc.v}} clang-${{matrix.cc.v}}
+
+    - name: Install CLang
+      if: matrix.cc.cc == 'clang'
+      run: |
+        sudo apt install clang-${{matrix.cc.v}}
+
+    - name: Install GCC
+      if: matrix.cc.cc == 'gcc'
+      run: |
+        sudo apt install gcc-${{matrix.cc.v}} g++-${{matrix.cc.v}}
 
     - name: CMake Build
       run: |
