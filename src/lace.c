@@ -397,7 +397,7 @@ lace_init_worker(unsigned int worker)
 #if LACE_USE_MMAP
     workers_memory[worker] = mmap(NULL, workers_memory_size, PROT_READ|PROT_WRITE, MAP_PRIVATE|MAP_ANONYMOUS, -1, 0);
     if (workers_memory[worker] == MAP_FAILED) {
-        fprintf(stderr, "Lace error: Unable to allocate memory for the Lace worker!\n");
+        fprintf(stderr, "Lace error: Unable to allocate mmapped memory for the Lace worker!\n");
         exit(1);
     }
 #else
@@ -741,7 +741,7 @@ lace_start(unsigned int _n_workers, size_t dqsize)
     workers_memory = aligned_alloc(LINE_SIZE, to_allocate);
 #endif
     if (workers == 0 || workers_p == 0 || workers_memory == 0) {
-        fprintf(stderr, "Lace error: unable to allocate memory!\n");
+        fprintf(stderr, "Lace error: unable to allocate memory for the workers!\n");
         exit(1);
     }
 
