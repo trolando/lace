@@ -1,4 +1,4 @@
-Lace [![CI testing](https://github.com/trolando/lace/actions/workflows/ci-build.yml/badge.svg)](https://github.com/trolando/lace/actions/workflows/ci-build.yml)
+Lace [![CI](https://github.com/trolando/lace/actions/workflows/ci.yml/badge.svg)](https://github.com/trolando/lace/actions/workflows/ci.yml)
 ======
 Lace is a C framework for fine-grained fork-join parallelism intended for scientific computations on multi-core computers.
 
