@@ -25,6 +25,10 @@
 #include <pthread.h> // for POSIX threading
 #include <stdatomic.h>
 
+#ifndef _WIN32
+#include <sys/resource.h> // for getrlimit
+#endif
+
 #ifdef _WIN32
 #include <windows.h> // to use GetSystemInfo
 #undef NEWFRAME // otherwise we can't use NEWFRAME Lace macro
@@ -769,9 +773,21 @@ lace_start(unsigned int _n_workers, size_t dqsize)
     pthread_attr_t worker_attr;
     pthread_attr_init(&worker_attr);
 
-    // Get default stack size (current thread, or 1M default)
+    // Set the stack size
     if (stacksize != 0) {
         pthread_attr_setstacksize(&worker_attr, stacksize);
+    } else {
+	// on certain systems, the default stack size is too small (e.g. OSX)
+	// so by default, we just pick the current RLIMIT_STACK or 16M whichever is smallest
+#ifndef _WIN32
+	struct rlimit lim;
+	getrlimit(RLIMIT_STACK, &lim);
+	size_t size = lim.rlim_cur;
+	if (size > 16*1024*1024) size = 16*1024*1024;
+#else
+	size_t size = 16*1024*1024;
+#endif
+        pthread_attr_setstacksize(&worker_attr, size);
     }
 
     if (verbosity) {
