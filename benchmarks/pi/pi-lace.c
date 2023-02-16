@@ -26,7 +26,7 @@ rng(uint32_t *seed, int max)
 
 TASK_2(uint64_t, pi_mc, long, start, long, cnt)
 
-uint64_t pi_mc(long start, long cnt)
+uint64_t pi_mc(LaceWorker* worker, long start, long cnt)
 {
     if (cnt == 1) {
         if (seed == 0) seed = lace_worker_id()+1;
@@ -34,9 +34,9 @@ uint64_t pi_mc(long start, long cnt)
         double y = rng(&seed, RAND_MAX)/(double)RAND_MAX;
         return sqrt(x*x+y*y) < 1.0 ? 1 : 0;
     }
-    pi_mc_SPAWN(start, cnt/2);
-    uint64_t res = pi_mc(start+cnt/2, (cnt+1)/2);
-    res += pi_mc_SYNC();
+    pi_mc_SPAWN(worker, start, cnt/2);
+    uint64_t res = pi_mc(worker, start+cnt/2, (cnt+1)/2);
+    res += pi_mc_SYNC(worker);
     return res;    
 }
 

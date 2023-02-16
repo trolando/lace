@@ -23,12 +23,12 @@ int __attribute__((noinline)) loop()
 
 TASK_1(int, tree, int, d)
 
-int tree(int d)
+int tree(LaceWorker* worker, int d)
 {
     if( d>0 ) {
         int i;
-        for (i=0;i<w;i++) tree_SPAWN(d-1);
-        for (i=0;i<w;i++) tree_SYNC();
+        for (i=0;i<w;i++) tree_SPAWN(worker, d-1);
+        for (i=0;i<w;i++) tree_SYNC(worker );
         return 0;
     } else {
         return loop();

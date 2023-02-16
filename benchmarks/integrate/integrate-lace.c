@@ -16,7 +16,7 @@ static double f(double x)
 TASK_5(double, integrate, double, x1, double, y1, double, x2, double, y2, double, area)
 
 double
-integrate(double x1, double y1, double x2, double y2, double area)
+integrate(LaceWorker* worker, double x1, double y1, double x2, double y2, double area)
 {
     double half = (x2 - x1) / 2;
     double x0 = x1 + half;
@@ -30,9 +30,9 @@ integrate(double x1, double y1, double x2, double y2, double area)
         return area_x1x2;
     }
 
-    integrate_SPAWN(x1, y1, x0, y0, area_x1x0);
-    area_x0x2 = integrate(x0, y0, x2, y2, area_x0x2);
-    area_x1x0 = integrate_SYNC();
+    integrate_SPAWN(worker, x1, y1, x0, y0, area_x1x0);
+    area_x0x2 = integrate(worker, x0, y0, x2, y2, area_x0x2);
+    area_x1x0 = integrate_SYNC(worker);
 
     return area_x1x0 + area_x0x2;
 }

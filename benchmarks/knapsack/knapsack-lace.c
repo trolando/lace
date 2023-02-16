@@ -68,7 +68,7 @@ int read_input(const char *filename, struct item *items, int *capacity, int *n)
  */
 TASK_4(int, knapsack, struct item *, e, int, c, int, n, int, v)
 
-int knapsack(struct item *e, int c, int n, int v)
+int knapsack(LaceWorker* worker, struct item *e, int c, int n, int v)
 {
     int with, without, best;
     double ub;
@@ -89,12 +89,12 @@ int knapsack(struct item *e, int c, int n, int v)
     /* 
      * compute the best solution without the current item in the knapsack 
      */
-    knapsack_SPAWN(e + 1, c, n - 1, v);
+    knapsack_SPAWN(worker, e + 1, c, n - 1, v);
 
     /* compute the best solution with the current item in the knapsack */
-    with = knapsack(e + 1, c - e->weight, n - 1, v + e->value);
+    with = knapsack(worker, e + 1, c - e->weight, n - 1, v + e->value);
 
-    without = knapsack_SYNC();
+    without = knapsack_SYNC(worker);
 
     best = with > without ? with : without;
 

@@ -7,15 +7,15 @@
 
 TASK_1(int, pfib, int, n)
 
-int pfib(int n)
+int pfib(LaceWorker* worker, int n)
 {
     if( n < 2 ) {
         return n;
     } else {
         int m,k;
-        pfib_SPAWN(n-1);
-        k = pfib(n-2);
-        m = pfib_SYNC();
+        pfib_SPAWN(worker, n-1);
+        k = pfib(worker, n-2);
+        m = pfib_SYNC(worker);
         return m+k;
     }
 }

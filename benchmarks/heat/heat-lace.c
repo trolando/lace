@@ -48,14 +48,14 @@ VOID_TASK_5(diffuse, double**, out, double**, in, int, il, int, iu, double, t);
 VOID_TASK_0(prep);
 VOID_TASK_0(test);
 
-void heat(double ** m, int il, int iu)
+void heat(LaceWorker* worker, double ** m, int il, int iu)
 {
     if (iu - il > 1) {
         int im = (il + iu) / 2;
 
-        heat_SPAWN(m, il, im);
-        heat(m, im, iu);
-        heat_SYNC();
+        heat_SPAWN(worker, m, il, im);
+        heat(worker, m, im, iu);
+        heat_SYNC(worker);
 
         return;
     }
@@ -81,14 +81,14 @@ void heat(double ** m, int il, int iu)
     }
 }
 
-void diffuse(double ** out, double ** in, int il, int iu, double t)
+void diffuse(LaceWorker* worker, double ** out, double ** in, int il, int iu, double t)
 {
     if (iu - il > 1) {
         int im = (il + iu) / 2;
 
-        diffuse_SPAWN(out, in, il, im, t);
-        diffuse(out, in, im, iu, t);
-        diffuse_SYNC();
+        diffuse_SPAWN(worker, out, in, il, im, t);
+        diffuse(worker, out, in, im, iu, t);
+        diffuse_SYNC(worker);
 
         return;
     }
@@ -145,23 +145,23 @@ void init(int n)
     }
 }
 
-void prep()
+void prep(LaceWorker* worker)
 {
-    heat(even, 0, nx);
+    heat(worker, even, 0, nx);
 }
 
-void test()
+void test(LaceWorker* worker)
 {
     double t = tu;
     int i;
 
     for (i = 1; i <= nt; i += 2) {
-        diffuse(odd, even, 0, nx, t += dt);
-        diffuse(even, odd, 0, nx, t += dt);
+        diffuse(worker, odd, even, 0, nx, t += dt);
+        diffuse(worker, even, odd, 0, nx, t += dt);
     }
 
     if (nt % 2) {
-        diffuse(odd, even, 0, nx, t += dt);
+        diffuse(worker, odd, even, 0, nx, t += dt);
     }
 }
 

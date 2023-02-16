@@ -351,7 +351,7 @@ static Matrix set_matrix(int depth, Matrix a, int r, int c, Real value)
  */
 TASK_5(Matrix, mul_and_subT, int, depth, int, lower, Matrix, a, Matrix, b, Matrix, r)
 
-Matrix mul_and_subT(int depth, int lower, Matrix a, Matrix b, Matrix r)
+Matrix mul_and_subT(LaceWorker* worker, int depth, int lower, Matrix a, Matrix b, Matrix r)
 {
     if (depth == BLOCK_DEPTH) {
         LeafNode *A = (LeafNode *) a;
@@ -389,46 +389,46 @@ Matrix mul_and_subT(int depth, int lower, Matrix a, Matrix b, Matrix r)
         // first spawn
 
         if (a->child[_00] && b->child[TR_00])
-            mul_and_subT_SPAWN(depth, lower, a->child[_00], b->child[TR_00], r00);
+            mul_and_subT_SPAWN(worker, depth, lower, a->child[_00], b->child[TR_00], r00);
         if (!lower && a->child[_00] && b->child[TR_01])
-            mul_and_subT_SPAWN(depth, 0, a->child[_00], b->child[TR_01], r01);
+            mul_and_subT_SPAWN(worker, depth, 0, a->child[_00], b->child[TR_01], r01);
         if (a->child[_10] && b->child[TR_00])
-            mul_and_subT_SPAWN(depth, 0, a->child[_10], b->child[TR_00], r10);
+            mul_and_subT_SPAWN(worker, depth, 0, a->child[_10], b->child[TR_00], r10);
         if (a->child[_10] && b->child[TR_01])
-            mul_and_subT_SPAWN(depth, lower, a->child[_10], b->child[TR_01], r11);
+            mul_and_subT_SPAWN(worker, depth, lower, a->child[_10], b->child[TR_01], r11);
 
         // then sync
 
         if (a->child[_10] && b->child[TR_01])
-            r11 = mul_and_subT_SYNC();
+            r11 = mul_and_subT_SYNC(worker);
         if (a->child[_10] && b->child[TR_00])
-            r10 = mul_and_subT_SYNC();
+            r10 = mul_and_subT_SYNC(worker);
         if (!lower && a->child[_00] && b->child[TR_01])
-            r01 = mul_and_subT_SYNC();
+            r01 = mul_and_subT_SYNC(worker);
         if (a->child[_00] && b->child[TR_00])
-            r00 = mul_and_subT_SYNC();
+            r00 = mul_and_subT_SYNC(worker);
 
         // first spawn
 
         if (a->child[_01] && b->child[TR_10])
-            mul_and_subT_SPAWN(depth, lower, a->child[_01], b->child[TR_10], r00);
+            mul_and_subT_SPAWN(worker, depth, lower, a->child[_01], b->child[TR_10], r00);
         if (!lower && a->child[_01] && b->child[TR_11])
-            mul_and_subT_SPAWN(depth, 0, a->child[_01], b->child[TR_11], r01);
+            mul_and_subT_SPAWN(worker, depth, 0, a->child[_01], b->child[TR_11], r01);
         if (a->child[_11] && b->child[TR_10])
-            mul_and_subT_SPAWN(depth, 0, a->child[_11], b->child[TR_10], r10);
+            mul_and_subT_SPAWN(worker, depth, 0, a->child[_11], b->child[TR_10], r10);
         if (a->child[_11] && b->child[TR_11])
-            mul_and_subT_SPAWN(depth, lower, a->child[_11], b->child[TR_11], r11);
+            mul_and_subT_SPAWN(worker, depth, lower, a->child[_11], b->child[TR_11], r11);
 
         // then sync
 
         if (a->child[_11] && b->child[TR_11])
-            r11 = mul_and_subT_SYNC();
+            r11 = mul_and_subT_SYNC(worker);
         if (a->child[_11] && b->child[TR_10])
-            r10 = mul_and_subT_SYNC();
+            r10 = mul_and_subT_SYNC(worker);
         if (!lower && a->child[_01] && b->child[TR_11])
-            r01 = mul_and_subT_SYNC();
+            r01 = mul_and_subT_SYNC(worker);
         if (a->child[_01] && b->child[TR_10])
-            r00 = mul_and_subT_SYNC();
+            r00 = mul_and_subT_SYNC(worker);
 
         if (r == NULL) {
             if (r00 || r01 || r10 || r11)
@@ -449,7 +449,7 @@ Matrix mul_and_subT(int depth, int lower, Matrix a, Matrix b, Matrix r)
  */
 TASK_3(Matrix, backsub, int, depth, Matrix, a, Matrix, l)
 
-Matrix backsub(int depth, Matrix a, Matrix l)
+Matrix backsub(LaceWorker* worker, int depth, Matrix a, Matrix l)
 {
     if (depth == BLOCK_DEPTH) {
         LeafNode *A = (LeafNode *) a;
@@ -470,20 +470,20 @@ Matrix backsub(int depth, Matrix a, Matrix l)
         l10 = l->child[_10];
         l11 = l->child[_11];
 
-        if (a00) backsub_SPAWN(depth, a00, l00);
-        if (a10) backsub_SPAWN(depth, a10, l00);
-        if (a10) a10 = backsub_SYNC();
-        if (a00) a00 = backsub_SYNC();
+        if (a00) backsub_SPAWN(worker, depth, a00, l00);
+        if (a10) backsub_SPAWN(worker, depth, a10, l00);
+        if (a10) a10 = backsub_SYNC(worker);
+        if (a00) a00 = backsub_SYNC(worker);
 
-        if (a00 && l10) mul_and_subT_SPAWN(depth, 0, a00, l10, a01);
-        if (a10 && l10) mul_and_subT_SPAWN(depth, 0, a10, l10, a11);
-        if (a10 && l10) a11 = mul_and_subT_SYNC();
-        if (a00 && l10) a01 = mul_and_subT_SYNC();
+        if (a00 && l10) mul_and_subT_SPAWN(worker, depth, 0, a00, l10, a01);
+        if (a10 && l10) mul_and_subT_SPAWN(worker, depth, 0, a10, l10, a11);
+        if (a10 && l10) a11 = mul_and_subT_SYNC(worker);
+        if (a00 && l10) a01 = mul_and_subT_SYNC(worker);
 
-        if (a01) backsub_SPAWN(depth, a01, l11);
-        if (a11) backsub_SPAWN(depth, a11, l11);
-        if (a11) a11 = backsub_SYNC();
-        if (a01) a01 = backsub_SYNC();
+        if (a01) backsub_SPAWN(worker, depth, a01, l11);
+        if (a11) backsub_SPAWN(worker, depth, a11, l11);
+        if (a11) a11 = backsub_SYNC(worker);
+        if (a01) a01 = backsub_SYNC(worker);
 
         a->child[_00] = a00;
         a->child[_01] = a01;
@@ -499,7 +499,7 @@ Matrix backsub(int depth, Matrix a, Matrix l)
  */
 TASK_2(Matrix, cholesky, int, depth, Matrix, a)
 
-Matrix cholesky(int depth, Matrix a)
+Matrix cholesky(LaceWorker* worker, int depth, Matrix a)
 {
     if (depth == BLOCK_DEPTH) {
         LeafNode *A = (LeafNode *) a;
@@ -514,14 +514,14 @@ Matrix cholesky(int depth, Matrix a)
         a11 = a->child[_11];
 
         if (!a10) {
-            cholesky_SPAWN(depth, a00);
-            a11 = cholesky(depth, a11);
-            a00 = cholesky_SYNC();
+            cholesky_SPAWN(worker, depth, a00);
+            a11 = cholesky(worker, depth, a11);
+            a00 = cholesky_SYNC(worker);
         } else {
-            a00 = cholesky(depth, a00);
-            a10 = backsub(depth, a10, a00);
-            a11 = mul_and_subT(depth, 1, a10, a10, a11);
-            a11 = cholesky(depth, a11);
+            a00 = cholesky(worker, depth, a00);
+            a10 = backsub(worker, depth, a10, a00);
+            a11 = mul_and_subT(worker, depth, 1, a10, a10, a11);
+            a11 = cholesky(worker, depth, a11);
         }
         a->child[_00] = a00;
         a->child[_10] = a10;

@@ -51,10 +51,10 @@ extern "C" {
 
 /**
  * Type definitions used in the functions below.
- * - WorkerP contains the (private) Worker data
+ * - LaceWorker contains the (private) Worker data
  * - Task contains a single Task
  */
-typedef struct _WorkerP WorkerP;
+typedef struct _LaceWorker LaceWorker;
 typedef struct _Task Task;
 
 /* Typical cacheline size of system architectures */
@@ -76,7 +76,7 @@ typedef struct _Task Task;
 #endif
 
 #define TASK_COMMON_FIELDS(type)     \
-    void (*f)(struct type *);        \
+    void (*f)(LaceWorker *, struct type *);        \
     _Atomic(struct _Worker*) thief;
 
 struct __lace_common_fields_only { TASK_COMMON_FIELDS(_Task) };
@@ -116,7 +116,7 @@ typedef struct _Worker {
     uint8_t movesplit;
 } Worker;
 
-typedef struct _WorkerP {
+typedef struct _LaceWorker {
     Task *head;                 // my head
     Task *split;                // same as dq+ts.ts.split
     Task *end;                  // dq+dq_size
@@ -134,10 +134,10 @@ typedef struct _WorkerP {
 #endif
 
     int16_t pu;                 // my pu (for HWLOC)
-} WorkerP;
+} LaceWorker;
 
 #ifdef __linux__
-extern __thread WorkerP *lace_thread_worker;
+extern __thread LaceWorker *lace_thread_worker;
 #else
 extern pthread_key_t lace_thread_worker_key;
 #endif
@@ -193,7 +193,7 @@ void lace_stop(void);
  * Steal a random task.
  * Only use this from inside a Lace task.
  */
-void lace_steal_random(void);
+void lace_steal_random(LaceWorker*);
 
 /**
  * Enter the Lace barrier. (all active workers must enter it before we can continue)
@@ -211,13 +211,13 @@ unsigned int lace_worker_count(void);
  * Only run this from inside a Lace task.
  * (Used by LACE_VARS)
  */
-static inline WorkerP*
+static inline LaceWorker*
 lace_get_worker(void)
 { 
 #ifdef __linux__
     return lace_thread_worker;
 #else
-    return (WorkerP*)pthread_getspecific(lace_thread_worker_key);
+    return (LaceWorker*)pthread_getspecific(lace_thread_worker_key);
 #endif
 }
 
@@ -229,7 +229,7 @@ static inline int lace_is_worker(void) { return lace_get_worker() != NULL ? 1 : 
 /**
  * Retrieve the current head of the deque of the worker.
  */
- static inline Task *lace_get_head(void) { return lace_get_worker()->head; }
+static inline Task *lace_get_head(void) { return lace_get_worker()->head; }
 
 /**
  * Helper function to call from outside Lace threads.
@@ -255,7 +255,7 @@ void lace_run_together(Task *task);
 /**
  * Instead of SYNCing on the next task, drop the task (unless stolen already)
  */
-void lace_drop(void);
+void lace_drop(LaceWorker *lace_worker);
 
 /**
  * Get the current worker id.
@@ -285,7 +285,7 @@ static inline int lace_is_completed_task(Task* t) { return ((size_t)(Worker*)t->
 /**
  * Check if current tasks must be interrupted, and if so, interrupt.
  */
-static inline void lace_check_yield(void);
+static inline void lace_check_yield(LaceWorker*);
 
 /**
  * Make all tasks of the current worker shared.
@@ -386,7 +386,7 @@ typedef enum {
 #define LACE_NOWORK   ((Worker*)2)
 
 #if LACE_PIE_TIMES
-static void lace_time_event( WorkerP *w, int event )
+static void lace_time_event( LaceWorker *w, int event )
 {
     uint64_t now = gethrtime(),
              prev = w->time;
@@ -496,12 +496,12 @@ extern lace_newframe_t lace_newframe;
 /**
  * Interrupt the current worker and run a task in a new frame
  */
-void lace_yield(void);
+void lace_yield(LaceWorker*);
 
 /**
  * Check if current tasks must be interrupted, and if so, interrupt.
  */
-static inline void lace_check_yield(void) { if (__builtin_expect(atomic_load_explicit(&lace_newframe.t, memory_order_relaxed) != NULL, 0)) lace_yield(); }
+static inline void lace_check_yield(LaceWorker *w) { if (__builtin_expect(atomic_load_explicit(&lace_newframe.t, memory_order_relaxed) != NULL, 0)) lace_yield(w); }
 
 /**
  * Make all tasks of the current worker shared.
@@ -509,7 +509,7 @@ static inline void lace_check_yield(void) { if (__builtin_expect(atomic_load_exp
 static inline void __attribute__((unused))
 lace_make_all_shared(void)
 {
-    WorkerP* w = lace_get_worker();
+    LaceWorker* w = lace_get_worker();
     if (w->split != w->head) {
         w->split = w->head;
         w->_public->ts.ts.split = w->head - w->dq;
@@ -519,7 +519,7 @@ lace_make_all_shared(void)
 /**
  * Helper function for _SYNC implementations
  */
-int lace_sync(WorkerP *w, Task *head);
+int lace_sync(LaceWorker *w, Task *head);
 '
 #
 # Create macros for each arity
@@ -533,15 +533,17 @@ if ((r)); then
   TASK_INIT="$TASK_INIT t->d.args.arg_$r = arg_$r;"
   if (( r == 1)); then
     MACRO_ARGS="ATYPE_$r, ARG_$r"
-    DECL_ARGS="ATYPE_1"
-    TASK_GET_FROM_t="t->d.args.arg_1"
-    FUN_ARGS="ATYPE_1 arg_1"
-    CALL_ARGS="arg_1"
+    DECL_ARGS=", ATYPE_1"
+    TASK_GET_FROM_t=", t->d.args.arg_1"
+    FUN_ARGS=", ATYPE_1 arg_1"
+    RUN_ARGS="ATYPE_1 arg_1"
+    CALL_ARGS=", arg_1"
   else
     MACRO_ARGS="$MACRO_ARGS, ATYPE_$r, ARG_$r"
     DECL_ARGS="$DECL_ARGS, ATYPE_$r"
     TASK_GET_FROM_t="$TASK_GET_FROM_t, t->d.args.arg_$r"
     FUN_ARGS="$FUN_ARGS, ATYPE_$r arg_$r"
+    RUN_ARGS="$RUN_ARGS, ATYPE_$r arg_$r"
     CALL_ARGS="$CALL_ARGS, arg_$r"
   fi
   ARGS_STRUCT="struct { $TASK_FIELDS } args;"
@@ -588,21 +590,20 @@ typedef struct _TD_##NAME {
 /* If this line generates an error, please manually set the define LACE_TASKSIZE to a higher value */
 typedef char assertion_failed_task_descriptor_out_of_bounds_##NAME[(sizeof(TD_##NAME)<=sizeof(Task)) ? 0 : -1];
 
-$RTYPE NAME($DECL_ARGS);
+$RTYPE NAME(LaceWorker*$DECL_ARGS);
 
-static void NAME##_WRAP(TD_##NAME *t __attribute__((unused)))
+static void NAME##_WRAP(LaceWorker* lace_worker, TD_##NAME *t __attribute__((unused)))
 {
-    $SAVE_RVAL NAME($TASK_GET_FROM_t);
+    $SAVE_RVAL NAME(lace_worker$TASK_GET_FROM_t);
 }
 
 static inline __attribute__((unused))
-void NAME##_SPAWN($FUN_ARGS)
+void NAME##_SPAWN(LaceWorker* _lace_worker$FUN_ARGS)
 {
     PR_COUNTTASK(w);
 
-    WorkerP *w = lace_get_worker();
-    Task *lace_head = w->head;
-    if (lace_head == w->end) lace_abort_stack_overflow();
+    Task *lace_head = _lace_worker->head;
+    if (lace_head == _lace_worker->end) lace_abort_stack_overflow();
 
     TD_##NAME *t;
     TailSplitNA ts;
@@ -614,30 +615,30 @@ void NAME##_SPAWN($FUN_ARGS)
     $TASK_INIT
     atomic_thread_fence(memory_order_acquire);
 
-    Worker *wt = w->_public;
-    if (__builtin_expect(w->allstolen, 0)) {
+    Worker *wt = _lace_worker->_public;
+    if (__builtin_expect(_lace_worker->allstolen, 0)) {
         if (wt->movesplit) wt->movesplit = 0;
-        head = lace_head - w->dq;
+        head = lace_head - _lace_worker->dq;
         ts = (TailSplitNA){{head,head+1}};
         wt->ts.v = ts.v;
         wt->allstolen = 0;
-        w->split = lace_head+1;
-        w->allstolen = 0;
+        _lace_worker->split = lace_head+1;
+        _lace_worker->allstolen = 0;
     } else if (__builtin_expect(wt->movesplit, 0)) {
-        head = lace_head - w->dq;
-        split = w->split - w->dq;
+        head = lace_head - _lace_worker->dq;
+        split = _lace_worker->split - _lace_worker->dq;
         newsplit = (split + head + 2)/2;
         wt->ts.ts.split = newsplit;
-        w->split = w->dq + newsplit;
+        _lace_worker->split = _lace_worker->dq + newsplit;
         wt->movesplit = 0;
-        PR_COUNTSPLITS(w, CTR_split_grow);
+        PR_COUNTSPLITS(_lace_worker, CTR_split_grow);
     }
 
-    w->head = lace_head+1;
+    _lace_worker->head = lace_head+1;
 }
 
 static inline __attribute__((unused))
-$RTYPE NAME##_NEWFRAME($FUN_ARGS)
+$RTYPE NAME##_NEWFRAME($RUN_ARGS)
 {
     Task _t;
     TD_##NAME *t = (TD_##NAME *)&_t;
@@ -649,7 +650,7 @@ $RTYPE NAME##_NEWFRAME($FUN_ARGS)
 }
 
 static inline __attribute__((unused))
-void NAME##_TOGETHER($FUN_ARGS)
+void NAME##_TOGETHER($RUN_ARGS)
 {
     Task _t;
     TD_##NAME *t = (TD_##NAME *)&_t;
@@ -660,10 +661,11 @@ void NAME##_TOGETHER($FUN_ARGS)
 }
 
 static inline __attribute__((unused))
-$RTYPE NAME##_RUN($FUN_ARGS)
+$RTYPE NAME##_RUN($RUN_ARGS)
 {
-    if (lace_is_worker()) {
-        return NAME($CALL_ARGS);
+    LaceWorker *worker = lace_get_worker();
+    if (worker != NULL) {
+        return NAME(worker$CALL_ARGS);
     }
     Task _t;
     TD_##NAME *t = (TD_##NAME *)&_t;
@@ -675,27 +677,26 @@ $RTYPE NAME##_RUN($FUN_ARGS)
 }
 
 static inline __attribute__((unused))
-$RTYPE NAME##_SYNC()
+$RTYPE NAME##_SYNC(LaceWorker* _lace_worker)
 {
-    WorkerP* w = lace_get_worker();
-    Task* head = w->head - 1;
-    w->head = head;
+    Task* head = _lace_worker->head - 1;
+    _lace_worker->head = head;
 
     /* assert (__dq_head > 0); */  /* Commented out because we assume contract */
     TD_##NAME *t = (TD_##NAME *)head;
 
-    if (__builtin_expect(0 == w->_public->movesplit, 1)) {
-        if (__builtin_expect(w->split <= head, 1)) {
+    if (__builtin_expect(0 == _lace_worker->_public->movesplit, 1)) {
+        if (__builtin_expect(_lace_worker->split <= head, 1)) {
             atomic_store_explicit(&t->thief, THIEF_EMPTY, memory_order_relaxed);
-            return NAME($TASK_GET_FROM_t);
+            return NAME(_lace_worker$TASK_GET_FROM_t);
         }
     }
 
-    if (lace_sync(w, head)) {
+    if (lace_sync(_lace_worker, head)) {
         return $RETURN_RES;
     } else {
         atomic_store_explicit(&t->thief, THIEF_EMPTY, memory_order_relaxed);
-        return NAME($TASK_GET_FROM_t);
+        return NAME(_lace_worker$TASK_GET_FROM_t);
     }
 }
 

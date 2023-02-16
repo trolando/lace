@@ -69,7 +69,7 @@ typedef struct {
 } Result;
 
 TASK_2(Result, parTreeSearch, int, depth, Node *, parent)
-Result parTreeSearch(int depth, Node * parent) {
+Result parTreeSearch(LaceWorker* worker, int depth, Node * parent) {
   int numChildren, childType;
   counter_t parentHeight = parent->height;
 
@@ -92,7 +92,7 @@ Result parTreeSearch(int depth, Node * parent) {
       for (j = 0; j < computeGranularity; j++) {
         rng_spawn(parent->state.state, child->state.state, i);
       }
-      parTreeSearch_SPAWN(depth+1, child);
+      parTreeSearch_SPAWN(worker, depth+1, child);
     }
 
     /* Wait a bit */
@@ -100,7 +100,7 @@ Result parTreeSearch(int depth, Node * parent) {
     nanosleep(&tim, NULL);
 
     for (i = 0; i < numChildren; i++) {
-      Result c = parTreeSearch_SYNC();
+      Result c = parTreeSearch_SYNC(worker);
       if (c.maxdepth>r.maxdepth) r.maxdepth = c.maxdepth;
       r.size += c.size;
       r.leaves += c.leaves;

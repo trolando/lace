@@ -6,14 +6,14 @@
 
 TASK_1(int, pfib, int, n)
 
-int pfib(int n)
+int pfib(LaceWorker *worker, int n)
 {
     if( n < 2 ) {
         return n;
     } else {
-        pfib_SPAWN(n-1);
-        int k = pfib(n-2);
-        int m = pfib_SYNC();
+        pfib_SPAWN(worker, n-1);
+        int k = pfib(worker, n-2);
+        int m = pfib_SYNC(worker);
         return m+k;
     }
 }

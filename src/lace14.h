@@ -44,10 +44,10 @@ extern "C" {
 
 /**
  * Type definitions used in the functions below.
- * - WorkerP contains the (private) Worker data
+ * - LaceWorker contains the (private) Worker data
  * - Task contains a single Task
  */
-typedef struct _WorkerP WorkerP;
+typedef struct _LaceWorker LaceWorker;
 typedef struct _Task Task;
 
 /* Typical cacheline size of system architectures */
@@ -69,7 +69,7 @@ typedef struct _Task Task;
 #endif
 
 #define TASK_COMMON_FIELDS(type)     \
-    void (*f)(struct type *);        \
+    void (*f)(LaceWorker *, struct type *);        \
     _Atomic(struct _Worker*) thief;
 
 struct __lace_common_fields_only { TASK_COMMON_FIELDS(_Task) };
@@ -109,7 +109,7 @@ typedef struct _Worker {
     uint8_t movesplit;
 } Worker;
 
-typedef struct _WorkerP {
+typedef struct _LaceWorker {
     Task *head;                 // my head
     Task *split;                // same as dq+ts.ts.split
     Task *end;                  // dq+dq_size
@@ -127,10 +127,10 @@ typedef struct _WorkerP {
 #endif
 
     int16_t pu;                 // my pu (for HWLOC)
-} WorkerP;
+} LaceWorker;
 
 #ifdef __linux__
-extern __thread WorkerP *lace_thread_worker;
+extern __thread LaceWorker *lace_thread_worker;
 #else
 extern pthread_key_t lace_thread_worker_key;
 #endif
@@ -186,7 +186,7 @@ void lace_stop(void);
  * Steal a random task.
  * Only use this from inside a Lace task.
  */
-void lace_steal_random(void);
+void lace_steal_random(LaceWorker*);
 
 /**
  * Enter the Lace barrier. (all active workers must enter it before we can continue)
@@ -204,13 +204,13 @@ unsigned int lace_worker_count(void);
  * Only run this from inside a Lace task.
  * (Used by LACE_VARS)
  */
-static inline WorkerP*
+static inline LaceWorker*
 lace_get_worker(void)
 { 
 #ifdef __linux__
     return lace_thread_worker;
 #else
-    return (WorkerP*)pthread_getspecific(lace_thread_worker_key);
+    return (LaceWorker*)pthread_getspecific(lace_thread_worker_key);
 #endif
 }
 
@@ -222,7 +222,7 @@ static inline int lace_is_worker(void) { return lace_get_worker() != NULL ? 1 : 
 /**
  * Retrieve the current head of the deque of the worker.
  */
- static inline Task *lace_get_head(void) { return lace_get_worker()->head; }
+static inline Task *lace_get_head(void) { return lace_get_worker()->head; }
 
 /**
  * Helper function to call from outside Lace threads.
@@ -248,7 +248,7 @@ void lace_run_together(Task *task);
 /**
  * Instead of SYNCing on the next task, drop the task (unless stolen already)
  */
-void lace_drop(void);
+void lace_drop(LaceWorker *lace_worker);
 
 /**
  * Get the current worker id.
@@ -278,7 +278,7 @@ static inline int lace_is_completed_task(Task* t) { return ((size_t)(Worker*)t->
 /**
  * Check if current tasks must be interrupted, and if so, interrupt.
  */
-static inline void lace_check_yield(void);
+static inline void lace_check_yield(LaceWorker*);
 
 /**
  * Make all tasks of the current worker shared.
@@ -379,7 +379,7 @@ typedef enum {
 #define LACE_NOWORK   ((Worker*)2)
 
 #if LACE_PIE_TIMES
-static void lace_time_event( WorkerP *w, int event )
+static void lace_time_event( LaceWorker *w, int event )
 {
     uint64_t now = gethrtime(),
              prev = w->time;
@@ -489,12 +489,12 @@ extern lace_newframe_t lace_newframe;
 /**
  * Interrupt the current worker and run a task in a new frame
  */
-void lace_yield(void);
+void lace_yield(LaceWorker*);
 
 /**
  * Check if current tasks must be interrupted, and if so, interrupt.
  */
-static inline void lace_check_yield(void) { if (__builtin_expect(atomic_load_explicit(&lace_newframe.t, memory_order_relaxed) != NULL, 0)) lace_yield(); }
+static inline void lace_check_yield(LaceWorker *w) { if (__builtin_expect(atomic_load_explicit(&lace_newframe.t, memory_order_relaxed) != NULL, 0)) lace_yield(w); }
 
 /**
  * Make all tasks of the current worker shared.
@@ -502,7 +502,7 @@ static inline void lace_check_yield(void) { if (__builtin_expect(atomic_load_exp
 static inline void __attribute__((unused))
 lace_make_all_shared(void)
 {
-    WorkerP* w = lace_get_worker();
+    LaceWorker* w = lace_get_worker();
     if (w->split != w->head) {
         w->split = w->head;
         w->_public->ts.ts.split = w->head - w->dq;
@@ -512,7 +512,7 @@ lace_make_all_shared(void)
 /**
  * Helper function for _SYNC implementations
  */
-int lace_sync(WorkerP *w, Task *head);
+int lace_sync(LaceWorker *w, Task *head);
 
 
 // Task macros for tasks of arity 0
@@ -527,21 +527,20 @@ typedef struct _TD_##NAME {                                                     
 /* If this line generates an error, please manually set the define LACE_TASKSIZE to a higher value */\
 typedef char assertion_failed_task_descriptor_out_of_bounds_##NAME[(sizeof(TD_##NAME)<=sizeof(Task)) ? 0 : -1];\
                                                                                       \
-RTYPE NAME();                                                                         \
+RTYPE NAME(LaceWorker*);                                                              \
                                                                                       \
-static void NAME##_WRAP(TD_##NAME *t __attribute__((unused)))                         \
+static void NAME##_WRAP(LaceWorker* lace_worker, TD_##NAME *t __attribute__((unused)))\
 {                                                                                     \
-    t->d.res = NAME();                                                                \
+    t->d.res = NAME(lace_worker);                                                     \
 }                                                                                     \
                                                                                       \
 static inline __attribute__((unused))                                                 \
-void NAME##_SPAWN()                                                                   \
+void NAME##_SPAWN(LaceWorker* _lace_worker)                                           \
 {                                                                                     \
     PR_COUNTTASK(w);                                                                  \
                                                                                       \
-    WorkerP *w = lace_get_worker();                                                   \
-    Task *lace_head = w->head;                                                        \
-    if (lace_head == w->end) lace_abort_stack_overflow();                             \
+    Task *lace_head = _lace_worker->head;                                             \
+    if (lace_head == _lace_worker->end) lace_abort_stack_overflow();                  \
                                                                                       \
     TD_##NAME *t;                                                                     \
     TailSplitNA ts;                                                                   \
@@ -553,26 +552,26 @@ void NAME##_SPAWN()                                                             
                                                                                       \
     atomic_thread_fence(memory_order_acquire);                                        \
                                                                                       \
-    Worker *wt = w->_public;                                                          \
-    if (__builtin_expect(w->allstolen, 0)) {                                          \
+    Worker *wt = _lace_worker->_public;                                               \
+    if (__builtin_expect(_lace_worker->allstolen, 0)) {                               \
         if (wt->movesplit) wt->movesplit = 0;                                         \
-        head = lace_head - w->dq;                                                     \
+        head = lace_head - _lace_worker->dq;                                          \
         ts = (TailSplitNA){{head,head+1}};                                            \
         wt->ts.v = ts.v;                                                              \
         wt->allstolen = 0;                                                            \
-        w->split = lace_head+1;                                                       \
-        w->allstolen = 0;                                                             \
+        _lace_worker->split = lace_head+1;                                            \
+        _lace_worker->allstolen = 0;                                                  \
     } else if (__builtin_expect(wt->movesplit, 0)) {                                  \
-        head = lace_head - w->dq;                                                     \
-        split = w->split - w->dq;                                                     \
+        head = lace_head - _lace_worker->dq;                                          \
+        split = _lace_worker->split - _lace_worker->dq;                               \
         newsplit = (split + head + 2)/2;                                              \
         wt->ts.ts.split = newsplit;                                                   \
-        w->split = w->dq + newsplit;                                                  \
+        _lace_worker->split = _lace_worker->dq + newsplit;                            \
         wt->movesplit = 0;                                                            \
-        PR_COUNTSPLITS(w, CTR_split_grow);                                            \
+        PR_COUNTSPLITS(_lace_worker, CTR_split_grow);                                 \
     }                                                                                 \
                                                                                       \
-    w->head = lace_head+1;                                                            \
+    _lace_worker->head = lace_head+1;                                                 \
 }                                                                                     \
                                                                                       \
 static inline __attribute__((unused))                                                 \
@@ -601,8 +600,9 @@ void NAME##_TOGETHER()                                                          
 static inline __attribute__((unused))                                                 \
 RTYPE NAME##_RUN()                                                                    \
 {                                                                                     \
-    if (lace_is_worker()) {                                                           \
-        return NAME();                                                                \
+    LaceWorker *worker = lace_get_worker();                                           \
+    if (worker != NULL) {                                                             \
+        return NAME(worker);                                                          \
     }                                                                                 \
     Task _t;                                                                          \
     TD_##NAME *t = (TD_##NAME *)&_t;                                                  \
@@ -614,27 +614,26 @@ RTYPE NAME##_RUN()                                                              
 }                                                                                     \
                                                                                       \
 static inline __attribute__((unused))                                                 \
-RTYPE NAME##_SYNC()                                                                   \
+RTYPE NAME##_SYNC(LaceWorker* _lace_worker)                                           \
 {                                                                                     \
-    WorkerP* w = lace_get_worker();                                                   \
-    Task* head = w->head - 1;                                                         \
-    w->head = head;                                                                   \
+    Task* head = _lace_worker->head - 1;                                              \
+    _lace_worker->head = head;                                                        \
                                                                                       \
     /* assert (__dq_head > 0); */  /* Commented out because we assume contract */     \
     TD_##NAME *t = (TD_##NAME *)head;                                                 \
                                                                                       \
-    if (__builtin_expect(0 == w->_public->movesplit, 1)) {                            \
-        if (__builtin_expect(w->split <= head, 1)) {                                  \
+    if (__builtin_expect(0 == _lace_worker->_public->movesplit, 1)) {                 \
+        if (__builtin_expect(_lace_worker->split <= head, 1)) {                       \
             atomic_store_explicit(&t->thief, THIEF_EMPTY, memory_order_relaxed);      \
-            return NAME();                                                            \
+            return NAME(_lace_worker);                                                \
         }                                                                             \
     }                                                                                 \
                                                                                       \
-    if (lace_sync(w, head)) {                                                         \
+    if (lace_sync(_lace_worker, head)) {                                              \
         return ((TD_##NAME *)t)->d.res;                                               \
     } else {                                                                          \
         atomic_store_explicit(&t->thief, THIEF_EMPTY, memory_order_relaxed);          \
-        return NAME();                                                                \
+        return NAME(_lace_worker);                                                    \
     }                                                                                 \
 }                                                                                     \
                                                                                       \
@@ -650,21 +649,20 @@ typedef struct _TD_##NAME {                                                     
 /* If this line generates an error, please manually set the define LACE_TASKSIZE to a higher value */\
 typedef char assertion_failed_task_descriptor_out_of_bounds_##NAME[(sizeof(TD_##NAME)<=sizeof(Task)) ? 0 : -1];\
                                                                                       \
-void NAME();                                                                          \
+void NAME(LaceWorker*);                                                               \
                                                                                       \
-static void NAME##_WRAP(TD_##NAME *t __attribute__((unused)))                         \
+static void NAME##_WRAP(LaceWorker* lace_worker, TD_##NAME *t __attribute__((unused)))\
 {                                                                                     \
-     NAME();                                                                          \
+     NAME(lace_worker);                                                               \
 }                                                                                     \
                                                                                       \
 static inline __attribute__((unused))                                                 \
-void NAME##_SPAWN()                                                                   \
+void NAME##_SPAWN(LaceWorker* _lace_worker)                                           \
 {                                                                                     \
     PR_COUNTTASK(w);                                                                  \
                                                                                       \
-    WorkerP *w = lace_get_worker();                                                   \
-    Task *lace_head = w->head;                                                        \
-    if (lace_head == w->end) lace_abort_stack_overflow();                             \
+    Task *lace_head = _lace_worker->head;                                             \
+    if (lace_head == _lace_worker->end) lace_abort_stack_overflow();                  \
                                                                                       \
     TD_##NAME *t;                                                                     \
     TailSplitNA ts;                                                                   \
@@ -676,26 +674,26 @@ void NAME##_SPAWN()                                                             
                                                                                       \
     atomic_thread_fence(memory_order_acquire);                                        \
                                                                                       \
-    Worker *wt = w->_public;                                                          \
-    if (__builtin_expect(w->allstolen, 0)) {                                          \
+    Worker *wt = _lace_worker->_public;                                               \
+    if (__builtin_expect(_lace_worker->allstolen, 0)) {                               \
         if (wt->movesplit) wt->movesplit = 0;                                         \
-        head = lace_head - w->dq;                                                     \
+        head = lace_head - _lace_worker->dq;                                          \
         ts = (TailSplitNA){{head,head+1}};                                            \
         wt->ts.v = ts.v;                                                              \
         wt->allstolen = 0;                                                            \
-        w->split = lace_head+1;                                                       \
-        w->allstolen = 0;                                                             \
+        _lace_worker->split = lace_head+1;                                            \
+        _lace_worker->allstolen = 0;                                                  \
     } else if (__builtin_expect(wt->movesplit, 0)) {                                  \
-        head = lace_head - w->dq;                                                     \
-        split = w->split - w->dq;                                                     \
+        head = lace_head - _lace_worker->dq;                                          \
+        split = _lace_worker->split - _lace_worker->dq;                               \
         newsplit = (split + head + 2)/2;                                              \
         wt->ts.ts.split = newsplit;                                                   \
-        w->split = w->dq + newsplit;                                                  \
+        _lace_worker->split = _lace_worker->dq + newsplit;                            \
         wt->movesplit = 0;                                                            \
-        PR_COUNTSPLITS(w, CTR_split_grow);                                            \
+        PR_COUNTSPLITS(_lace_worker, CTR_split_grow);                                 \
     }                                                                                 \
                                                                                       \
-    w->head = lace_head+1;                                                            \
+    _lace_worker->head = lace_head+1;                                                 \
 }                                                                                     \
                                                                                       \
 static inline __attribute__((unused))                                                 \
@@ -724,8 +722,9 @@ void NAME##_TOGETHER()                                                          
 static inline __attribute__((unused))                                                 \
 void NAME##_RUN()                                                                     \
 {                                                                                     \
-    if (lace_is_worker()) {                                                           \
-        return NAME();                                                                \
+    LaceWorker *worker = lace_get_worker();                                           \
+    if (worker != NULL) {                                                             \
+        return NAME(worker);                                                          \
     }                                                                                 \
     Task _t;                                                                          \
     TD_##NAME *t = (TD_##NAME *)&_t;                                                  \
@@ -737,27 +736,26 @@ void NAME##_RUN()                                                               
 }                                                                                     \
                                                                                       \
 static inline __attribute__((unused))                                                 \
-void NAME##_SYNC()                                                                    \
+void NAME##_SYNC(LaceWorker* _lace_worker)                                            \
 {                                                                                     \
-    WorkerP* w = lace_get_worker();                                                   \
-    Task* head = w->head - 1;                                                         \
-    w->head = head;                                                                   \
+    Task* head = _lace_worker->head - 1;                                              \
+    _lace_worker->head = head;                                                        \
                                                                                       \
     /* assert (__dq_head > 0); */  /* Commented out because we assume contract */     \
     TD_##NAME *t = (TD_##NAME *)head;                                                 \
                                                                                       \
-    if (__builtin_expect(0 == w->_public->movesplit, 1)) {                            \
-        if (__builtin_expect(w->split <= head, 1)) {                                  \
+    if (__builtin_expect(0 == _lace_worker->_public->movesplit, 1)) {                 \
+        if (__builtin_expect(_lace_worker->split <= head, 1)) {                       \
             atomic_store_explicit(&t->thief, THIEF_EMPTY, memory_order_relaxed);      \
-            return NAME();                                                            \
+            return NAME(_lace_worker);                                                \
         }                                                                             \
     }                                                                                 \
                                                                                       \
-    if (lace_sync(w, head)) {                                                         \
+    if (lace_sync(_lace_worker, head)) {                                              \
         return ;                                                                      \
     } else {                                                                          \
         atomic_store_explicit(&t->thief, THIEF_EMPTY, memory_order_relaxed);          \
-        return NAME();                                                                \
+        return NAME(_lace_worker);                                                    \
     }                                                                                 \
 }                                                                                     \
                                                                                       \
@@ -776,21 +774,20 @@ typedef struct _TD_##NAME {                                                     
 /* If this line generates an error, please manually set the define LACE_TASKSIZE to a higher value */\
 typedef char assertion_failed_task_descriptor_out_of_bounds_##NAME[(sizeof(TD_##NAME)<=sizeof(Task)) ? 0 : -1];\
                                                                                       \
-RTYPE NAME(ATYPE_1);                                                                  \
+RTYPE NAME(LaceWorker*, ATYPE_1);                                                     \
                                                                                       \
-static void NAME##_WRAP(TD_##NAME *t __attribute__((unused)))                         \
+static void NAME##_WRAP(LaceWorker* lace_worker, TD_##NAME *t __attribute__((unused)))\
 {                                                                                     \
-    t->d.res = NAME(t->d.args.arg_1);                                                 \
+    t->d.res = NAME(lace_worker, t->d.args.arg_1);                                    \
 }                                                                                     \
                                                                                       \
 static inline __attribute__((unused))                                                 \
-void NAME##_SPAWN(ATYPE_1 arg_1)                                                      \
+void NAME##_SPAWN(LaceWorker* _lace_worker, ATYPE_1 arg_1)                            \
 {                                                                                     \
     PR_COUNTTASK(w);                                                                  \
                                                                                       \
-    WorkerP *w = lace_get_worker();                                                   \
-    Task *lace_head = w->head;                                                        \
-    if (lace_head == w->end) lace_abort_stack_overflow();                             \
+    Task *lace_head = _lace_worker->head;                                             \
+    if (lace_head == _lace_worker->end) lace_abort_stack_overflow();                  \
                                                                                       \
     TD_##NAME *t;                                                                     \
     TailSplitNA ts;                                                                   \
@@ -802,26 +799,26 @@ void NAME##_SPAWN(ATYPE_1 arg_1)                                                
      t->d.args.arg_1 = arg_1;                                                         \
     atomic_thread_fence(memory_order_acquire);                                        \
                                                                                       \
-    Worker *wt = w->_public;                                                          \
-    if (__builtin_expect(w->allstolen, 0)) {                                          \
+    Worker *wt = _lace_worker->_public;                                               \
+    if (__builtin_expect(_lace_worker->allstolen, 0)) {                               \
         if (wt->movesplit) wt->movesplit = 0;                                         \
-        head = lace_head - w->dq;                                                     \
+        head = lace_head - _lace_worker->dq;                                          \
         ts = (TailSplitNA){{head,head+1}};                                            \
         wt->ts.v = ts.v;                                                              \
         wt->allstolen = 0;                                                            \
-        w->split = lace_head+1;                                                       \
-        w->allstolen = 0;                                                             \
+        _lace_worker->split = lace_head+1;                                            \
+        _lace_worker->allstolen = 0;                                                  \
     } else if (__builtin_expect(wt->movesplit, 0)) {                                  \
-        head = lace_head - w->dq;                                                     \
-        split = w->split - w->dq;                                                     \
+        head = lace_head - _lace_worker->dq;                                          \
+        split = _lace_worker->split - _lace_worker->dq;                               \
         newsplit = (split + head + 2)/2;                                              \
         wt->ts.ts.split = newsplit;                                                   \
-        w->split = w->dq + newsplit;                                                  \
+        _lace_worker->split = _lace_worker->dq + newsplit;                            \
         wt->movesplit = 0;                                                            \
-        PR_COUNTSPLITS(w, CTR_split_grow);                                            \
+        PR_COUNTSPLITS(_lace_worker, CTR_split_grow);                                 \
     }                                                                                 \
                                                                                       \
-    w->head = lace_head+1;                                                            \
+    _lace_worker->head = lace_head+1;                                                 \
 }                                                                                     \
                                                                                       \
 static inline __attribute__((unused))                                                 \
@@ -850,8 +847,9 @@ void NAME##_TOGETHER(ATYPE_1 arg_1)                                             
 static inline __attribute__((unused))                                                 \
 RTYPE NAME##_RUN(ATYPE_1 arg_1)                                                       \
 {                                                                                     \
-    if (lace_is_worker()) {                                                           \
-        return NAME(arg_1);                                                           \
+    LaceWorker *worker = lace_get_worker();                                           \
+    if (worker != NULL) {                                                             \
+        return NAME(worker, arg_1);                                                   \
     }                                                                                 \
     Task _t;                                                                          \
     TD_##NAME *t = (TD_##NAME *)&_t;                                                  \
@@ -863,27 +861,26 @@ RTYPE NAME##_RUN(ATYPE_1 arg_1)                                                 
 }                                                                                     \
                                                                                       \
 static inline __attribute__((unused))                                                 \
-RTYPE NAME##_SYNC()                                                                   \
+RTYPE NAME##_SYNC(LaceWorker* _lace_worker)                                           \
 {                                                                                     \
-    WorkerP* w = lace_get_worker();                                                   \
-    Task* head = w->head - 1;                                                         \
-    w->head = head;                                                                   \
+    Task* head = _lace_worker->head - 1;                                              \
+    _lace_worker->head = head;                                                        \
                                                                                       \
     /* assert (__dq_head > 0); */  /* Commented out because we assume contract */     \
     TD_##NAME *t = (TD_##NAME *)head;                                                 \
                                                                                       \
-    if (__builtin_expect(0 == w->_public->movesplit, 1)) {                            \
-        if (__builtin_expect(w->split <= head, 1)) {                                  \
+    if (__builtin_expect(0 == _lace_worker->_public->movesplit, 1)) {                 \
+        if (__builtin_expect(_lace_worker->split <= head, 1)) {                       \
             atomic_store_explicit(&t->thief, THIEF_EMPTY, memory_order_relaxed);      \
-            return NAME(t->d.args.arg_1);                                             \
+            return NAME(_lace_worker, t->d.args.arg_1);                               \
         }                                                                             \
     }                                                                                 \
                                                                                       \
-    if (lace_sync(w, head)) {                                                         \
+    if (lace_sync(_lace_worker, head)) {                                              \
         return ((TD_##NAME *)t)->d.res;                                               \
     } else {                                                                          \
         atomic_store_explicit(&t->thief, THIEF_EMPTY, memory_order_relaxed);          \
-        return NAME(t->d.args.arg_1);                                                 \
+        return NAME(_lace_worker, t->d.args.arg_1);                                   \
     }                                                                                 \
 }                                                                                     \
                                                                                       \
@@ -899,21 +896,20 @@ typedef struct _TD_##NAME {                                                     
 /* If this line generates an error, please manually set the define LACE_TASKSIZE to a higher value */\
 typedef char assertion_failed_task_descriptor_out_of_bounds_##NAME[(sizeof(TD_##NAME)<=sizeof(Task)) ? 0 : -1];\
                                                                                       \
-void NAME(ATYPE_1);                                                                   \
+void NAME(LaceWorker*, ATYPE_1);                                                      \
                                                                                       \
-static void NAME##_WRAP(TD_##NAME *t __attribute__((unused)))                         \
+static void NAME##_WRAP(LaceWorker* lace_worker, TD_##NAME *t __attribute__((unused)))\
 {                                                                                     \
-     NAME(t->d.args.arg_1);                                                           \
+     NAME(lace_worker, t->d.args.arg_1);                                              \
 }                                                                                     \
                                                                                       \
 static inline __attribute__((unused))                                                 \
-void NAME##_SPAWN(ATYPE_1 arg_1)                                                      \
+void NAME##_SPAWN(LaceWorker* _lace_worker, ATYPE_1 arg_1)                            \
 {                                                                                     \
     PR_COUNTTASK(w);                                                                  \
                                                                                       \
-    WorkerP *w = lace_get_worker();                                                   \
-    Task *lace_head = w->head;                                                        \
-    if (lace_head == w->end) lace_abort_stack_overflow();                             \
+    Task *lace_head = _lace_worker->head;                                             \
+    if (lace_head == _lace_worker->end) lace_abort_stack_overflow();                  \
                                                                                       \
     TD_##NAME *t;                                                                     \
     TailSplitNA ts;                                                                   \
@@ -925,26 +921,26 @@ void NAME##_SPAWN(ATYPE_1 arg_1)                                                
      t->d.args.arg_1 = arg_1;                                                         \
     atomic_thread_fence(memory_order_acquire);                                        \
                                                                                       \
-    Worker *wt = w->_public;                                                          \
-    if (__builtin_expect(w->allstolen, 0)) {                                          \
+    Worker *wt = _lace_worker->_public;                                               \
+    if (__builtin_expect(_lace_worker->allstolen, 0)) {                               \
         if (wt->movesplit) wt->movesplit = 0;                                         \
-        head = lace_head - w->dq;                                                     \
+        head = lace_head - _lace_worker->dq;                                          \
         ts = (TailSplitNA){{head,head+1}};                                            \
         wt->ts.v = ts.v;                                                              \
         wt->allstolen = 0;                                                            \
-        w->split = lace_head+1;                                                       \
-        w->allstolen = 0;                                                             \
+        _lace_worker->split = lace_head+1;                                            \
+        _lace_worker->allstolen = 0;                                                  \
     } else if (__builtin_expect(wt->movesplit, 0)) {                                  \
-        head = lace_head - w->dq;                                                     \
-        split = w->split - w->dq;                                                     \
+        head = lace_head - _lace_worker->dq;                                          \
+        split = _lace_worker->split - _lace_worker->dq;                               \
         newsplit = (split + head + 2)/2;                                              \
         wt->ts.ts.split = newsplit;                                                   \
-        w->split = w->dq + newsplit;                                                  \
+        _lace_worker->split = _lace_worker->dq + newsplit;                            \
         wt->movesplit = 0;                                                            \
-        PR_COUNTSPLITS(w, CTR_split_grow);                                            \
+        PR_COUNTSPLITS(_lace_worker, CTR_split_grow);                                 \
     }                                                                                 \
                                                                                       \
-    w->head = lace_head+1;                                                            \
+    _lace_worker->head = lace_head+1;                                                 \
 }                                                                                     \
                                                                                       \
 static inline __attribute__((unused))                                                 \
@@ -973,8 +969,9 @@ void NAME##_TOGETHER(ATYPE_1 arg_1)                                             
 static inline __attribute__((unused))                                                 \
 void NAME##_RUN(ATYPE_1 arg_1)                                                        \
 {                                                                                     \
-    if (lace_is_worker()) {                                                           \
-        return NAME(arg_1);                                                           \
+    LaceWorker *worker = lace_get_worker();                                           \
+    if (worker != NULL) {                                                             \
+        return NAME(worker, arg_1);                                                   \
     }                                                                                 \
     Task _t;                                                                          \
     TD_##NAME *t = (TD_##NAME *)&_t;                                                  \
@@ -986,27 +983,26 @@ void NAME##_RUN(ATYPE_1 arg_1)                                                  
 }                                                                                     \
                                                                                       \
 static inline __attribute__((unused))                                                 \
-void NAME##_SYNC()                                                                    \
+void NAME##_SYNC(LaceWorker* _lace_worker)                                            \
 {                                                                                     \
-    WorkerP* w = lace_get_worker();                                                   \
-    Task* head = w->head - 1;                                                         \
-    w->head = head;                                                                   \
+    Task* head = _lace_worker->head - 1;                                              \
+    _lace_worker->head = head;                                                        \
                                                                                       \
     /* assert (__dq_head > 0); */  /* Commented out because we assume contract */     \
     TD_##NAME *t = (TD_##NAME *)head;                                                 \
                                                                                       \
-    if (__builtin_expect(0 == w->_public->movesplit, 1)) {                            \
-        if (__builtin_expect(w->split <= head, 1)) {                                  \
+    if (__builtin_expect(0 == _lace_worker->_public->movesplit, 1)) {                 \
+        if (__builtin_expect(_lace_worker->split <= head, 1)) {                       \
             atomic_store_explicit(&t->thief, THIEF_EMPTY, memory_order_relaxed);      \
-            return NAME(t->d.args.arg_1);                                             \
+            return NAME(_lace_worker, t->d.args.arg_1);                               \
         }                                                                             \
     }                                                                                 \
                                                                                       \
-    if (lace_sync(w, head)) {                                                         \
+    if (lace_sync(_lace_worker, head)) {                                              \
         return ;                                                                      \
     } else {                                                                          \
         atomic_store_explicit(&t->thief, THIEF_EMPTY, memory_order_relaxed);          \
-        return NAME(t->d.args.arg_1);                                                 \
+        return NAME(_lace_worker, t->d.args.arg_1);                                   \
     }                                                                                 \
 }                                                                                     \
                                                                                       \
@@ -1025,21 +1021,20 @@ typedef struct _TD_##NAME {                                                     
 /* If this line generates an error, please manually set the define LACE_TASKSIZE to a higher value */\
 typedef char assertion_failed_task_descriptor_out_of_bounds_##NAME[(sizeof(TD_##NAME)<=sizeof(Task)) ? 0 : -1];\
                                                                                       \
-RTYPE NAME(ATYPE_1, ATYPE_2);                                                         \
+RTYPE NAME(LaceWorker*, ATYPE_1, ATYPE_2);                                            \
                                                                                       \
-static void NAME##_WRAP(TD_##NAME *t __attribute__((unused)))                         \
+static void NAME##_WRAP(LaceWorker* lace_worker, TD_##NAME *t __attribute__((unused)))\
 {                                                                                     \
-    t->d.res = NAME(t->d.args.arg_1, t->d.args.arg_2);                                \
+    t->d.res = NAME(lace_worker, t->d.args.arg_1, t->d.args.arg_2);                   \
 }                                                                                     \
                                                                                       \
 static inline __attribute__((unused))                                                 \
-void NAME##_SPAWN(ATYPE_1 arg_1, ATYPE_2 arg_2)                                       \
+void NAME##_SPAWN(LaceWorker* _lace_worker, ATYPE_1 arg_1, ATYPE_2 arg_2)             \
 {                                                                                     \
     PR_COUNTTASK(w);                                                                  \
                                                                                       \
-    WorkerP *w = lace_get_worker();                                                   \
-    Task *lace_head = w->head;                                                        \
-    if (lace_head == w->end) lace_abort_stack_overflow();                             \
+    Task *lace_head = _lace_worker->head;                                             \
+    if (lace_head == _lace_worker->end) lace_abort_stack_overflow();                  \
                                                                                       \
     TD_##NAME *t;                                                                     \
     TailSplitNA ts;                                                                   \
@@ -1051,26 +1046,26 @@ void NAME##_SPAWN(ATYPE_1 arg_1, ATYPE_2 arg_2)                                 
      t->d.args.arg_1 = arg_1; t->d.args.arg_2 = arg_2;                                \
     atomic_thread_fence(memory_order_acquire);                                        \
                                                                                       \
-    Worker *wt = w->_public;                                                          \
-    if (__builtin_expect(w->allstolen, 0)) {                                          \
+    Worker *wt = _lace_worker->_public;                                               \
+    if (__builtin_expect(_lace_worker->allstolen, 0)) {                               \
         if (wt->movesplit) wt->movesplit = 0;                                         \
-        head = lace_head - w->dq;                                                     \
+        head = lace_head - _lace_worker->dq;                                          \
         ts = (TailSplitNA){{head,head+1}};                                            \
         wt->ts.v = ts.v;                                                              \
         wt->allstolen = 0;                                                            \
-        w->split = lace_head+1;                                                       \
-        w->allstolen = 0;                                                             \
+        _lace_worker->split = lace_head+1;                                            \
+        _lace_worker->allstolen = 0;                                                  \
     } else if (__builtin_expect(wt->movesplit, 0)) {                                  \
-        head = lace_head - w->dq;                                                     \
-        split = w->split - w->dq;                                                     \
+        head = lace_head - _lace_worker->dq;                                          \
+        split = _lace_worker->split - _lace_worker->dq;                               \
         newsplit = (split + head + 2)/2;                                              \
         wt->ts.ts.split = newsplit;                                                   \
-        w->split = w->dq + newsplit;                                                  \
+        _lace_worker->split = _lace_worker->dq + newsplit;                            \
         wt->movesplit = 0;                                                            \
-        PR_COUNTSPLITS(w, CTR_split_grow);                                            \
+        PR_COUNTSPLITS(_lace_worker, CTR_split_grow);                                 \
     }                                                                                 \
                                                                                       \
-    w->head = lace_head+1;                                                            \
+    _lace_worker->head = lace_head+1;                                                 \
 }                                                                                     \
                                                                                       \
 static inline __attribute__((unused))                                                 \
@@ -1099,8 +1094,9 @@ void NAME##_TOGETHER(ATYPE_1 arg_1, ATYPE_2 arg_2)                              
 static inline __attribute__((unused))                                                 \
 RTYPE NAME##_RUN(ATYPE_1 arg_1, ATYPE_2 arg_2)                                        \
 {                                                                                     \
-    if (lace_is_worker()) {                                                           \
-        return NAME(arg_1, arg_2);                                                    \
+    LaceWorker *worker = lace_get_worker();                                           \
+    if (worker != NULL) {                                                             \
+        return NAME(worker, arg_1, arg_2);                                            \
     }                                                                                 \
     Task _t;                                                                          \
     TD_##NAME *t = (TD_##NAME *)&_t;                                                  \
@@ -1112,27 +1108,26 @@ RTYPE NAME##_RUN(ATYPE_1 arg_1, ATYPE_2 arg_2)                                  
 }                                                                                     \
                                                                                       \
 static inline __attribute__((unused))                                                 \
-RTYPE NAME##_SYNC()                                                                   \
+RTYPE NAME##_SYNC(LaceWorker* _lace_worker)                                           \
 {                                                                                     \
-    WorkerP* w = lace_get_worker();                                                   \
-    Task* head = w->head - 1;                                                         \
-    w->head = head;                                                                   \
+    Task* head = _lace_worker->head - 1;                                              \
+    _lace_worker->head = head;                                                        \
                                                                                       \
     /* assert (__dq_head > 0); */  /* Commented out because we assume contract */     \
     TD_##NAME *t = (TD_##NAME *)head;                                                 \
                                                                                       \
-    if (__builtin_expect(0 == w->_public->movesplit, 1)) {                            \
-        if (__builtin_expect(w->split <= head, 1)) {                                  \
+    if (__builtin_expect(0 == _lace_worker->_public->movesplit, 1)) {                 \
+        if (__builtin_expect(_lace_worker->split <= head, 1)) {                       \
             atomic_store_explicit(&t->thief, THIEF_EMPTY, memory_order_relaxed);      \
-            return NAME(t->d.args.arg_1, t->d.args.arg_2);                            \
+            return NAME(_lace_worker, t->d.args.arg_1, t->d.args.arg_2);              \
         }                                                                             \
     }                                                                                 \
                                                                                       \
-    if (lace_sync(w, head)) {                                                         \
+    if (lace_sync(_lace_worker, head)) {                                              \
         return ((TD_##NAME *)t)->d.res;                                               \
     } else {                                                                          \
         atomic_store_explicit(&t->thief, THIEF_EMPTY, memory_order_relaxed);          \
-        return NAME(t->d.args.arg_1, t->d.args.arg_2);                                \
+        return NAME(_lace_worker, t->d.args.arg_1, t->d.args.arg_2);                  \
     }                                                                                 \
 }                                                                                     \
                                                                                       \
@@ -1148,21 +1143,20 @@ typedef struct _TD_##NAME {                                                     
 /* If this line generates an error, please manually set the define LACE_TASKSIZE to a higher value */\
 typedef char assertion_failed_task_descriptor_out_of_bounds_##NAME[(sizeof(TD_##NAME)<=sizeof(Task)) ? 0 : -1];\
                                                                                       \
-void NAME(ATYPE_1, ATYPE_2);                                                          \
+void NAME(LaceWorker*, ATYPE_1, ATYPE_2);                                             \
                                                                                       \
-static void NAME##_WRAP(TD_##NAME *t __attribute__((unused)))                         \
+static void NAME##_WRAP(LaceWorker* lace_worker, TD_##NAME *t __attribute__((unused)))\
 {                                                                                     \
-     NAME(t->d.args.arg_1, t->d.args.arg_2);                                          \
+     NAME(lace_worker, t->d.args.arg_1, t->d.args.arg_2);                             \
 }                                                                                     \
                                                                                       \
 static inline __attribute__((unused))                                                 \
-void NAME##_SPAWN(ATYPE_1 arg_1, ATYPE_2 arg_2)                                       \
+void NAME##_SPAWN(LaceWorker* _lace_worker, ATYPE_1 arg_1, ATYPE_2 arg_2)             \
 {                                                                                     \
     PR_COUNTTASK(w);                                                                  \
                                                                                       \
-    WorkerP *w = lace_get_worker();                                                   \
-    Task *lace_head = w->head;                                                        \
-    if (lace_head == w->end) lace_abort_stack_overflow();                             \
+    Task *lace_head = _lace_worker->head;                                             \
+    if (lace_head == _lace_worker->end) lace_abort_stack_overflow();                  \
                                                                                       \
     TD_##NAME *t;                                                                     \
     TailSplitNA ts;                                                                   \
@@ -1174,26 +1168,26 @@ void NAME##_SPAWN(ATYPE_1 arg_1, ATYPE_2 arg_2)                                 
      t->d.args.arg_1 = arg_1; t->d.args.arg_2 = arg_2;                                \
     atomic_thread_fence(memory_order_acquire);                                        \
                                                                                       \
-    Worker *wt = w->_public;                                                          \
-    if (__builtin_expect(w->allstolen, 0)) {                                          \
+    Worker *wt = _lace_worker->_public;                                               \
+    if (__builtin_expect(_lace_worker->allstolen, 0)) {                               \
         if (wt->movesplit) wt->movesplit = 0;                                         \
-        head = lace_head - w->dq;                                                     \
+        head = lace_head - _lace_worker->dq;                                          \
         ts = (TailSplitNA){{head,head+1}};                                            \
         wt->ts.v = ts.v;                                                              \
         wt->allstolen = 0;                                                            \
-        w->split = lace_head+1;                                                       \
-        w->allstolen = 0;                                                             \
+        _lace_worker->split = lace_head+1;                                            \
+        _lace_worker->allstolen = 0;                                                  \
     } else if (__builtin_expect(wt->movesplit, 0)) {                                  \
-        head = lace_head - w->dq;                                                     \
-        split = w->split - w->dq;                                                     \
+        head = lace_head - _lace_worker->dq;                                          \
+        split = _lace_worker->split - _lace_worker->dq;                               \
         newsplit = (split + head + 2)/2;                                              \
         wt->ts.ts.split = newsplit;                                                   \
-        w->split = w->dq + newsplit;                                                  \
+        _lace_worker->split = _lace_worker->dq + newsplit;                            \
         wt->movesplit = 0;                                                            \
-        PR_COUNTSPLITS(w, CTR_split_grow);                                            \
+        PR_COUNTSPLITS(_lace_worker, CTR_split_grow);                                 \
     }                                                                                 \
                                                                                       \
-    w->head = lace_head+1;                                                            \
+    _lace_worker->head = lace_head+1;                                                 \
 }                                                                                     \
                                                                                       \
 static inline __attribute__((unused))                                                 \
@@ -1222,8 +1216,9 @@ void NAME##_TOGETHER(ATYPE_1 arg_1, ATYPE_2 arg_2)                              
 static inline __attribute__((unused))                                                 \
 void NAME##_RUN(ATYPE_1 arg_1, ATYPE_2 arg_2)                                         \
 {                                                                                     \
-    if (lace_is_worker()) {                                                           \
-        return NAME(arg_1, arg_2);                                                    \
+    LaceWorker *worker = lace_get_worker();                                           \
+    if (worker != NULL) {                                                             \
+        return NAME(worker, arg_1, arg_2);                                            \
     }                                                                                 \
     Task _t;                                                                          \
     TD_##NAME *t = (TD_##NAME *)&_t;                                                  \
@@ -1235,27 +1230,26 @@ void NAME##_RUN(ATYPE_1 arg_1, ATYPE_2 arg_2)                                   
 }                                                                                     \
                                                                                       \
 static inline __attribute__((unused))                                                 \
-void NAME##_SYNC()                                                                    \
+void NAME##_SYNC(LaceWorker* _lace_worker)                                            \
 {                                                                                     \
-    WorkerP* w = lace_get_worker();                                                   \
-    Task* head = w->head - 1;                                                         \
-    w->head = head;                                                                   \
+    Task* head = _lace_worker->head - 1;                                              \
+    _lace_worker->head = head;                                                        \
                                                                                       \
     /* assert (__dq_head > 0); */  /* Commented out because we assume contract */     \
     TD_##NAME *t = (TD_##NAME *)head;                                                 \
                                                                                       \
-    if (__builtin_expect(0 == w->_public->movesplit, 1)) {                            \
-        if (__builtin_expect(w->split <= head, 1)) {                                  \
+    if (__builtin_expect(0 == _lace_worker->_public->movesplit, 1)) {                 \
+        if (__builtin_expect(_lace_worker->split <= head, 1)) {                       \
             atomic_store_explicit(&t->thief, THIEF_EMPTY, memory_order_relaxed);      \
-            return NAME(t->d.args.arg_1, t->d.args.arg_2);                            \
+            return NAME(_lace_worker, t->d.args.arg_1, t->d.args.arg_2);              \
         }                                                                             \
     }                                                                                 \
                                                                                       \
-    if (lace_sync(w, head)) {                                                         \
+    if (lace_sync(_lace_worker, head)) {                                              \
         return ;                                                                      \
     } else {                                                                          \
         atomic_store_explicit(&t->thief, THIEF_EMPTY, memory_order_relaxed);          \
-        return NAME(t->d.args.arg_1, t->d.args.arg_2);                                \
+        return NAME(_lace_worker, t->d.args.arg_1, t->d.args.arg_2);                  \
     }                                                                                 \
 }                                                                                     \
                                                                                       \
@@ -1274,21 +1268,20 @@ typedef struct _TD_##NAME {                                                     
 /* If this line generates an error, please manually set the define LACE_TASKSIZE to a higher value */\
 typedef char assertion_failed_task_descriptor_out_of_bounds_##NAME[(sizeof(TD_##NAME)<=sizeof(Task)) ? 0 : -1];\
                                                                                       \
-RTYPE NAME(ATYPE_1, ATYPE_2, ATYPE_3);                                                \
+RTYPE NAME(LaceWorker*, ATYPE_1, ATYPE_2, ATYPE_3);                                   \
                                                                                       \
-static void NAME##_WRAP(TD_##NAME *t __attribute__((unused)))                         \
+static void NAME##_WRAP(LaceWorker* lace_worker, TD_##NAME *t __attribute__((unused)))\
 {                                                                                     \
-    t->d.res = NAME(t->d.args.arg_1, t->d.args.arg_2, t->d.args.arg_3);               \
+    t->d.res = NAME(lace_worker, t->d.args.arg_1, t->d.args.arg_2, t->d.args.arg_3);  \
 }                                                                                     \
                                                                                       \
 static inline __attribute__((unused))                                                 \
-void NAME##_SPAWN(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3)                        \
+void NAME##_SPAWN(LaceWorker* _lace_worker, ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3)\
 {                                                                                     \
     PR_COUNTTASK(w);                                                                  \
                                                                                       \
-    WorkerP *w = lace_get_worker();                                                   \
-    Task *lace_head = w->head;                                                        \
-    if (lace_head == w->end) lace_abort_stack_overflow();                             \
+    Task *lace_head = _lace_worker->head;                                             \
+    if (lace_head == _lace_worker->end) lace_abort_stack_overflow();                  \
                                                                                       \
     TD_##NAME *t;                                                                     \
     TailSplitNA ts;                                                                   \
@@ -1300,26 +1293,26 @@ void NAME##_SPAWN(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3)                  
      t->d.args.arg_1 = arg_1; t->d.args.arg_2 = arg_2; t->d.args.arg_3 = arg_3;       \
     atomic_thread_fence(memory_order_acquire);                                        \
                                                                                       \
-    Worker *wt = w->_public;                                                          \
-    if (__builtin_expect(w->allstolen, 0)) {                                          \
+    Worker *wt = _lace_worker->_public;                                               \
+    if (__builtin_expect(_lace_worker->allstolen, 0)) {                               \
         if (wt->movesplit) wt->movesplit = 0;                                         \
-        head = lace_head - w->dq;                                                     \
+        head = lace_head - _lace_worker->dq;                                          \
         ts = (TailSplitNA){{head,head+1}};                                            \
         wt->ts.v = ts.v;                                                              \
         wt->allstolen = 0;                                                            \
-        w->split = lace_head+1;                                                       \
-        w->allstolen = 0;                                                             \
+        _lace_worker->split = lace_head+1;                                            \
+        _lace_worker->allstolen = 0;                                                  \
     } else if (__builtin_expect(wt->movesplit, 0)) {                                  \
-        head = lace_head - w->dq;                                                     \
-        split = w->split - w->dq;                                                     \
+        head = lace_head - _lace_worker->dq;                                          \
+        split = _lace_worker->split - _lace_worker->dq;                               \
         newsplit = (split + head + 2)/2;                                              \
         wt->ts.ts.split = newsplit;                                                   \
-        w->split = w->dq + newsplit;                                                  \
+        _lace_worker->split = _lace_worker->dq + newsplit;                            \
         wt->movesplit = 0;                                                            \
-        PR_COUNTSPLITS(w, CTR_split_grow);                                            \
+        PR_COUNTSPLITS(_lace_worker, CTR_split_grow);                                 \
     }                                                                                 \
                                                                                       \
-    w->head = lace_head+1;                                                            \
+    _lace_worker->head = lace_head+1;                                                 \
 }                                                                                     \
                                                                                       \
 static inline __attribute__((unused))                                                 \
@@ -1348,8 +1341,9 @@ void NAME##_TOGETHER(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3)               
 static inline __attribute__((unused))                                                 \
 RTYPE NAME##_RUN(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3)                         \
 {                                                                                     \
-    if (lace_is_worker()) {                                                           \
-        return NAME(arg_1, arg_2, arg_3);                                             \
+    LaceWorker *worker = lace_get_worker();                                           \
+    if (worker != NULL) {                                                             \
+        return NAME(worker, arg_1, arg_2, arg_3);                                     \
     }                                                                                 \
     Task _t;                                                                          \
     TD_##NAME *t = (TD_##NAME *)&_t;                                                  \
@@ -1361,27 +1355,26 @@ RTYPE NAME##_RUN(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3)                   
 }                                                                                     \
                                                                                       \
 static inline __attribute__((unused))                                                 \
-RTYPE NAME##_SYNC()                                                                   \
+RTYPE NAME##_SYNC(LaceWorker* _lace_worker)                                           \
 {                                                                                     \
-    WorkerP* w = lace_get_worker();                                                   \
-    Task* head = w->head - 1;                                                         \
-    w->head = head;                                                                   \
+    Task* head = _lace_worker->head - 1;                                              \
+    _lace_worker->head = head;                                                        \
                                                                                       \
     /* assert (__dq_head > 0); */  /* Commented out because we assume contract */     \
     TD_##NAME *t = (TD_##NAME *)head;                                                 \
                                                                                       \
-    if (__builtin_expect(0 == w->_public->movesplit, 1)) {                            \
-        if (__builtin_expect(w->split <= head, 1)) {                                  \
+    if (__builtin_expect(0 == _lace_worker->_public->movesplit, 1)) {                 \
+        if (__builtin_expect(_lace_worker->split <= head, 1)) {                       \
             atomic_store_explicit(&t->thief, THIEF_EMPTY, memory_order_relaxed);      \
-            return NAME(t->d.args.arg_1, t->d.args.arg_2, t->d.args.arg_3);           \
+            return NAME(_lace_worker, t->d.args.arg_1, t->d.args.arg_2, t->d.args.arg_3);\
         }                                                                             \
     }                                                                                 \
                                                                                       \
-    if (lace_sync(w, head)) {                                                         \
+    if (lace_sync(_lace_worker, head)) {                                              \
         return ((TD_##NAME *)t)->d.res;                                               \
     } else {                                                                          \
         atomic_store_explicit(&t->thief, THIEF_EMPTY, memory_order_relaxed);          \
-        return NAME(t->d.args.arg_1, t->d.args.arg_2, t->d.args.arg_3);               \
+        return NAME(_lace_worker, t->d.args.arg_1, t->d.args.arg_2, t->d.args.arg_3); \
     }                                                                                 \
 }                                                                                     \
                                                                                       \
@@ -1397,21 +1390,20 @@ typedef struct _TD_##NAME {                                                     
 /* If this line generates an error, please manually set the define LACE_TASKSIZE to a higher value */\
 typedef char assertion_failed_task_descriptor_out_of_bounds_##NAME[(sizeof(TD_##NAME)<=sizeof(Task)) ? 0 : -1];\
                                                                                       \
-void NAME(ATYPE_1, ATYPE_2, ATYPE_3);                                                 \
+void NAME(LaceWorker*, ATYPE_1, ATYPE_2, ATYPE_3);                                    \
                                                                                       \
-static void NAME##_WRAP(TD_##NAME *t __attribute__((unused)))                         \
+static void NAME##_WRAP(LaceWorker* lace_worker, TD_##NAME *t __attribute__((unused)))\
 {                                                                                     \
-     NAME(t->d.args.arg_1, t->d.args.arg_2, t->d.args.arg_3);                         \
+     NAME(lace_worker, t->d.args.arg_1, t->d.args.arg_2, t->d.args.arg_3);            \
 }                                                                                     \
                                                                                       \
 static inline __attribute__((unused))                                                 \
-void NAME##_SPAWN(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3)                        \
+void NAME##_SPAWN(LaceWorker* _lace_worker, ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3)\
 {                                                                                     \
     PR_COUNTTASK(w);                                                                  \
                                                                                       \
-    WorkerP *w = lace_get_worker();                                                   \
-    Task *lace_head = w->head;                                                        \
-    if (lace_head == w->end) lace_abort_stack_overflow();                             \
+    Task *lace_head = _lace_worker->head;                                             \
+    if (lace_head == _lace_worker->end) lace_abort_stack_overflow();                  \
                                                                                       \
     TD_##NAME *t;                                                                     \
     TailSplitNA ts;                                                                   \
@@ -1423,26 +1415,26 @@ void NAME##_SPAWN(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3)                  
      t->d.args.arg_1 = arg_1; t->d.args.arg_2 = arg_2; t->d.args.arg_3 = arg_3;       \
     atomic_thread_fence(memory_order_acquire);                                        \
                                                                                       \
-    Worker *wt = w->_public;                                                          \
-    if (__builtin_expect(w->allstolen, 0)) {                                          \
+    Worker *wt = _lace_worker->_public;                                               \
+    if (__builtin_expect(_lace_worker->allstolen, 0)) {                               \
         if (wt->movesplit) wt->movesplit = 0;                                         \
-        head = lace_head - w->dq;                                                     \
+        head = lace_head - _lace_worker->dq;                                          \
         ts = (TailSplitNA){{head,head+1}};                                            \
         wt->ts.v = ts.v;                                                              \
         wt->allstolen = 0;                                                            \
-        w->split = lace_head+1;                                                       \
-        w->allstolen = 0;                                                             \
+        _lace_worker->split = lace_head+1;                                            \
+        _lace_worker->allstolen = 0;                                                  \
     } else if (__builtin_expect(wt->movesplit, 0)) {                                  \
-        head = lace_head - w->dq;                                                     \
-        split = w->split - w->dq;                                                     \
+        head = lace_head - _lace_worker->dq;                                          \
+        split = _lace_worker->split - _lace_worker->dq;                               \
         newsplit = (split + head + 2)/2;                                              \
         wt->ts.ts.split = newsplit;                                                   \
-        w->split = w->dq + newsplit;                                                  \
+        _lace_worker->split = _lace_worker->dq + newsplit;                            \
         wt->movesplit = 0;                                                            \
-        PR_COUNTSPLITS(w, CTR_split_grow);                                            \
+        PR_COUNTSPLITS(_lace_worker, CTR_split_grow);                                 \
     }                                                                                 \
                                                                                       \
-    w->head = lace_head+1;                                                            \
+    _lace_worker->head = lace_head+1;                                                 \
 }                                                                                     \
                                                                                       \
 static inline __attribute__((unused))                                                 \
@@ -1471,8 +1463,9 @@ void NAME##_TOGETHER(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3)               
 static inline __attribute__((unused))                                                 \
 void NAME##_RUN(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3)                          \
 {                                                                                     \
-    if (lace_is_worker()) {                                                           \
-        return NAME(arg_1, arg_2, arg_3);                                             \
+    LaceWorker *worker = lace_get_worker();                                           \
+    if (worker != NULL) {                                                             \
+        return NAME(worker, arg_1, arg_2, arg_3);                                     \
     }                                                                                 \
     Task _t;                                                                          \
     TD_##NAME *t = (TD_##NAME *)&_t;                                                  \
@@ -1484,27 +1477,26 @@ void NAME##_RUN(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3)                    
 }                                                                                     \
                                                                                       \
 static inline __attribute__((unused))                                                 \
-void NAME##_SYNC()                                                                    \
+void NAME##_SYNC(LaceWorker* _lace_worker)                                            \
 {                                                                                     \
-    WorkerP* w = lace_get_worker();                                                   \
-    Task* head = w->head - 1;                                                         \
-    w->head = head;                                                                   \
+    Task* head = _lace_worker->head - 1;                                              \
+    _lace_worker->head = head;                                                        \
                                                                                       \
     /* assert (__dq_head > 0); */  /* Commented out because we assume contract */     \
     TD_##NAME *t = (TD_##NAME *)head;                                                 \
                                                                                       \
-    if (__builtin_expect(0 == w->_public->movesplit, 1)) {                            \
-        if (__builtin_expect(w->split <= head, 1)) {                                  \
+    if (__builtin_expect(0 == _lace_worker->_public->movesplit, 1)) {                 \
+        if (__builtin_expect(_lace_worker->split <= head, 1)) {                       \
             atomic_store_explicit(&t->thief, THIEF_EMPTY, memory_order_relaxed);      \
-            return NAME(t->d.args.arg_1, t->d.args.arg_2, t->d.args.arg_3);           \
+            return NAME(_lace_worker, t->d.args.arg_1, t->d.args.arg_2, t->d.args.arg_3);\
         }                                                                             \
     }                                                                                 \
                                                                                       \
-    if (lace_sync(w, head)) {                                                         \
+    if (lace_sync(_lace_worker, head)) {                                              \
         return ;                                                                      \
     } else {                                                                          \
         atomic_store_explicit(&t->thief, THIEF_EMPTY, memory_order_relaxed);          \
-        return NAME(t->d.args.arg_1, t->d.args.arg_2, t->d.args.arg_3);               \
+        return NAME(_lace_worker, t->d.args.arg_1, t->d.args.arg_2, t->d.args.arg_3); \
     }                                                                                 \
 }                                                                                     \
                                                                                       \
@@ -1523,21 +1515,20 @@ typedef struct _TD_##NAME {                                                     
 /* If this line generates an error, please manually set the define LACE_TASKSIZE to a higher value */\
 typedef char assertion_failed_task_descriptor_out_of_bounds_##NAME[(sizeof(TD_##NAME)<=sizeof(Task)) ? 0 : -1];\
                                                                                       \
-RTYPE NAME(ATYPE_1, ATYPE_2, ATYPE_3, ATYPE_4);                                       \
+RTYPE NAME(LaceWorker*, ATYPE_1, ATYPE_2, ATYPE_3, ATYPE_4);                          \
                                                                                       \
-static void NAME##_WRAP(TD_##NAME *t __attribute__((unused)))                         \
+static void NAME##_WRAP(LaceWorker* lace_worker, TD_##NAME *t __attribute__((unused)))\
 {                                                                                     \
-    t->d.res = NAME(t->d.args.arg_1, t->d.args.arg_2, t->d.args.arg_3, t->d.args.arg_4);\
+    t->d.res = NAME(lace_worker, t->d.args.arg_1, t->d.args.arg_2, t->d.args.arg_3, t->d.args.arg_4);\
 }                                                                                     \
                                                                                       \
 static inline __attribute__((unused))                                                 \
-void NAME##_SPAWN(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4)         \
+void NAME##_SPAWN(LaceWorker* _lace_worker, ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4)\
 {                                                                                     \
     PR_COUNTTASK(w);                                                                  \
                                                                                       \
-    WorkerP *w = lace_get_worker();                                                   \
-    Task *lace_head = w->head;                                                        \
-    if (lace_head == w->end) lace_abort_stack_overflow();                             \
+    Task *lace_head = _lace_worker->head;                                             \
+    if (lace_head == _lace_worker->end) lace_abort_stack_overflow();                  \
                                                                                       \
     TD_##NAME *t;                                                                     \
     TailSplitNA ts;                                                                   \
@@ -1549,26 +1540,26 @@ void NAME##_SPAWN(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4)   
      t->d.args.arg_1 = arg_1; t->d.args.arg_2 = arg_2; t->d.args.arg_3 = arg_3; t->d.args.arg_4 = arg_4;\
     atomic_thread_fence(memory_order_acquire);                                        \
                                                                                       \
-    Worker *wt = w->_public;                                                          \
-    if (__builtin_expect(w->allstolen, 0)) {                                          \
+    Worker *wt = _lace_worker->_public;                                               \
+    if (__builtin_expect(_lace_worker->allstolen, 0)) {                               \
         if (wt->movesplit) wt->movesplit = 0;                                         \
-        head = lace_head - w->dq;                                                     \
+        head = lace_head - _lace_worker->dq;                                          \
         ts = (TailSplitNA){{head,head+1}};                                            \
         wt->ts.v = ts.v;                                                              \
         wt->allstolen = 0;                                                            \
-        w->split = lace_head+1;                                                       \
-        w->allstolen = 0;                                                             \
+        _lace_worker->split = lace_head+1;                                            \
+        _lace_worker->allstolen = 0;                                                  \
     } else if (__builtin_expect(wt->movesplit, 0)) {                                  \
-        head = lace_head - w->dq;                                                     \
-        split = w->split - w->dq;                                                     \
+        head = lace_head - _lace_worker->dq;                                          \
+        split = _lace_worker->split - _lace_worker->dq;                               \
         newsplit = (split + head + 2)/2;                                              \
         wt->ts.ts.split = newsplit;                                                   \
-        w->split = w->dq + newsplit;                                                  \
+        _lace_worker->split = _lace_worker->dq + newsplit;                            \
         wt->movesplit = 0;                                                            \
-        PR_COUNTSPLITS(w, CTR_split_grow);                                            \
+        PR_COUNTSPLITS(_lace_worker, CTR_split_grow);                                 \
     }                                                                                 \
                                                                                       \
-    w->head = lace_head+1;                                                            \
+    _lace_worker->head = lace_head+1;                                                 \
 }                                                                                     \
                                                                                       \
 static inline __attribute__((unused))                                                 \
@@ -1597,8 +1588,9 @@ void NAME##_TOGETHER(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4)
 static inline __attribute__((unused))                                                 \
 RTYPE NAME##_RUN(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4)          \
 {                                                                                     \
-    if (lace_is_worker()) {                                                           \
-        return NAME(arg_1, arg_2, arg_3, arg_4);                                      \
+    LaceWorker *worker = lace_get_worker();                                           \
+    if (worker != NULL) {                                                             \
+        return NAME(worker, arg_1, arg_2, arg_3, arg_4);                              \
     }                                                                                 \
     Task _t;                                                                          \
     TD_##NAME *t = (TD_##NAME *)&_t;                                                  \
@@ -1610,27 +1602,26 @@ RTYPE NAME##_RUN(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4)    
 }                                                                                     \
                                                                                       \
 static inline __attribute__((unused))                                                 \
-RTYPE NAME##_SYNC()                                                                   \
+RTYPE NAME##_SYNC(LaceWorker* _lace_worker)                                           \
 {                                                                                     \
-    WorkerP* w = lace_get_worker();                                                   \
-    Task* head = w->head - 1;                                                         \
-    w->head = head;                                                                   \
+    Task* head = _lace_worker->head - 1;                                              \
+    _lace_worker->head = head;                                                        \
                                                                                       \
     /* assert (__dq_head > 0); */  /* Commented out because we assume contract */     \
     TD_##NAME *t = (TD_##NAME *)head;                                                 \
                                                                                       \
-    if (__builtin_expect(0 == w->_public->movesplit, 1)) {                            \
-        if (__builtin_expect(w->split <= head, 1)) {                                  \
+    if (__builtin_expect(0 == _lace_worker->_public->movesplit, 1)) {                 \
+        if (__builtin_expect(_lace_worker->split <= head, 1)) {                       \
             atomic_store_explicit(&t->thief, THIEF_EMPTY, memory_order_relaxed);      \
-            return NAME(t->d.args.arg_1, t->d.args.arg_2, t->d.args.arg_3, t->d.args.arg_4);\
+            return NAME(_lace_worker, t->d.args.arg_1, t->d.args.arg_2, t->d.args.arg_3, t->d.args.arg_4);\
         }                                                                             \
     }                                                                                 \
                                                                                       \
-    if (lace_sync(w, head)) {                                                         \
+    if (lace_sync(_lace_worker, head)) {                                              \
         return ((TD_##NAME *)t)->d.res;                                               \
     } else {                                                                          \
         atomic_store_explicit(&t->thief, THIEF_EMPTY, memory_order_relaxed);          \
-        return NAME(t->d.args.arg_1, t->d.args.arg_2, t->d.args.arg_3, t->d.args.arg_4);\
+        return NAME(_lace_worker, t->d.args.arg_1, t->d.args.arg_2, t->d.args.arg_3, t->d.args.arg_4);\
     }                                                                                 \
 }                                                                                     \
                                                                                       \
@@ -1646,21 +1637,20 @@ typedef struct _TD_##NAME {                                                     
 /* If this line generates an error, please manually set the define LACE_TASKSIZE to a higher value */\
 typedef char assertion_failed_task_descriptor_out_of_bounds_##NAME[(sizeof(TD_##NAME)<=sizeof(Task)) ? 0 : -1];\
                                                                                       \
-void NAME(ATYPE_1, ATYPE_2, ATYPE_3, ATYPE_4);                                        \
+void NAME(LaceWorker*, ATYPE_1, ATYPE_2, ATYPE_3, ATYPE_4);                           \
                                                                                       \
-static void NAME##_WRAP(TD_##NAME *t __attribute__((unused)))                         \
+static void NAME##_WRAP(LaceWorker* lace_worker, TD_##NAME *t __attribute__((unused)))\
 {                                                                                     \
-     NAME(t->d.args.arg_1, t->d.args.arg_2, t->d.args.arg_3, t->d.args.arg_4);        \
+     NAME(lace_worker, t->d.args.arg_1, t->d.args.arg_2, t->d.args.arg_3, t->d.args.arg_4);\
 }                                                                                     \
                                                                                       \
 static inline __attribute__((unused))                                                 \
-void NAME##_SPAWN(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4)         \
+void NAME##_SPAWN(LaceWorker* _lace_worker, ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4)\
 {                                                                                     \
     PR_COUNTTASK(w);                                                                  \
                                                                                       \
-    WorkerP *w = lace_get_worker();                                                   \
-    Task *lace_head = w->head;                                                        \
-    if (lace_head == w->end) lace_abort_stack_overflow();                             \
+    Task *lace_head = _lace_worker->head;                                             \
+    if (lace_head == _lace_worker->end) lace_abort_stack_overflow();                  \
                                                                                       \
     TD_##NAME *t;                                                                     \
     TailSplitNA ts;                                                                   \
@@ -1672,26 +1662,26 @@ void NAME##_SPAWN(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4)   
      t->d.args.arg_1 = arg_1; t->d.args.arg_2 = arg_2; t->d.args.arg_3 = arg_3; t->d.args.arg_4 = arg_4;\
     atomic_thread_fence(memory_order_acquire);                                        \
                                                                                       \
-    Worker *wt = w->_public;                                                          \
-    if (__builtin_expect(w->allstolen, 0)) {                                          \
+    Worker *wt = _lace_worker->_public;                                               \
+    if (__builtin_expect(_lace_worker->allstolen, 0)) {                               \
         if (wt->movesplit) wt->movesplit = 0;                                         \
-        head = lace_head - w->dq;                                                     \
+        head = lace_head - _lace_worker->dq;                                          \
         ts = (TailSplitNA){{head,head+1}};                                            \
         wt->ts.v = ts.v;                                                              \
         wt->allstolen = 0;                                                            \
-        w->split = lace_head+1;                                                       \
-        w->allstolen = 0;                                                             \
+        _lace_worker->split = lace_head+1;                                            \
+        _lace_worker->allstolen = 0;                                                  \
     } else if (__builtin_expect(wt->movesplit, 0)) {                                  \
-        head = lace_head - w->dq;                                                     \
-        split = w->split - w->dq;                                                     \
+        head = lace_head - _lace_worker->dq;                                          \
+        split = _lace_worker->split - _lace_worker->dq;                               \
         newsplit = (split + head + 2)/2;                                              \
         wt->ts.ts.split = newsplit;                                                   \
-        w->split = w->dq + newsplit;                                                  \
+        _lace_worker->split = _lace_worker->dq + newsplit;                            \
         wt->movesplit = 0;                                                            \
-        PR_COUNTSPLITS(w, CTR_split_grow);                                            \
+        PR_COUNTSPLITS(_lace_worker, CTR_split_grow);                                 \
     }                                                                                 \
                                                                                       \
-    w->head = lace_head+1;                                                            \
+    _lace_worker->head = lace_head+1;                                                 \
 }                                                                                     \
                                                                                       \
 static inline __attribute__((unused))                                                 \
@@ -1720,8 +1710,9 @@ void NAME##_TOGETHER(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4)
 static inline __attribute__((unused))                                                 \
 void NAME##_RUN(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4)           \
 {                                                                                     \
-    if (lace_is_worker()) {                                                           \
-        return NAME(arg_1, arg_2, arg_3, arg_4);                                      \
+    LaceWorker *worker = lace_get_worker();                                           \
+    if (worker != NULL) {                                                             \
+        return NAME(worker, arg_1, arg_2, arg_3, arg_4);                              \
     }                                                                                 \
     Task _t;                                                                          \
     TD_##NAME *t = (TD_##NAME *)&_t;                                                  \
@@ -1733,27 +1724,26 @@ void NAME##_RUN(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4)     
 }                                                                                     \
                                                                                       \
 static inline __attribute__((unused))                                                 \
-void NAME##_SYNC()                                                                    \
+void NAME##_SYNC(LaceWorker* _lace_worker)                                            \
 {                                                                                     \
-    WorkerP* w = lace_get_worker();                                                   \
-    Task* head = w->head - 1;                                                         \
-    w->head = head;                                                                   \
+    Task* head = _lace_worker->head - 1;                                              \
+    _lace_worker->head = head;                                                        \
                                                                                       \
     /* assert (__dq_head > 0); */  /* Commented out because we assume contract */     \
     TD_##NAME *t = (TD_##NAME *)head;                                                 \
                                                                                       \
-    if (__builtin_expect(0 == w->_public->movesplit, 1)) {                            \
-        if (__builtin_expect(w->split <= head, 1)) {                                  \
+    if (__builtin_expect(0 == _lace_worker->_public->movesplit, 1)) {                 \
+        if (__builtin_expect(_lace_worker->split <= head, 1)) {                       \
             atomic_store_explicit(&t->thief, THIEF_EMPTY, memory_order_relaxed);      \
-            return NAME(t->d.args.arg_1, t->d.args.arg_2, t->d.args.arg_3, t->d.args.arg_4);\
+            return NAME(_lace_worker, t->d.args.arg_1, t->d.args.arg_2, t->d.args.arg_3, t->d.args.arg_4);\
         }                                                                             \
     }                                                                                 \
                                                                                       \
-    if (lace_sync(w, head)) {                                                         \
+    if (lace_sync(_lace_worker, head)) {                                              \
         return ;                                                                      \
     } else {                                                                          \
         atomic_store_explicit(&t->thief, THIEF_EMPTY, memory_order_relaxed);          \
-        return NAME(t->d.args.arg_1, t->d.args.arg_2, t->d.args.arg_3, t->d.args.arg_4);\
+        return NAME(_lace_worker, t->d.args.arg_1, t->d.args.arg_2, t->d.args.arg_3, t->d.args.arg_4);\
     }                                                                                 \
 }                                                                                     \
                                                                                       \
@@ -1772,21 +1762,20 @@ typedef struct _TD_##NAME {                                                     
 /* If this line generates an error, please manually set the define LACE_TASKSIZE to a higher value */\
 typedef char assertion_failed_task_descriptor_out_of_bounds_##NAME[(sizeof(TD_##NAME)<=sizeof(Task)) ? 0 : -1];\
                                                                                       \
-RTYPE NAME(ATYPE_1, ATYPE_2, ATYPE_3, ATYPE_4, ATYPE_5);                              \
+RTYPE NAME(LaceWorker*, ATYPE_1, ATYPE_2, ATYPE_3, ATYPE_4, ATYPE_5);                 \
                                                                                       \
-static void NAME##_WRAP(TD_##NAME *t __attribute__((unused)))                         \
+static void NAME##_WRAP(LaceWorker* lace_worker, TD_##NAME *t __attribute__((unused)))\
 {                                                                                     \
-    t->d.res = NAME(t->d.args.arg_1, t->d.args.arg_2, t->d.args.arg_3, t->d.args.arg_4, t->d.args.arg_5);\
+    t->d.res = NAME(lace_worker, t->d.args.arg_1, t->d.args.arg_2, t->d.args.arg_3, t->d.args.arg_4, t->d.args.arg_5);\
 }                                                                                     \
                                                                                       \
 static inline __attribute__((unused))                                                 \
-void NAME##_SPAWN(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, ATYPE_5 arg_5)\
+void NAME##_SPAWN(LaceWorker* _lace_worker, ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, ATYPE_5 arg_5)\
 {                                                                                     \
     PR_COUNTTASK(w);                                                                  \
                                                                                       \
-    WorkerP *w = lace_get_worker();                                                   \
-    Task *lace_head = w->head;                                                        \
-    if (lace_head == w->end) lace_abort_stack_overflow();                             \
+    Task *lace_head = _lace_worker->head;                                             \
+    if (lace_head == _lace_worker->end) lace_abort_stack_overflow();                  \
                                                                                       \
     TD_##NAME *t;                                                                     \
     TailSplitNA ts;                                                                   \
@@ -1798,26 +1787,26 @@ void NAME##_SPAWN(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, AT
      t->d.args.arg_1 = arg_1; t->d.args.arg_2 = arg_2; t->d.args.arg_3 = arg_3; t->d.args.arg_4 = arg_4; t->d.args.arg_5 = arg_5;\
     atomic_thread_fence(memory_order_acquire);                                        \
                                                                                       \
-    Worker *wt = w->_public;                                                          \
-    if (__builtin_expect(w->allstolen, 0)) {                                          \
+    Worker *wt = _lace_worker->_public;                                               \
+    if (__builtin_expect(_lace_worker->allstolen, 0)) {                               \
         if (wt->movesplit) wt->movesplit = 0;                                         \
-        head = lace_head - w->dq;                                                     \
+        head = lace_head - _lace_worker->dq;                                          \
         ts = (TailSplitNA){{head,head+1}};                                            \
         wt->ts.v = ts.v;                                                              \
         wt->allstolen = 0;                                                            \
-        w->split = lace_head+1;                                                       \
-        w->allstolen = 0;                                                             \
+        _lace_worker->split = lace_head+1;                                            \
+        _lace_worker->allstolen = 0;                                                  \
     } else if (__builtin_expect(wt->movesplit, 0)) {                                  \
-        head = lace_head - w->dq;                                                     \
-        split = w->split - w->dq;                                                     \
+        head = lace_head - _lace_worker->dq;                                          \
+        split = _lace_worker->split - _lace_worker->dq;                               \
         newsplit = (split + head + 2)/2;                                              \
         wt->ts.ts.split = newsplit;                                                   \
-        w->split = w->dq + newsplit;                                                  \
+        _lace_worker->split = _lace_worker->dq + newsplit;                            \
         wt->movesplit = 0;                                                            \
-        PR_COUNTSPLITS(w, CTR_split_grow);                                            \
+        PR_COUNTSPLITS(_lace_worker, CTR_split_grow);                                 \
     }                                                                                 \
                                                                                       \
-    w->head = lace_head+1;                                                            \
+    _lace_worker->head = lace_head+1;                                                 \
 }                                                                                     \
                                                                                       \
 static inline __attribute__((unused))                                                 \
@@ -1846,8 +1835,9 @@ void NAME##_TOGETHER(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4,
 static inline __attribute__((unused))                                                 \
 RTYPE NAME##_RUN(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, ATYPE_5 arg_5)\
 {                                                                                     \
-    if (lace_is_worker()) {                                                           \
-        return NAME(arg_1, arg_2, arg_3, arg_4, arg_5);                               \
+    LaceWorker *worker = lace_get_worker();                                           \
+    if (worker != NULL) {                                                             \
+        return NAME(worker, arg_1, arg_2, arg_3, arg_4, arg_5);                       \
     }                                                                                 \
     Task _t;                                                                          \
     TD_##NAME *t = (TD_##NAME *)&_t;                                                  \
@@ -1859,27 +1849,26 @@ RTYPE NAME##_RUN(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, ATY
 }                                                                                     \
                                                                                       \
 static inline __attribute__((unused))                                                 \
-RTYPE NAME##_SYNC()                                                                   \
+RTYPE NAME##_SYNC(LaceWorker* _lace_worker)                                           \
 {                                                                                     \
-    WorkerP* w = lace_get_worker();                                                   \
-    Task* head = w->head - 1;                                                         \
-    w->head = head;                                                                   \
+    Task* head = _lace_worker->head - 1;                                              \
+    _lace_worker->head = head;                                                        \
                                                                                       \
     /* assert (__dq_head > 0); */  /* Commented out because we assume contract */     \
     TD_##NAME *t = (TD_##NAME *)head;                                                 \
                                                                                       \
-    if (__builtin_expect(0 == w->_public->movesplit, 1)) {                            \
-        if (__builtin_expect(w->split <= head, 1)) {                                  \
+    if (__builtin_expect(0 == _lace_worker->_public->movesplit, 1)) {                 \
+        if (__builtin_expect(_lace_worker->split <= head, 1)) {                       \
             atomic_store_explicit(&t->thief, THIEF_EMPTY, memory_order_relaxed);      \
-            return NAME(t->d.args.arg_1, t->d.args.arg_2, t->d.args.arg_3, t->d.args.arg_4, t->d.args.arg_5);\
+            return NAME(_lace_worker, t->d.args.arg_1, t->d.args.arg_2, t->d.args.arg_3, t->d.args.arg_4, t->d.args.arg_5);\
         }                                                                             \
     }                                                                                 \
                                                                                       \
-    if (lace_sync(w, head)) {                                                         \
+    if (lace_sync(_lace_worker, head)) {                                              \
         return ((TD_##NAME *)t)->d.res;                                               \
     } else {                                                                          \
         atomic_store_explicit(&t->thief, THIEF_EMPTY, memory_order_relaxed);          \
-        return NAME(t->d.args.arg_1, t->d.args.arg_2, t->d.args.arg_3, t->d.args.arg_4, t->d.args.arg_5);\
+        return NAME(_lace_worker, t->d.args.arg_1, t->d.args.arg_2, t->d.args.arg_3, t->d.args.arg_4, t->d.args.arg_5);\
     }                                                                                 \
 }                                                                                     \
                                                                                       \
@@ -1895,21 +1884,20 @@ typedef struct _TD_##NAME {                                                     
 /* If this line generates an error, please manually set the define LACE_TASKSIZE to a higher value */\
 typedef char assertion_failed_task_descriptor_out_of_bounds_##NAME[(sizeof(TD_##NAME)<=sizeof(Task)) ? 0 : -1];\
                                                                                       \
-void NAME(ATYPE_1, ATYPE_2, ATYPE_3, ATYPE_4, ATYPE_5);                               \
+void NAME(LaceWorker*, ATYPE_1, ATYPE_2, ATYPE_3, ATYPE_4, ATYPE_5);                  \
                                                                                       \
-static void NAME##_WRAP(TD_##NAME *t __attribute__((unused)))                         \
+static void NAME##_WRAP(LaceWorker* lace_worker, TD_##NAME *t __attribute__((unused)))\
 {                                                                                     \
-     NAME(t->d.args.arg_1, t->d.args.arg_2, t->d.args.arg_3, t->d.args.arg_4, t->d.args.arg_5);\
+     NAME(lace_worker, t->d.args.arg_1, t->d.args.arg_2, t->d.args.arg_3, t->d.args.arg_4, t->d.args.arg_5);\
 }                                                                                     \
                                                                                       \
 static inline __attribute__((unused))                                                 \
-void NAME##_SPAWN(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, ATYPE_5 arg_5)\
+void NAME##_SPAWN(LaceWorker* _lace_worker, ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, ATYPE_5 arg_5)\
 {                                                                                     \
     PR_COUNTTASK(w);                                                                  \
                                                                                       \
-    WorkerP *w = lace_get_worker();                                                   \
-    Task *lace_head = w->head;                                                        \
-    if (lace_head == w->end) lace_abort_stack_overflow();                             \
+    Task *lace_head = _lace_worker->head;                                             \
+    if (lace_head == _lace_worker->end) lace_abort_stack_overflow();                  \
                                                                                       \
     TD_##NAME *t;                                                                     \
     TailSplitNA ts;                                                                   \
@@ -1921,26 +1909,26 @@ void NAME##_SPAWN(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, AT
      t->d.args.arg_1 = arg_1; t->d.args.arg_2 = arg_2; t->d.args.arg_3 = arg_3; t->d.args.arg_4 = arg_4; t->d.args.arg_5 = arg_5;\
     atomic_thread_fence(memory_order_acquire);                                        \
                                                                                       \
-    Worker *wt = w->_public;                                                          \
-    if (__builtin_expect(w->allstolen, 0)) {                                          \
+    Worker *wt = _lace_worker->_public;                                               \
+    if (__builtin_expect(_lace_worker->allstolen, 0)) {                               \
         if (wt->movesplit) wt->movesplit = 0;                                         \
-        head = lace_head - w->dq;                                                     \
+        head = lace_head - _lace_worker->dq;                                          \
         ts = (TailSplitNA){{head,head+1}};                                            \
         wt->ts.v = ts.v;                                                              \
         wt->allstolen = 0;                                                            \
-        w->split = lace_head+1;                                                       \
-        w->allstolen = 0;                                                             \
+        _lace_worker->split = lace_head+1;                                            \
+        _lace_worker->allstolen = 0;                                                  \
     } else if (__builtin_expect(wt->movesplit, 0)) {                                  \
-        head = lace_head - w->dq;                                                     \
-        split = w->split - w->dq;                                                     \
+        head = lace_head - _lace_worker->dq;                                          \
+        split = _lace_worker->split - _lace_worker->dq;                               \
         newsplit = (split + head + 2)/2;                                              \
         wt->ts.ts.split = newsplit;                                                   \
-        w->split = w->dq + newsplit;                                                  \
+        _lace_worker->split = _lace_worker->dq + newsplit;                            \
         wt->movesplit = 0;                                                            \
-        PR_COUNTSPLITS(w, CTR_split_grow);                                            \
+        PR_COUNTSPLITS(_lace_worker, CTR_split_grow);                                 \
     }                                                                                 \
                                                                                       \
-    w->head = lace_head+1;                                                            \
+    _lace_worker->head = lace_head+1;                                                 \
 }                                                                                     \
                                                                                       \
 static inline __attribute__((unused))                                                 \
@@ -1969,8 +1957,9 @@ void NAME##_TOGETHER(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4,
 static inline __attribute__((unused))                                                 \
 void NAME##_RUN(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, ATYPE_5 arg_5)\
 {                                                                                     \
-    if (lace_is_worker()) {                                                           \
-        return NAME(arg_1, arg_2, arg_3, arg_4, arg_5);                               \
+    LaceWorker *worker = lace_get_worker();                                           \
+    if (worker != NULL) {                                                             \
+        return NAME(worker, arg_1, arg_2, arg_3, arg_4, arg_5);                       \
     }                                                                                 \
     Task _t;                                                                          \
     TD_##NAME *t = (TD_##NAME *)&_t;                                                  \
@@ -1982,27 +1971,26 @@ void NAME##_RUN(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, ATYP
 }                                                                                     \
                                                                                       \
 static inline __attribute__((unused))                                                 \
-void NAME##_SYNC()                                                                    \
+void NAME##_SYNC(LaceWorker* _lace_worker)                                            \
 {                                                                                     \
-    WorkerP* w = lace_get_worker();                                                   \
-    Task* head = w->head - 1;                                                         \
-    w->head = head;                                                                   \
+    Task* head = _lace_worker->head - 1;                                              \
+    _lace_worker->head = head;                                                        \
                                                                                       \
     /* assert (__dq_head > 0); */  /* Commented out because we assume contract */     \
     TD_##NAME *t = (TD_##NAME *)head;                                                 \
                                                                                       \
-    if (__builtin_expect(0 == w->_public->movesplit, 1)) {                            \
-        if (__builtin_expect(w->split <= head, 1)) {                                  \
+    if (__builtin_expect(0 == _lace_worker->_public->movesplit, 1)) {                 \
+        if (__builtin_expect(_lace_worker->split <= head, 1)) {                       \
             atomic_store_explicit(&t->thief, THIEF_EMPTY, memory_order_relaxed);      \
-            return NAME(t->d.args.arg_1, t->d.args.arg_2, t->d.args.arg_3, t->d.args.arg_4, t->d.args.arg_5);\
+            return NAME(_lace_worker, t->d.args.arg_1, t->d.args.arg_2, t->d.args.arg_3, t->d.args.arg_4, t->d.args.arg_5);\
         }                                                                             \
     }                                                                                 \
                                                                                       \
-    if (lace_sync(w, head)) {                                                         \
+    if (lace_sync(_lace_worker, head)) {                                              \
         return ;                                                                      \
     } else {                                                                          \
         atomic_store_explicit(&t->thief, THIEF_EMPTY, memory_order_relaxed);          \
-        return NAME(t->d.args.arg_1, t->d.args.arg_2, t->d.args.arg_3, t->d.args.arg_4, t->d.args.arg_5);\
+        return NAME(_lace_worker, t->d.args.arg_1, t->d.args.arg_2, t->d.args.arg_3, t->d.args.arg_4, t->d.args.arg_5);\
     }                                                                                 \
 }                                                                                     \
                                                                                       \
@@ -2021,21 +2009,20 @@ typedef struct _TD_##NAME {                                                     
 /* If this line generates an error, please manually set the define LACE_TASKSIZE to a higher value */\
 typedef char assertion_failed_task_descriptor_out_of_bounds_##NAME[(sizeof(TD_##NAME)<=sizeof(Task)) ? 0 : -1];\
                                                                                       \
-RTYPE NAME(ATYPE_1, ATYPE_2, ATYPE_3, ATYPE_4, ATYPE_5, ATYPE_6);                     \
+RTYPE NAME(LaceWorker*, ATYPE_1, ATYPE_2, ATYPE_3, ATYPE_4, ATYPE_5, ATYPE_6);        \
                                                                                       \
-static void NAME##_WRAP(TD_##NAME *t __attribute__((unused)))                         \
+static void NAME##_WRAP(LaceWorker* lace_worker, TD_##NAME *t __attribute__((unused)))\
 {                                                                                     \
-    t->d.res = NAME(t->d.args.arg_1, t->d.args.arg_2, t->d.args.arg_3, t->d.args.arg_4, t->d.args.arg_5, t->d.args.arg_6);\
+    t->d.res = NAME(lace_worker, t->d.args.arg_1, t->d.args.arg_2, t->d.args.arg_3, t->d.args.arg_4, t->d.args.arg_5, t->d.args.arg_6);\
 }                                                                                     \
                                                                                       \
 static inline __attribute__((unused))                                                 \
-void NAME##_SPAWN(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, ATYPE_5 arg_5, ATYPE_6 arg_6)\
+void NAME##_SPAWN(LaceWorker* _lace_worker, ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, ATYPE_5 arg_5, ATYPE_6 arg_6)\
 {                                                                                     \
     PR_COUNTTASK(w);                                                                  \
                                                                                       \
-    WorkerP *w = lace_get_worker();                                                   \
-    Task *lace_head = w->head;                                                        \
-    if (lace_head == w->end) lace_abort_stack_overflow();                             \
+    Task *lace_head = _lace_worker->head;                                             \
+    if (lace_head == _lace_worker->end) lace_abort_stack_overflow();                  \
                                                                                       \
     TD_##NAME *t;                                                                     \
     TailSplitNA ts;                                                                   \
@@ -2047,26 +2034,26 @@ void NAME##_SPAWN(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, AT
      t->d.args.arg_1 = arg_1; t->d.args.arg_2 = arg_2; t->d.args.arg_3 = arg_3; t->d.args.arg_4 = arg_4; t->d.args.arg_5 = arg_5; t->d.args.arg_6 = arg_6;\
     atomic_thread_fence(memory_order_acquire);                                        \
                                                                                       \
-    Worker *wt = w->_public;                                                          \
-    if (__builtin_expect(w->allstolen, 0)) {                                          \
+    Worker *wt = _lace_worker->_public;                                               \
+    if (__builtin_expect(_lace_worker->allstolen, 0)) {                               \
         if (wt->movesplit) wt->movesplit = 0;                                         \
-        head = lace_head - w->dq;                                                     \
+        head = lace_head - _lace_worker->dq;                                          \
         ts = (TailSplitNA){{head,head+1}};                                            \
         wt->ts.v = ts.v;                                                              \
         wt->allstolen = 0;                                                            \
-        w->split = lace_head+1;                                                       \
-        w->allstolen = 0;                                                             \
+        _lace_worker->split = lace_head+1;                                            \
+        _lace_worker->allstolen = 0;                                                  \
     } else if (__builtin_expect(wt->movesplit, 0)) {                                  \
-        head = lace_head - w->dq;                                                     \
-        split = w->split - w->dq;                                                     \
+        head = lace_head - _lace_worker->dq;                                          \
+        split = _lace_worker->split - _lace_worker->dq;                               \
         newsplit = (split + head + 2)/2;                                              \
         wt->ts.ts.split = newsplit;                                                   \
-        w->split = w->dq + newsplit;                                                  \
+        _lace_worker->split = _lace_worker->dq + newsplit;                            \
         wt->movesplit = 0;                                                            \
-        PR_COUNTSPLITS(w, CTR_split_grow);                                            \
+        PR_COUNTSPLITS(_lace_worker, CTR_split_grow);                                 \
     }                                                                                 \
                                                                                       \
-    w->head = lace_head+1;                                                            \
+    _lace_worker->head = lace_head+1;                                                 \
 }                                                                                     \
                                                                                       \
 static inline __attribute__((unused))                                                 \
@@ -2095,8 +2082,9 @@ void NAME##_TOGETHER(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4,
 static inline __attribute__((unused))                                                 \
 RTYPE NAME##_RUN(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, ATYPE_5 arg_5, ATYPE_6 arg_6)\
 {                                                                                     \
-    if (lace_is_worker()) {                                                           \
-        return NAME(arg_1, arg_2, arg_3, arg_4, arg_5, arg_6);                        \
+    LaceWorker *worker = lace_get_worker();                                           \
+    if (worker != NULL) {                                                             \
+        return NAME(worker, arg_1, arg_2, arg_3, arg_4, arg_5, arg_6);                \
     }                                                                                 \
     Task _t;                                                                          \
     TD_##NAME *t = (TD_##NAME *)&_t;                                                  \
@@ -2108,27 +2096,26 @@ RTYPE NAME##_RUN(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, ATY
 }                                                                                     \
                                                                                       \
 static inline __attribute__((unused))                                                 \
-RTYPE NAME##_SYNC()                                                                   \
+RTYPE NAME##_SYNC(LaceWorker* _lace_worker)                                           \
 {                                                                                     \
-    WorkerP* w = lace_get_worker();                                                   \
-    Task* head = w->head - 1;                                                         \
-    w->head = head;                                                                   \
+    Task* head = _lace_worker->head - 1;                                              \
+    _lace_worker->head = head;                                                        \
                                                                                       \
     /* assert (__dq_head > 0); */  /* Commented out because we assume contract */     \
     TD_##NAME *t = (TD_##NAME *)head;                                                 \
                                                                                       \
-    if (__builtin_expect(0 == w->_public->movesplit, 1)) {                            \
-        if (__builtin_expect(w->split <= head, 1)) {                                  \
+    if (__builtin_expect(0 == _lace_worker->_public->movesplit, 1)) {                 \
+        if (__builtin_expect(_lace_worker->split <= head, 1)) {                       \
             atomic_store_explicit(&t->thief, THIEF_EMPTY, memory_order_relaxed);      \
-            return NAME(t->d.args.arg_1, t->d.args.arg_2, t->d.args.arg_3, t->d.args.arg_4, t->d.args.arg_5, t->d.args.arg_6);\
+            return NAME(_lace_worker, t->d.args.arg_1, t->d.args.arg_2, t->d.args.arg_3, t->d.args.arg_4, t->d.args.arg_5, t->d.args.arg_6);\
         }                                                                             \
     }                                                                                 \
                                                                                       \
-    if (lace_sync(w, head)) {                                                         \
+    if (lace_sync(_lace_worker, head)) {                                              \
         return ((TD_##NAME *)t)->d.res;                                               \
     } else {                                                                          \
         atomic_store_explicit(&t->thief, THIEF_EMPTY, memory_order_relaxed);          \
-        return NAME(t->d.args.arg_1, t->d.args.arg_2, t->d.args.arg_3, t->d.args.arg_4, t->d.args.arg_5, t->d.args.arg_6);\
+        return NAME(_lace_worker, t->d.args.arg_1, t->d.args.arg_2, t->d.args.arg_3, t->d.args.arg_4, t->d.args.arg_5, t->d.args.arg_6);\
     }                                                                                 \
 }                                                                                     \
                                                                                       \
@@ -2144,21 +2131,20 @@ typedef struct _TD_##NAME {                                                     
 /* If this line generates an error, please manually set the define LACE_TASKSIZE to a higher value */\
 typedef char assertion_failed_task_descriptor_out_of_bounds_##NAME[(sizeof(TD_##NAME)<=sizeof(Task)) ? 0 : -1];\
                                                                                       \
-void NAME(ATYPE_1, ATYPE_2, ATYPE_3, ATYPE_4, ATYPE_5, ATYPE_6);                      \
+void NAME(LaceWorker*, ATYPE_1, ATYPE_2, ATYPE_3, ATYPE_4, ATYPE_5, ATYPE_6);         \
                                                                                       \
-static void NAME##_WRAP(TD_##NAME *t __attribute__((unused)))                         \
+static void NAME##_WRAP(LaceWorker* lace_worker, TD_##NAME *t __attribute__((unused)))\
 {                                                                                     \
-     NAME(t->d.args.arg_1, t->d.args.arg_2, t->d.args.arg_3, t->d.args.arg_4, t->d.args.arg_5, t->d.args.arg_6);\
+     NAME(lace_worker, t->d.args.arg_1, t->d.args.arg_2, t->d.args.arg_3, t->d.args.arg_4, t->d.args.arg_5, t->d.args.arg_6);\
 }                                                                                     \
                                                                                       \
 static inline __attribute__((unused))                                                 \
-void NAME##_SPAWN(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, ATYPE_5 arg_5, ATYPE_6 arg_6)\
+void NAME##_SPAWN(LaceWorker* _lace_worker, ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, ATYPE_5 arg_5, ATYPE_6 arg_6)\
 {                                                                                     \
     PR_COUNTTASK(w);                                                                  \
                                                                                       \
-    WorkerP *w = lace_get_worker();                                                   \
-    Task *lace_head = w->head;                                                        \
-    if (lace_head == w->end) lace_abort_stack_overflow();                             \
+    Task *lace_head = _lace_worker->head;                                             \
+    if (lace_head == _lace_worker->end) lace_abort_stack_overflow();                  \
                                                                                       \
     TD_##NAME *t;                                                                     \
     TailSplitNA ts;                                                                   \
@@ -2170,26 +2156,26 @@ void NAME##_SPAWN(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, AT
      t->d.args.arg_1 = arg_1; t->d.args.arg_2 = arg_2; t->d.args.arg_3 = arg_3; t->d.args.arg_4 = arg_4; t->d.args.arg_5 = arg_5; t->d.args.arg_6 = arg_6;\
     atomic_thread_fence(memory_order_acquire);                                        \
                                                                                       \
-    Worker *wt = w->_public;                                                          \
-    if (__builtin_expect(w->allstolen, 0)) {                                          \
+    Worker *wt = _lace_worker->_public;                                               \
+    if (__builtin_expect(_lace_worker->allstolen, 0)) {                               \
         if (wt->movesplit) wt->movesplit = 0;                                         \
-        head = lace_head - w->dq;                                                     \
+        head = lace_head - _lace_worker->dq;                                          \
         ts = (TailSplitNA){{head,head+1}};                                            \
         wt->ts.v = ts.v;                                                              \
         wt->allstolen = 0;                                                            \
-        w->split = lace_head+1;                                                       \
-        w->allstolen = 0;                                                             \
+        _lace_worker->split = lace_head+1;                                            \
+        _lace_worker->allstolen = 0;                                                  \
     } else if (__builtin_expect(wt->movesplit, 0)) {                                  \
-        head = lace_head - w->dq;                                                     \
-        split = w->split - w->dq;                                                     \
+        head = lace_head - _lace_worker->dq;                                          \
+        split = _lace_worker->split - _lace_worker->dq;                               \
         newsplit = (split + head + 2)/2;                                              \
         wt->ts.ts.split = newsplit;                                                   \
-        w->split = w->dq + newsplit;                                                  \
+        _lace_worker->split = _lace_worker->dq + newsplit;                            \
         wt->movesplit = 0;                                                            \
-        PR_COUNTSPLITS(w, CTR_split_grow);                                            \
+        PR_COUNTSPLITS(_lace_worker, CTR_split_grow);                                 \
     }                                                                                 \
                                                                                       \
-    w->head = lace_head+1;                                                            \
+    _lace_worker->head = lace_head+1;                                                 \
 }                                                                                     \
                                                                                       \
 static inline __attribute__((unused))                                                 \
@@ -2218,8 +2204,9 @@ void NAME##_TOGETHER(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4,
 static inline __attribute__((unused))                                                 \
 void NAME##_RUN(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, ATYPE_5 arg_5, ATYPE_6 arg_6)\
 {                                                                                     \
-    if (lace_is_worker()) {                                                           \
-        return NAME(arg_1, arg_2, arg_3, arg_4, arg_5, arg_6);                        \
+    LaceWorker *worker = lace_get_worker();                                           \
+    if (worker != NULL) {                                                             \
+        return NAME(worker, arg_1, arg_2, arg_3, arg_4, arg_5, arg_6);                \
     }                                                                                 \
     Task _t;                                                                          \
     TD_##NAME *t = (TD_##NAME *)&_t;                                                  \
@@ -2231,27 +2218,26 @@ void NAME##_RUN(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, ATYP
 }                                                                                     \
                                                                                       \
 static inline __attribute__((unused))                                                 \
-void NAME##_SYNC()                                                                    \
+void NAME##_SYNC(LaceWorker* _lace_worker)                                            \
 {                                                                                     \
-    WorkerP* w = lace_get_worker();                                                   \
-    Task* head = w->head - 1;                                                         \
-    w->head = head;                                                                   \
+    Task* head = _lace_worker->head - 1;                                              \
+    _lace_worker->head = head;                                                        \
                                                                                       \
     /* assert (__dq_head > 0); */  /* Commented out because we assume contract */     \
     TD_##NAME *t = (TD_##NAME *)head;                                                 \
                                                                                       \
-    if (__builtin_expect(0 == w->_public->movesplit, 1)) {                            \
-        if (__builtin_expect(w->split <= head, 1)) {                                  \
+    if (__builtin_expect(0 == _lace_worker->_public->movesplit, 1)) {                 \
+        if (__builtin_expect(_lace_worker->split <= head, 1)) {                       \
             atomic_store_explicit(&t->thief, THIEF_EMPTY, memory_order_relaxed);      \
-            return NAME(t->d.args.arg_1, t->d.args.arg_2, t->d.args.arg_3, t->d.args.arg_4, t->d.args.arg_5, t->d.args.arg_6);\
+            return NAME(_lace_worker, t->d.args.arg_1, t->d.args.arg_2, t->d.args.arg_3, t->d.args.arg_4, t->d.args.arg_5, t->d.args.arg_6);\
         }                                                                             \
     }                                                                                 \
                                                                                       \
-    if (lace_sync(w, head)) {                                                         \
+    if (lace_sync(_lace_worker, head)) {                                              \
         return ;                                                                      \
     } else {                                                                          \
         atomic_store_explicit(&t->thief, THIEF_EMPTY, memory_order_relaxed);          \
-        return NAME(t->d.args.arg_1, t->d.args.arg_2, t->d.args.arg_3, t->d.args.arg_4, t->d.args.arg_5, t->d.args.arg_6);\
+        return NAME(_lace_worker, t->d.args.arg_1, t->d.args.arg_2, t->d.args.arg_3, t->d.args.arg_4, t->d.args.arg_5, t->d.args.arg_6);\
     }                                                                                 \
 }                                                                                     \
                                                                                       \
@@ -2270,21 +2256,20 @@ typedef struct _TD_##NAME {                                                     
 /* If this line generates an error, please manually set the define LACE_TASKSIZE to a higher value */\
 typedef char assertion_failed_task_descriptor_out_of_bounds_##NAME[(sizeof(TD_##NAME)<=sizeof(Task)) ? 0 : -1];\
                                                                                       \
-RTYPE NAME(ATYPE_1, ATYPE_2, ATYPE_3, ATYPE_4, ATYPE_5, ATYPE_6, ATYPE_7);            \
+RTYPE NAME(LaceWorker*, ATYPE_1, ATYPE_2, ATYPE_3, ATYPE_4, ATYPE_5, ATYPE_6, ATYPE_7);\
                                                                                       \
-static void NAME##_WRAP(TD_##NAME *t __attribute__((unused)))                         \
+static void NAME##_WRAP(LaceWorker* lace_worker, TD_##NAME *t __attribute__((unused)))\
 {                                                                                     \
-    t->d.res = NAME(t->d.args.arg_1, t->d.args.arg_2, t->d.args.arg_3, t->d.args.arg_4, t->d.args.arg_5, t->d.args.arg_6, t->d.args.arg_7);\
+    t->d.res = NAME(lace_worker, t->d.args.arg_1, t->d.args.arg_2, t->d.args.arg_3, t->d.args.arg_4, t->d.args.arg_5, t->d.args.arg_6, t->d.args.arg_7);\
 }                                                                                     \
                                                                                       \
 static inline __attribute__((unused))                                                 \
-void NAME##_SPAWN(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, ATYPE_5 arg_5, ATYPE_6 arg_6, ATYPE_7 arg_7)\
+void NAME##_SPAWN(LaceWorker* _lace_worker, ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, ATYPE_5 arg_5, ATYPE_6 arg_6, ATYPE_7 arg_7)\
 {                                                                                     \
     PR_COUNTTASK(w);                                                                  \
                                                                                       \
-    WorkerP *w = lace_get_worker();                                                   \
-    Task *lace_head = w->head;                                                        \
-    if (lace_head == w->end) lace_abort_stack_overflow();                             \
+    Task *lace_head = _lace_worker->head;                                             \
+    if (lace_head == _lace_worker->end) lace_abort_stack_overflow();                  \
                                                                                       \
     TD_##NAME *t;                                                                     \
     TailSplitNA ts;                                                                   \
@@ -2296,26 +2281,26 @@ void NAME##_SPAWN(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, AT
      t->d.args.arg_1 = arg_1; t->d.args.arg_2 = arg_2; t->d.args.arg_3 = arg_3; t->d.args.arg_4 = arg_4; t->d.args.arg_5 = arg_5; t->d.args.arg_6 = arg_6; t->d.args.arg_7 = arg_7;\
     atomic_thread_fence(memory_order_acquire);                                        \
                                                                                       \
-    Worker *wt = w->_public;                                                          \
-    if (__builtin_expect(w->allstolen, 0)) {                                          \
+    Worker *wt = _lace_worker->_public;                                               \
+    if (__builtin_expect(_lace_worker->allstolen, 0)) {                               \
         if (wt->movesplit) wt->movesplit = 0;                                         \
-        head = lace_head - w->dq;                                                     \
+        head = lace_head - _lace_worker->dq;                                          \
         ts = (TailSplitNA){{head,head+1}};                                            \
         wt->ts.v = ts.v;                                                              \
         wt->allstolen = 0;                                                            \
-        w->split = lace_head+1;                                                       \
-        w->allstolen = 0;                                                             \
+        _lace_worker->split = lace_head+1;                                            \
+        _lace_worker->allstolen = 0;                                                  \
     } else if (__builtin_expect(wt->movesplit, 0)) {                                  \
-        head = lace_head - w->dq;                                                     \
-        split = w->split - w->dq;                                                     \
+        head = lace_head - _lace_worker->dq;                                          \
+        split = _lace_worker->split - _lace_worker->dq;                               \
         newsplit = (split + head + 2)/2;                                              \
         wt->ts.ts.split = newsplit;                                                   \
-        w->split = w->dq + newsplit;                                                  \
+        _lace_worker->split = _lace_worker->dq + newsplit;                            \
         wt->movesplit = 0;                                                            \
-        PR_COUNTSPLITS(w, CTR_split_grow);                                            \
+        PR_COUNTSPLITS(_lace_worker, CTR_split_grow);                                 \
     }                                                                                 \
                                                                                       \
-    w->head = lace_head+1;                                                            \
+    _lace_worker->head = lace_head+1;                                                 \
 }                                                                                     \
                                                                                       \
 static inline __attribute__((unused))                                                 \
@@ -2344,8 +2329,9 @@ void NAME##_TOGETHER(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4,
 static inline __attribute__((unused))                                                 \
 RTYPE NAME##_RUN(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, ATYPE_5 arg_5, ATYPE_6 arg_6, ATYPE_7 arg_7)\
 {                                                                                     \
-    if (lace_is_worker()) {                                                           \
-        return NAME(arg_1, arg_2, arg_3, arg_4, arg_5, arg_6, arg_7);                 \
+    LaceWorker *worker = lace_get_worker();                                           \
+    if (worker != NULL) {                                                             \
+        return NAME(worker, arg_1, arg_2, arg_3, arg_4, arg_5, arg_6, arg_7);         \
     }                                                                                 \
     Task _t;                                                                          \
     TD_##NAME *t = (TD_##NAME *)&_t;                                                  \
@@ -2357,27 +2343,26 @@ RTYPE NAME##_RUN(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, ATY
 }                                                                                     \
                                                                                       \
 static inline __attribute__((unused))                                                 \
-RTYPE NAME##_SYNC()                                                                   \
+RTYPE NAME##_SYNC(LaceWorker* _lace_worker)                                           \
 {                                                                                     \
-    WorkerP* w = lace_get_worker();                                                   \
-    Task* head = w->head - 1;                                                         \
-    w->head = head;                                                                   \
+    Task* head = _lace_worker->head - 1;                                              \
+    _lace_worker->head = head;                                                        \
                                                                                       \
     /* assert (__dq_head > 0); */  /* Commented out because we assume contract */     \
     TD_##NAME *t = (TD_##NAME *)head;                                                 \
                                                                                       \
-    if (__builtin_expect(0 == w->_public->movesplit, 1)) {                            \
-        if (__builtin_expect(w->split <= head, 1)) {                                  \
+    if (__builtin_expect(0 == _lace_worker->_public->movesplit, 1)) {                 \
+        if (__builtin_expect(_lace_worker->split <= head, 1)) {                       \
             atomic_store_explicit(&t->thief, THIEF_EMPTY, memory_order_relaxed);      \
-            return NAME(t->d.args.arg_1, t->d.args.arg_2, t->d.args.arg_3, t->d.args.arg_4, t->d.args.arg_5, t->d.args.arg_6, t->d.args.arg_7);\
+            return NAME(_lace_worker, t->d.args.arg_1, t->d.args.arg_2, t->d.args.arg_3, t->d.args.arg_4, t->d.args.arg_5, t->d.args.arg_6, t->d.args.arg_7);\
         }                                                                             \
     }                                                                                 \
                                                                                       \
-    if (lace_sync(w, head)) {                                                         \
+    if (lace_sync(_lace_worker, head)) {                                              \
         return ((TD_##NAME *)t)->d.res;                                               \
     } else {                                                                          \
         atomic_store_explicit(&t->thief, THIEF_EMPTY, memory_order_relaxed);          \
-        return NAME(t->d.args.arg_1, t->d.args.arg_2, t->d.args.arg_3, t->d.args.arg_4, t->d.args.arg_5, t->d.args.arg_6, t->d.args.arg_7);\
+        return NAME(_lace_worker, t->d.args.arg_1, t->d.args.arg_2, t->d.args.arg_3, t->d.args.arg_4, t->d.args.arg_5, t->d.args.arg_6, t->d.args.arg_7);\
     }                                                                                 \
 }                                                                                     \
                                                                                       \
@@ -2393,21 +2378,20 @@ typedef struct _TD_##NAME {                                                     
 /* If this line generates an error, please manually set the define LACE_TASKSIZE to a higher value */\
 typedef char assertion_failed_task_descriptor_out_of_bounds_##NAME[(sizeof(TD_##NAME)<=sizeof(Task)) ? 0 : -1];\
                                                                                       \
-void NAME(ATYPE_1, ATYPE_2, ATYPE_3, ATYPE_4, ATYPE_5, ATYPE_6, ATYPE_7);             \
+void NAME(LaceWorker*, ATYPE_1, ATYPE_2, ATYPE_3, ATYPE_4, ATYPE_5, ATYPE_6, ATYPE_7);\
                                                                                       \
-static void NAME##_WRAP(TD_##NAME *t __attribute__((unused)))                         \
+static void NAME##_WRAP(LaceWorker* lace_worker, TD_##NAME *t __attribute__((unused)))\
 {                                                                                     \
-     NAME(t->d.args.arg_1, t->d.args.arg_2, t->d.args.arg_3, t->d.args.arg_4, t->d.args.arg_5, t->d.args.arg_6, t->d.args.arg_7);\
+     NAME(lace_worker, t->d.args.arg_1, t->d.args.arg_2, t->d.args.arg_3, t->d.args.arg_4, t->d.args.arg_5, t->d.args.arg_6, t->d.args.arg_7);\
 }                                                                                     \
                                                                                       \
 static inline __attribute__((unused))                                                 \
-void NAME##_SPAWN(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, ATYPE_5 arg_5, ATYPE_6 arg_6, ATYPE_7 arg_7)\
+void NAME##_SPAWN(LaceWorker* _lace_worker, ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, ATYPE_5 arg_5, ATYPE_6 arg_6, ATYPE_7 arg_7)\
 {                                                                                     \
     PR_COUNTTASK(w);                                                                  \
                                                                                       \
-    WorkerP *w = lace_get_worker();                                                   \
-    Task *lace_head = w->head;                                                        \
-    if (lace_head == w->end) lace_abort_stack_overflow();                             \
+    Task *lace_head = _lace_worker->head;                                             \
+    if (lace_head == _lace_worker->end) lace_abort_stack_overflow();                  \
                                                                                       \
     TD_##NAME *t;                                                                     \
     TailSplitNA ts;                                                                   \
@@ -2419,26 +2403,26 @@ void NAME##_SPAWN(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, AT
      t->d.args.arg_1 = arg_1; t->d.args.arg_2 = arg_2; t->d.args.arg_3 = arg_3; t->d.args.arg_4 = arg_4; t->d.args.arg_5 = arg_5; t->d.args.arg_6 = arg_6; t->d.args.arg_7 = arg_7;\
     atomic_thread_fence(memory_order_acquire);                                        \
                                                                                       \
-    Worker *wt = w->_public;                                                          \
-    if (__builtin_expect(w->allstolen, 0)) {                                          \
+    Worker *wt = _lace_worker->_public;                                               \
+    if (__builtin_expect(_lace_worker->allstolen, 0)) {                               \
         if (wt->movesplit) wt->movesplit = 0;                                         \
-        head = lace_head - w->dq;                                                     \
+        head = lace_head - _lace_worker->dq;                                          \
         ts = (TailSplitNA){{head,head+1}};                                            \
         wt->ts.v = ts.v;                                                              \
         wt->allstolen = 0;                                                            \
-        w->split = lace_head+1;                                                       \
-        w->allstolen = 0;                                                             \
+        _lace_worker->split = lace_head+1;                                            \
+        _lace_worker->allstolen = 0;                                                  \
     } else if (__builtin_expect(wt->movesplit, 0)) {                                  \
-        head = lace_head - w->dq;                                                     \
-        split = w->split - w->dq;                                                     \
+        head = lace_head - _lace_worker->dq;                                          \
+        split = _lace_worker->split - _lace_worker->dq;                               \
         newsplit = (split + head + 2)/2;                                              \
         wt->ts.ts.split = newsplit;                                                   \
-        w->split = w->dq + newsplit;                                                  \
+        _lace_worker->split = _lace_worker->dq + newsplit;                            \
         wt->movesplit = 0;                                                            \
-        PR_COUNTSPLITS(w, CTR_split_grow);                                            \
+        PR_COUNTSPLITS(_lace_worker, CTR_split_grow);                                 \
     }                                                                                 \
                                                                                       \
-    w->head = lace_head+1;                                                            \
+    _lace_worker->head = lace_head+1;                                                 \
 }                                                                                     \
                                                                                       \
 static inline __attribute__((unused))                                                 \
@@ -2467,8 +2451,9 @@ void NAME##_TOGETHER(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4,
 static inline __attribute__((unused))                                                 \
 void NAME##_RUN(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, ATYPE_5 arg_5, ATYPE_6 arg_6, ATYPE_7 arg_7)\
 {                                                                                     \
-    if (lace_is_worker()) {                                                           \
-        return NAME(arg_1, arg_2, arg_3, arg_4, arg_5, arg_6, arg_7);                 \
+    LaceWorker *worker = lace_get_worker();                                           \
+    if (worker != NULL) {                                                             \
+        return NAME(worker, arg_1, arg_2, arg_3, arg_4, arg_5, arg_6, arg_7);         \
     }                                                                                 \
     Task _t;                                                                          \
     TD_##NAME *t = (TD_##NAME *)&_t;                                                  \
@@ -2480,27 +2465,26 @@ void NAME##_RUN(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, ATYP
 }                                                                                     \
                                                                                       \
 static inline __attribute__((unused))                                                 \
-void NAME##_SYNC()                                                                    \
+void NAME##_SYNC(LaceWorker* _lace_worker)                                            \
 {                                                                                     \
-    WorkerP* w = lace_get_worker();                                                   \
-    Task* head = w->head - 1;                                                         \
-    w->head = head;                                                                   \
+    Task* head = _lace_worker->head - 1;                                              \
+    _lace_worker->head = head;                                                        \
                                                                                       \
     /* assert (__dq_head > 0); */  /* Commented out because we assume contract */     \
     TD_##NAME *t = (TD_##NAME *)head;                                                 \
                                                                                       \
-    if (__builtin_expect(0 == w->_public->movesplit, 1)) {                            \
-        if (__builtin_expect(w->split <= head, 1)) {                                  \
+    if (__builtin_expect(0 == _lace_worker->_public->movesplit, 1)) {                 \
+        if (__builtin_expect(_lace_worker->split <= head, 1)) {                       \
             atomic_store_explicit(&t->thief, THIEF_EMPTY, memory_order_relaxed);      \
-            return NAME(t->d.args.arg_1, t->d.args.arg_2, t->d.args.arg_3, t->d.args.arg_4, t->d.args.arg_5, t->d.args.arg_6, t->d.args.arg_7);\
+            return NAME(_lace_worker, t->d.args.arg_1, t->d.args.arg_2, t->d.args.arg_3, t->d.args.arg_4, t->d.args.arg_5, t->d.args.arg_6, t->d.args.arg_7);\
         }                                                                             \
     }                                                                                 \
                                                                                       \
-    if (lace_sync(w, head)) {                                                         \
+    if (lace_sync(_lace_worker, head)) {                                              \
         return ;                                                                      \
     } else {                                                                          \
         atomic_store_explicit(&t->thief, THIEF_EMPTY, memory_order_relaxed);          \
-        return NAME(t->d.args.arg_1, t->d.args.arg_2, t->d.args.arg_3, t->d.args.arg_4, t->d.args.arg_5, t->d.args.arg_6, t->d.args.arg_7);\
+        return NAME(_lace_worker, t->d.args.arg_1, t->d.args.arg_2, t->d.args.arg_3, t->d.args.arg_4, t->d.args.arg_5, t->d.args.arg_6, t->d.args.arg_7);\
     }                                                                                 \
 }                                                                                     \
                                                                                       \
@@ -2519,21 +2503,20 @@ typedef struct _TD_##NAME {                                                     
 /* If this line generates an error, please manually set the define LACE_TASKSIZE to a higher value */\
 typedef char assertion_failed_task_descriptor_out_of_bounds_##NAME[(sizeof(TD_##NAME)<=sizeof(Task)) ? 0 : -1];\
                                                                                       \
-RTYPE NAME(ATYPE_1, ATYPE_2, ATYPE_3, ATYPE_4, ATYPE_5, ATYPE_6, ATYPE_7, ATYPE_8);   \
+RTYPE NAME(LaceWorker*, ATYPE_1, ATYPE_2, ATYPE_3, ATYPE_4, ATYPE_5, ATYPE_6, ATYPE_7, ATYPE_8);\
                                                                                       \
-static void NAME##_WRAP(TD_##NAME *t __attribute__((unused)))                         \
+static void NAME##_WRAP(LaceWorker* lace_worker, TD_##NAME *t __attribute__((unused)))\
 {                                                                                     \
-    t->d.res = NAME(t->d.args.arg_1, t->d.args.arg_2, t->d.args.arg_3, t->d.args.arg_4, t->d.args.arg_5, t->d.args.arg_6, t->d.args.arg_7, t->d.args.arg_8);\
+    t->d.res = NAME(lace_worker, t->d.args.arg_1, t->d.args.arg_2, t->d.args.arg_3, t->d.args.arg_4, t->d.args.arg_5, t->d.args.arg_6, t->d.args.arg_7, t->d.args.arg_8);\
 }                                                                                     \
                                                                                       \
 static inline __attribute__((unused))                                                 \
-void NAME##_SPAWN(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, ATYPE_5 arg_5, ATYPE_6 arg_6, ATYPE_7 arg_7, ATYPE_8 arg_8)\
+void NAME##_SPAWN(LaceWorker* _lace_worker, ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, ATYPE_5 arg_5, ATYPE_6 arg_6, ATYPE_7 arg_7, ATYPE_8 arg_8)\
 {                                                                                     \
     PR_COUNTTASK(w);                                                                  \
                                                                                       \
-    WorkerP *w = lace_get_worker();                                                   \
-    Task *lace_head = w->head;                                                        \
-    if (lace_head == w->end) lace_abort_stack_overflow();                             \
+    Task *lace_head = _lace_worker->head;                                             \
+    if (lace_head == _lace_worker->end) lace_abort_stack_overflow();                  \
                                                                                       \
     TD_##NAME *t;                                                                     \
     TailSplitNA ts;                                                                   \
@@ -2545,26 +2528,26 @@ void NAME##_SPAWN(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, AT
      t->d.args.arg_1 = arg_1; t->d.args.arg_2 = arg_2; t->d.args.arg_3 = arg_3; t->d.args.arg_4 = arg_4; t->d.args.arg_5 = arg_5; t->d.args.arg_6 = arg_6; t->d.args.arg_7 = arg_7; t->d.args.arg_8 = arg_8;\
     atomic_thread_fence(memory_order_acquire);                                        \
                                                                                       \
-    Worker *wt = w->_public;                                                          \
-    if (__builtin_expect(w->allstolen, 0)) {                                          \
+    Worker *wt = _lace_worker->_public;                                               \
+    if (__builtin_expect(_lace_worker->allstolen, 0)) {                               \
         if (wt->movesplit) wt->movesplit = 0;                                         \
-        head = lace_head - w->dq;                                                     \
+        head = lace_head - _lace_worker->dq;                                          \
         ts = (TailSplitNA){{head,head+1}};                                            \
         wt->ts.v = ts.v;                                                              \
         wt->allstolen = 0;                                                            \
-        w->split = lace_head+1;                                                       \
-        w->allstolen = 0;                                                             \
+        _lace_worker->split = lace_head+1;                                            \
+        _lace_worker->allstolen = 0;                                                  \
     } else if (__builtin_expect(wt->movesplit, 0)) {                                  \
-        head = lace_head - w->dq;                                                     \
-        split = w->split - w->dq;                                                     \
+        head = lace_head - _lace_worker->dq;                                          \
+        split = _lace_worker->split - _lace_worker->dq;                               \
         newsplit = (split + head + 2)/2;                                              \
         wt->ts.ts.split = newsplit;                                                   \
-        w->split = w->dq + newsplit;                                                  \
+        _lace_worker->split = _lace_worker->dq + newsplit;                            \
         wt->movesplit = 0;                                                            \
-        PR_COUNTSPLITS(w, CTR_split_grow);                                            \
+        PR_COUNTSPLITS(_lace_worker, CTR_split_grow);                                 \
     }                                                                                 \
                                                                                       \
-    w->head = lace_head+1;                                                            \
+    _lace_worker->head = lace_head+1;                                                 \
 }                                                                                     \
                                                                                       \
 static inline __attribute__((unused))                                                 \
@@ -2593,8 +2576,9 @@ void NAME##_TOGETHER(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4,
 static inline __attribute__((unused))                                                 \
 RTYPE NAME##_RUN(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, ATYPE_5 arg_5, ATYPE_6 arg_6, ATYPE_7 arg_7, ATYPE_8 arg_8)\
 {                                                                                     \
-    if (lace_is_worker()) {                                                           \
-        return NAME(arg_1, arg_2, arg_3, arg_4, arg_5, arg_6, arg_7, arg_8);          \
+    LaceWorker *worker = lace_get_worker();                                           \
+    if (worker != NULL) {                                                             \
+        return NAME(worker, arg_1, arg_2, arg_3, arg_4, arg_5, arg_6, arg_7, arg_8);  \
     }                                                                                 \
     Task _t;                                                                          \
     TD_##NAME *t = (TD_##NAME *)&_t;                                                  \
@@ -2606,27 +2590,26 @@ RTYPE NAME##_RUN(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, ATY
 }                                                                                     \
                                                                                       \
 static inline __attribute__((unused))                                                 \
-RTYPE NAME##_SYNC()                                                                   \
+RTYPE NAME##_SYNC(LaceWorker* _lace_worker)                                           \
 {                                                                                     \
-    WorkerP* w = lace_get_worker();                                                   \
-    Task* head = w->head - 1;                                                         \
-    w->head = head;                                                                   \
+    Task* head = _lace_worker->head - 1;                                              \
+    _lace_worker->head = head;                                                        \
                                                                                       \
     /* assert (__dq_head > 0); */  /* Commented out because we assume contract */     \
     TD_##NAME *t = (TD_##NAME *)head;                                                 \
                                                                                       \
-    if (__builtin_expect(0 == w->_public->movesplit, 1)) {                            \
-        if (__builtin_expect(w->split <= head, 1)) {                                  \
+    if (__builtin_expect(0 == _lace_worker->_public->movesplit, 1)) {                 \
+        if (__builtin_expect(_lace_worker->split <= head, 1)) {                       \
             atomic_store_explicit(&t->thief, THIEF_EMPTY, memory_order_relaxed);      \
-            return NAME(t->d.args.arg_1, t->d.args.arg_2, t->d.args.arg_3, t->d.args.arg_4, t->d.args.arg_5, t->d.args.arg_6, t->d.args.arg_7, t->d.args.arg_8);\
+            return NAME(_lace_worker, t->d.args.arg_1, t->d.args.arg_2, t->d.args.arg_3, t->d.args.arg_4, t->d.args.arg_5, t->d.args.arg_6, t->d.args.arg_7, t->d.args.arg_8);\
         }                                                                             \
     }                                                                                 \
                                                                                       \
-    if (lace_sync(w, head)) {                                                         \
+    if (lace_sync(_lace_worker, head)) {                                              \
         return ((TD_##NAME *)t)->d.res;                                               \
     } else {                                                                          \
         atomic_store_explicit(&t->thief, THIEF_EMPTY, memory_order_relaxed);          \
-        return NAME(t->d.args.arg_1, t->d.args.arg_2, t->d.args.arg_3, t->d.args.arg_4, t->d.args.arg_5, t->d.args.arg_6, t->d.args.arg_7, t->d.args.arg_8);\
+        return NAME(_lace_worker, t->d.args.arg_1, t->d.args.arg_2, t->d.args.arg_3, t->d.args.arg_4, t->d.args.arg_5, t->d.args.arg_6, t->d.args.arg_7, t->d.args.arg_8);\
     }                                                                                 \
 }                                                                                     \
                                                                                       \
@@ -2642,21 +2625,20 @@ typedef struct _TD_##NAME {                                                     
 /* If this line generates an error, please manually set the define LACE_TASKSIZE to a higher value */\
 typedef char assertion_failed_task_descriptor_out_of_bounds_##NAME[(sizeof(TD_##NAME)<=sizeof(Task)) ? 0 : -1];\
                                                                                       \
-void NAME(ATYPE_1, ATYPE_2, ATYPE_3, ATYPE_4, ATYPE_5, ATYPE_6, ATYPE_7, ATYPE_8);    \
+void NAME(LaceWorker*, ATYPE_1, ATYPE_2, ATYPE_3, ATYPE_4, ATYPE_5, ATYPE_6, ATYPE_7, ATYPE_8);\
                                                                                       \
-static void NAME##_WRAP(TD_##NAME *t __attribute__((unused)))                         \
+static void NAME##_WRAP(LaceWorker* lace_worker, TD_##NAME *t __attribute__((unused)))\
 {                                                                                     \
-     NAME(t->d.args.arg_1, t->d.args.arg_2, t->d.args.arg_3, t->d.args.arg_4, t->d.args.arg_5, t->d.args.arg_6, t->d.args.arg_7, t->d.args.arg_8);\
+     NAME(lace_worker, t->d.args.arg_1, t->d.args.arg_2, t->d.args.arg_3, t->d.args.arg_4, t->d.args.arg_5, t->d.args.arg_6, t->d.args.arg_7, t->d.args.arg_8);\
 }                                                                                     \
                                                                                       \
 static inline __attribute__((unused))                                                 \
-void NAME##_SPAWN(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, ATYPE_5 arg_5, ATYPE_6 arg_6, ATYPE_7 arg_7, ATYPE_8 arg_8)\
+void NAME##_SPAWN(LaceWorker* _lace_worker, ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, ATYPE_5 arg_5, ATYPE_6 arg_6, ATYPE_7 arg_7, ATYPE_8 arg_8)\
 {                                                                                     \
     PR_COUNTTASK(w);                                                                  \
                                                                                       \
-    WorkerP *w = lace_get_worker();                                                   \
-    Task *lace_head = w->head;                                                        \
-    if (lace_head == w->end) lace_abort_stack_overflow();                             \
+    Task *lace_head = _lace_worker->head;                                             \
+    if (lace_head == _lace_worker->end) lace_abort_stack_overflow();                  \
                                                                                       \
     TD_##NAME *t;                                                                     \
     TailSplitNA ts;                                                                   \
@@ -2668,26 +2650,26 @@ void NAME##_SPAWN(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, AT
      t->d.args.arg_1 = arg_1; t->d.args.arg_2 = arg_2; t->d.args.arg_3 = arg_3; t->d.args.arg_4 = arg_4; t->d.args.arg_5 = arg_5; t->d.args.arg_6 = arg_6; t->d.args.arg_7 = arg_7; t->d.args.arg_8 = arg_8;\
     atomic_thread_fence(memory_order_acquire);                                        \
                                                                                       \
-    Worker *wt = w->_public;                                                          \
-    if (__builtin_expect(w->allstolen, 0)) {                                          \
+    Worker *wt = _lace_worker->_public;                                               \
+    if (__builtin_expect(_lace_worker->allstolen, 0)) {                               \
         if (wt->movesplit) wt->movesplit = 0;                                         \
-        head = lace_head - w->dq;                                                     \
+        head = lace_head - _lace_worker->dq;                                          \
         ts = (TailSplitNA){{head,head+1}};                                            \
         wt->ts.v = ts.v;                                                              \
         wt->allstolen = 0;                                                            \
-        w->split = lace_head+1;                                                       \
-        w->allstolen = 0;                                                             \
+        _lace_worker->split = lace_head+1;                                            \
+        _lace_worker->allstolen = 0;                                                  \
     } else if (__builtin_expect(wt->movesplit, 0)) {                                  \
-        head = lace_head - w->dq;                                                     \
-        split = w->split - w->dq;                                                     \
+        head = lace_head - _lace_worker->dq;                                          \
+        split = _lace_worker->split - _lace_worker->dq;                               \
         newsplit = (split + head + 2)/2;                                              \
         wt->ts.ts.split = newsplit;                                                   \
-        w->split = w->dq + newsplit;                                                  \
+        _lace_worker->split = _lace_worker->dq + newsplit;                            \
         wt->movesplit = 0;                                                            \
-        PR_COUNTSPLITS(w, CTR_split_grow);                                            \
+        PR_COUNTSPLITS(_lace_worker, CTR_split_grow);                                 \
     }                                                                                 \
                                                                                       \
-    w->head = lace_head+1;                                                            \
+    _lace_worker->head = lace_head+1;                                                 \
 }                                                                                     \
                                                                                       \
 static inline __attribute__((unused))                                                 \
@@ -2716,8 +2698,9 @@ void NAME##_TOGETHER(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4,
 static inline __attribute__((unused))                                                 \
 void NAME##_RUN(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, ATYPE_5 arg_5, ATYPE_6 arg_6, ATYPE_7 arg_7, ATYPE_8 arg_8)\
 {                                                                                     \
-    if (lace_is_worker()) {                                                           \
-        return NAME(arg_1, arg_2, arg_3, arg_4, arg_5, arg_6, arg_7, arg_8);          \
+    LaceWorker *worker = lace_get_worker();                                           \
+    if (worker != NULL) {                                                             \
+        return NAME(worker, arg_1, arg_2, arg_3, arg_4, arg_5, arg_6, arg_7, arg_8);  \
     }                                                                                 \
     Task _t;                                                                          \
     TD_##NAME *t = (TD_##NAME *)&_t;                                                  \
@@ -2729,27 +2712,26 @@ void NAME##_RUN(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, ATYP
 }                                                                                     \
                                                                                       \
 static inline __attribute__((unused))                                                 \
-void NAME##_SYNC()                                                                    \
+void NAME##_SYNC(LaceWorker* _lace_worker)                                            \
 {                                                                                     \
-    WorkerP* w = lace_get_worker();                                                   \
-    Task* head = w->head - 1;                                                         \
-    w->head = head;                                                                   \
+    Task* head = _lace_worker->head - 1;                                              \
+    _lace_worker->head = head;                                                        \
                                                                                       \
     /* assert (__dq_head > 0); */  /* Commented out because we assume contract */     \
     TD_##NAME *t = (TD_##NAME *)head;                                                 \
                                                                                       \
-    if (__builtin_expect(0 == w->_public->movesplit, 1)) {                            \
-        if (__builtin_expect(w->split <= head, 1)) {                                  \
+    if (__builtin_expect(0 == _lace_worker->_public->movesplit, 1)) {                 \
+        if (__builtin_expect(_lace_worker->split <= head, 1)) {                       \
             atomic_store_explicit(&t->thief, THIEF_EMPTY, memory_order_relaxed);      \
-            return NAME(t->d.args.arg_1, t->d.args.arg_2, t->d.args.arg_3, t->d.args.arg_4, t->d.args.arg_5, t->d.args.arg_6, t->d.args.arg_7, t->d.args.arg_8);\
+            return NAME(_lace_worker, t->d.args.arg_1, t->d.args.arg_2, t->d.args.arg_3, t->d.args.arg_4, t->d.args.arg_5, t->d.args.arg_6, t->d.args.arg_7, t->d.args.arg_8);\
         }                                                                             \
     }                                                                                 \
                                                                                       \
-    if (lace_sync(w, head)) {                                                         \
+    if (lace_sync(_lace_worker, head)) {                                              \
         return ;                                                                      \
     } else {                                                                          \
         atomic_store_explicit(&t->thief, THIEF_EMPTY, memory_order_relaxed);          \
-        return NAME(t->d.args.arg_1, t->d.args.arg_2, t->d.args.arg_3, t->d.args.arg_4, t->d.args.arg_5, t->d.args.arg_6, t->d.args.arg_7, t->d.args.arg_8);\
+        return NAME(_lace_worker, t->d.args.arg_1, t->d.args.arg_2, t->d.args.arg_3, t->d.args.arg_4, t->d.args.arg_5, t->d.args.arg_6, t->d.args.arg_7, t->d.args.arg_8);\
     }                                                                                 \
 }                                                                                     \
                                                                                       \
@@ -2768,21 +2750,20 @@ typedef struct _TD_##NAME {                                                     
 /* If this line generates an error, please manually set the define LACE_TASKSIZE to a higher value */\
 typedef char assertion_failed_task_descriptor_out_of_bounds_##NAME[(sizeof(TD_##NAME)<=sizeof(Task)) ? 0 : -1];\
                                                                                       \
-RTYPE NAME(ATYPE_1, ATYPE_2, ATYPE_3, ATYPE_4, ATYPE_5, ATYPE_6, ATYPE_7, ATYPE_8, ATYPE_9);\
+RTYPE NAME(LaceWorker*, ATYPE_1, ATYPE_2, ATYPE_3, ATYPE_4, ATYPE_5, ATYPE_6, ATYPE_7, ATYPE_8, ATYPE_9);\
                                                                                       \
-static void NAME##_WRAP(TD_##NAME *t __attribute__((unused)))                         \
+static void NAME##_WRAP(LaceWorker* lace_worker, TD_##NAME *t __attribute__((unused)))\
 {                                                                                     \
-    t->d.res = NAME(t->d.args.arg_1, t->d.args.arg_2, t->d.args.arg_3, t->d.args.arg_4, t->d.args.arg_5, t->d.args.arg_6, t->d.args.arg_7, t->d.args.arg_8, t->d.args.arg_9);\
+    t->d.res = NAME(lace_worker, t->d.args.arg_1, t->d.args.arg_2, t->d.args.arg_3, t->d.args.arg_4, t->d.args.arg_5, t->d.args.arg_6, t->d.args.arg_7, t->d.args.arg_8, t->d.args.arg_9);\
 }                                                                                     \
                                                                                       \
 static inline __attribute__((unused))                                                 \
-void NAME##_SPAWN(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, ATYPE_5 arg_5, ATYPE_6 arg_6, ATYPE_7 arg_7, ATYPE_8 arg_8, ATYPE_9 arg_9)\
+void NAME##_SPAWN(LaceWorker* _lace_worker, ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, ATYPE_5 arg_5, ATYPE_6 arg_6, ATYPE_7 arg_7, ATYPE_8 arg_8, ATYPE_9 arg_9)\
 {                                                                                     \
     PR_COUNTTASK(w);                                                                  \
                                                                                       \
-    WorkerP *w = lace_get_worker();                                                   \
-    Task *lace_head = w->head;                                                        \
-    if (lace_head == w->end) lace_abort_stack_overflow();                             \
+    Task *lace_head = _lace_worker->head;                                             \
+    if (lace_head == _lace_worker->end) lace_abort_stack_overflow();                  \
                                                                                       \
     TD_##NAME *t;                                                                     \
     TailSplitNA ts;                                                                   \
@@ -2794,26 +2775,26 @@ void NAME##_SPAWN(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, AT
      t->d.args.arg_1 = arg_1; t->d.args.arg_2 = arg_2; t->d.args.arg_3 = arg_3; t->d.args.arg_4 = arg_4; t->d.args.arg_5 = arg_5; t->d.args.arg_6 = arg_6; t->d.args.arg_7 = arg_7; t->d.args.arg_8 = arg_8; t->d.args.arg_9 = arg_9;\
     atomic_thread_fence(memory_order_acquire);                                        \
                                                                                       \
-    Worker *wt = w->_public;                                                          \
-    if (__builtin_expect(w->allstolen, 0)) {                                          \
+    Worker *wt = _lace_worker->_public;                                               \
+    if (__builtin_expect(_lace_worker->allstolen, 0)) {                               \
         if (wt->movesplit) wt->movesplit = 0;                                         \
-        head = lace_head - w->dq;                                                     \
+        head = lace_head - _lace_worker->dq;                                          \
         ts = (TailSplitNA){{head,head+1}};                                            \
         wt->ts.v = ts.v;                                                              \
         wt->allstolen = 0;                                                            \
-        w->split = lace_head+1;                                                       \
-        w->allstolen = 0;                                                             \
+        _lace_worker->split = lace_head+1;                                            \
+        _lace_worker->allstolen = 0;                                                  \
     } else if (__builtin_expect(wt->movesplit, 0)) {                                  \
-        head = lace_head - w->dq;                                                     \
-        split = w->split - w->dq;                                                     \
+        head = lace_head - _lace_worker->dq;                                          \
+        split = _lace_worker->split - _lace_worker->dq;                               \
         newsplit = (split + head + 2)/2;                                              \
         wt->ts.ts.split = newsplit;                                                   \
-        w->split = w->dq + newsplit;                                                  \
+        _lace_worker->split = _lace_worker->dq + newsplit;                            \
         wt->movesplit = 0;                                                            \
-        PR_COUNTSPLITS(w, CTR_split_grow);                                            \
+        PR_COUNTSPLITS(_lace_worker, CTR_split_grow);                                 \
     }                                                                                 \
                                                                                       \
-    w->head = lace_head+1;                                                            \
+    _lace_worker->head = lace_head+1;                                                 \
 }                                                                                     \
                                                                                       \
 static inline __attribute__((unused))                                                 \
@@ -2842,8 +2823,9 @@ void NAME##_TOGETHER(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4,
 static inline __attribute__((unused))                                                 \
 RTYPE NAME##_RUN(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, ATYPE_5 arg_5, ATYPE_6 arg_6, ATYPE_7 arg_7, ATYPE_8 arg_8, ATYPE_9 arg_9)\
 {                                                                                     \
-    if (lace_is_worker()) {                                                           \
-        return NAME(arg_1, arg_2, arg_3, arg_4, arg_5, arg_6, arg_7, arg_8, arg_9);   \
+    LaceWorker *worker = lace_get_worker();                                           \
+    if (worker != NULL) {                                                             \
+        return NAME(worker, arg_1, arg_2, arg_3, arg_4, arg_5, arg_6, arg_7, arg_8, arg_9);\
     }                                                                                 \
     Task _t;                                                                          \
     TD_##NAME *t = (TD_##NAME *)&_t;                                                  \
@@ -2855,27 +2837,26 @@ RTYPE NAME##_RUN(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, ATY
 }                                                                                     \
                                                                                       \
 static inline __attribute__((unused))                                                 \
-RTYPE NAME##_SYNC()                                                                   \
+RTYPE NAME##_SYNC(LaceWorker* _lace_worker)                                           \
 {                                                                                     \
-    WorkerP* w = lace_get_worker();                                                   \
-    Task* head = w->head - 1;                                                         \
-    w->head = head;                                                                   \
+    Task* head = _lace_worker->head - 1;                                              \
+    _lace_worker->head = head;                                                        \
                                                                                       \
     /* assert (__dq_head > 0); */  /* Commented out because we assume contract */     \
     TD_##NAME *t = (TD_##NAME *)head;                                                 \
                                                                                       \
-    if (__builtin_expect(0 == w->_public->movesplit, 1)) {                            \
-        if (__builtin_expect(w->split <= head, 1)) {                                  \
+    if (__builtin_expect(0 == _lace_worker->_public->movesplit, 1)) {                 \
+        if (__builtin_expect(_lace_worker->split <= head, 1)) {                       \
             atomic_store_explicit(&t->thief, THIEF_EMPTY, memory_order_relaxed);      \
-            return NAME(t->d.args.arg_1, t->d.args.arg_2, t->d.args.arg_3, t->d.args.arg_4, t->d.args.arg_5, t->d.args.arg_6, t->d.args.arg_7, t->d.args.arg_8, t->d.args.arg_9);\
+            return NAME(_lace_worker, t->d.args.arg_1, t->d.args.arg_2, t->d.args.arg_3, t->d.args.arg_4, t->d.args.arg_5, t->d.args.arg_6, t->d.args.arg_7, t->d.args.arg_8, t->d.args.arg_9);\
         }                                                                             \
     }                                                                                 \
                                                                                       \
-    if (lace_sync(w, head)) {                                                         \
+    if (lace_sync(_lace_worker, head)) {                                              \
         return ((TD_##NAME *)t)->d.res;                                               \
     } else {                                                                          \
         atomic_store_explicit(&t->thief, THIEF_EMPTY, memory_order_relaxed);          \
-        return NAME(t->d.args.arg_1, t->d.args.arg_2, t->d.args.arg_3, t->d.args.arg_4, t->d.args.arg_5, t->d.args.arg_6, t->d.args.arg_7, t->d.args.arg_8, t->d.args.arg_9);\
+        return NAME(_lace_worker, t->d.args.arg_1, t->d.args.arg_2, t->d.args.arg_3, t->d.args.arg_4, t->d.args.arg_5, t->d.args.arg_6, t->d.args.arg_7, t->d.args.arg_8, t->d.args.arg_9);\
     }                                                                                 \
 }                                                                                     \
                                                                                       \
@@ -2891,21 +2872,20 @@ typedef struct _TD_##NAME {                                                     
 /* If this line generates an error, please manually set the define LACE_TASKSIZE to a higher value */\
 typedef char assertion_failed_task_descriptor_out_of_bounds_##NAME[(sizeof(TD_##NAME)<=sizeof(Task)) ? 0 : -1];\
                                                                                       \
-void NAME(ATYPE_1, ATYPE_2, ATYPE_3, ATYPE_4, ATYPE_5, ATYPE_6, ATYPE_7, ATYPE_8, ATYPE_9);\
+void NAME(LaceWorker*, ATYPE_1, ATYPE_2, ATYPE_3, ATYPE_4, ATYPE_5, ATYPE_6, ATYPE_7, ATYPE_8, ATYPE_9);\
                                                                                       \
-static void NAME##_WRAP(TD_##NAME *t __attribute__((unused)))                         \
+static void NAME##_WRAP(LaceWorker* lace_worker, TD_##NAME *t __attribute__((unused)))\
 {                                                                                     \
-     NAME(t->d.args.arg_1, t->d.args.arg_2, t->d.args.arg_3, t->d.args.arg_4, t->d.args.arg_5, t->d.args.arg_6, t->d.args.arg_7, t->d.args.arg_8, t->d.args.arg_9);\
+     NAME(lace_worker, t->d.args.arg_1, t->d.args.arg_2, t->d.args.arg_3, t->d.args.arg_4, t->d.args.arg_5, t->d.args.arg_6, t->d.args.arg_7, t->d.args.arg_8, t->d.args.arg_9);\
 }                                                                                     \
                                                                                       \
 static inline __attribute__((unused))                                                 \
-void NAME##_SPAWN(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, ATYPE_5 arg_5, ATYPE_6 arg_6, ATYPE_7 arg_7, ATYPE_8 arg_8, ATYPE_9 arg_9)\
+void NAME##_SPAWN(LaceWorker* _lace_worker, ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, ATYPE_5 arg_5, ATYPE_6 arg_6, ATYPE_7 arg_7, ATYPE_8 arg_8, ATYPE_9 arg_9)\
 {                                                                                     \
     PR_COUNTTASK(w);                                                                  \
                                                                                       \
-    WorkerP *w = lace_get_worker();                                                   \
-    Task *lace_head = w->head;                                                        \
-    if (lace_head == w->end) lace_abort_stack_overflow();                             \
+    Task *lace_head = _lace_worker->head;                                             \
+    if (lace_head == _lace_worker->end) lace_abort_stack_overflow();                  \
                                                                                       \
     TD_##NAME *t;                                                                     \
     TailSplitNA ts;                                                                   \
@@ -2917,26 +2897,26 @@ void NAME##_SPAWN(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, AT
      t->d.args.arg_1 = arg_1; t->d.args.arg_2 = arg_2; t->d.args.arg_3 = arg_3; t->d.args.arg_4 = arg_4; t->d.args.arg_5 = arg_5; t->d.args.arg_6 = arg_6; t->d.args.arg_7 = arg_7; t->d.args.arg_8 = arg_8; t->d.args.arg_9 = arg_9;\
     atomic_thread_fence(memory_order_acquire);                                        \
                                                                                       \
-    Worker *wt = w->_public;                                                          \
-    if (__builtin_expect(w->allstolen, 0)) {                                          \
+    Worker *wt = _lace_worker->_public;                                               \
+    if (__builtin_expect(_lace_worker->allstolen, 0)) {                               \
         if (wt->movesplit) wt->movesplit = 0;                                         \
-        head = lace_head - w->dq;                                                     \
+        head = lace_head - _lace_worker->dq;                                          \
         ts = (TailSplitNA){{head,head+1}};                                            \
         wt->ts.v = ts.v;                                                              \
         wt->allstolen = 0;                                                            \
-        w->split = lace_head+1;                                                       \
-        w->allstolen = 0;                                                             \
+        _lace_worker->split = lace_head+1;                                            \
+        _lace_worker->allstolen = 0;                                                  \
     } else if (__builtin_expect(wt->movesplit, 0)) {                                  \
-        head = lace_head - w->dq;                                                     \
-        split = w->split - w->dq;                                                     \
+        head = lace_head - _lace_worker->dq;                                          \
+        split = _lace_worker->split - _lace_worker->dq;                               \
         newsplit = (split + head + 2)/2;                                              \
         wt->ts.ts.split = newsplit;                                                   \
-        w->split = w->dq + newsplit;                                                  \
+        _lace_worker->split = _lace_worker->dq + newsplit;                            \
         wt->movesplit = 0;                                                            \
-        PR_COUNTSPLITS(w, CTR_split_grow);                                            \
+        PR_COUNTSPLITS(_lace_worker, CTR_split_grow);                                 \
     }                                                                                 \
                                                                                       \
-    w->head = lace_head+1;                                                            \
+    _lace_worker->head = lace_head+1;                                                 \
 }                                                                                     \
                                                                                       \
 static inline __attribute__((unused))                                                 \
@@ -2965,8 +2945,9 @@ void NAME##_TOGETHER(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4,
 static inline __attribute__((unused))                                                 \
 void NAME##_RUN(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, ATYPE_5 arg_5, ATYPE_6 arg_6, ATYPE_7 arg_7, ATYPE_8 arg_8, ATYPE_9 arg_9)\
 {                                                                                     \
-    if (lace_is_worker()) {                                                           \
-        return NAME(arg_1, arg_2, arg_3, arg_4, arg_5, arg_6, arg_7, arg_8, arg_9);   \
+    LaceWorker *worker = lace_get_worker();                                           \
+    if (worker != NULL) {                                                             \
+        return NAME(worker, arg_1, arg_2, arg_3, arg_4, arg_5, arg_6, arg_7, arg_8, arg_9);\
     }                                                                                 \
     Task _t;                                                                          \
     TD_##NAME *t = (TD_##NAME *)&_t;                                                  \
@@ -2978,27 +2959,26 @@ void NAME##_RUN(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, ATYP
 }                                                                                     \
                                                                                       \
 static inline __attribute__((unused))                                                 \
-void NAME##_SYNC()                                                                    \
+void NAME##_SYNC(LaceWorker* _lace_worker)                                            \
 {                                                                                     \
-    WorkerP* w = lace_get_worker();                                                   \
-    Task* head = w->head - 1;                                                         \
-    w->head = head;                                                                   \
+    Task* head = _lace_worker->head - 1;                                              \
+    _lace_worker->head = head;                                                        \
                                                                                       \
     /* assert (__dq_head > 0); */  /* Commented out because we assume contract */     \
     TD_##NAME *t = (TD_##NAME *)head;                                                 \
                                                                                       \
-    if (__builtin_expect(0 == w->_public->movesplit, 1)) {                            \
-        if (__builtin_expect(w->split <= head, 1)) {                                  \
+    if (__builtin_expect(0 == _lace_worker->_public->movesplit, 1)) {                 \
+        if (__builtin_expect(_lace_worker->split <= head, 1)) {                       \
             atomic_store_explicit(&t->thief, THIEF_EMPTY, memory_order_relaxed);      \
-            return NAME(t->d.args.arg_1, t->d.args.arg_2, t->d.args.arg_3, t->d.args.arg_4, t->d.args.arg_5, t->d.args.arg_6, t->d.args.arg_7, t->d.args.arg_8, t->d.args.arg_9);\
+            return NAME(_lace_worker, t->d.args.arg_1, t->d.args.arg_2, t->d.args.arg_3, t->d.args.arg_4, t->d.args.arg_5, t->d.args.arg_6, t->d.args.arg_7, t->d.args.arg_8, t->d.args.arg_9);\
         }                                                                             \
     }                                                                                 \
                                                                                       \
-    if (lace_sync(w, head)) {                                                         \
+    if (lace_sync(_lace_worker, head)) {                                              \
         return ;                                                                      \
     } else {                                                                          \
         atomic_store_explicit(&t->thief, THIEF_EMPTY, memory_order_relaxed);          \
-        return NAME(t->d.args.arg_1, t->d.args.arg_2, t->d.args.arg_3, t->d.args.arg_4, t->d.args.arg_5, t->d.args.arg_6, t->d.args.arg_7, t->d.args.arg_8, t->d.args.arg_9);\
+        return NAME(_lace_worker, t->d.args.arg_1, t->d.args.arg_2, t->d.args.arg_3, t->d.args.arg_4, t->d.args.arg_5, t->d.args.arg_6, t->d.args.arg_7, t->d.args.arg_8, t->d.args.arg_9);\
     }                                                                                 \
 }                                                                                     \
                                                                                       \
@@ -3017,21 +2997,20 @@ typedef struct _TD_##NAME {                                                     
 /* If this line generates an error, please manually set the define LACE_TASKSIZE to a higher value */\
 typedef char assertion_failed_task_descriptor_out_of_bounds_##NAME[(sizeof(TD_##NAME)<=sizeof(Task)) ? 0 : -1];\
                                                                                       \
-RTYPE NAME(ATYPE_1, ATYPE_2, ATYPE_3, ATYPE_4, ATYPE_5, ATYPE_6, ATYPE_7, ATYPE_8, ATYPE_9, ATYPE_10);\
+RTYPE NAME(LaceWorker*, ATYPE_1, ATYPE_2, ATYPE_3, ATYPE_4, ATYPE_5, ATYPE_6, ATYPE_7, ATYPE_8, ATYPE_9, ATYPE_10);\
                                                                                       \
-static void NAME##_WRAP(TD_##NAME *t __attribute__((unused)))                         \
+static void NAME##_WRAP(LaceWorker* lace_worker, TD_##NAME *t __attribute__((unused)))\
 {                                                                                     \
-    t->d.res = NAME(t->d.args.arg_1, t->d.args.arg_2, t->d.args.arg_3, t->d.args.arg_4, t->d.args.arg_5, t->d.args.arg_6, t->d.args.arg_7, t->d.args.arg_8, t->d.args.arg_9, t->d.args.arg_10);\
+    t->d.res = NAME(lace_worker, t->d.args.arg_1, t->d.args.arg_2, t->d.args.arg_3, t->d.args.arg_4, t->d.args.arg_5, t->d.args.arg_6, t->d.args.arg_7, t->d.args.arg_8, t->d.args.arg_9, t->d.args.arg_10);\
 }                                                                                     \
                                                                                       \
 static inline __attribute__((unused))                                                 \
-void NAME##_SPAWN(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, ATYPE_5 arg_5, ATYPE_6 arg_6, ATYPE_7 arg_7, ATYPE_8 arg_8, ATYPE_9 arg_9, ATYPE_10 arg_10)\
+void NAME##_SPAWN(LaceWorker* _lace_worker, ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, ATYPE_5 arg_5, ATYPE_6 arg_6, ATYPE_7 arg_7, ATYPE_8 arg_8, ATYPE_9 arg_9, ATYPE_10 arg_10)\
 {                                                                                     \
     PR_COUNTTASK(w);                                                                  \
                                                                                       \
-    WorkerP *w = lace_get_worker();                                                   \
-    Task *lace_head = w->head;                                                        \
-    if (lace_head == w->end) lace_abort_stack_overflow();                             \
+    Task *lace_head = _lace_worker->head;                                             \
+    if (lace_head == _lace_worker->end) lace_abort_stack_overflow();                  \
                                                                                       \
     TD_##NAME *t;                                                                     \
     TailSplitNA ts;                                                                   \
@@ -3043,26 +3022,26 @@ void NAME##_SPAWN(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, AT
      t->d.args.arg_1 = arg_1; t->d.args.arg_2 = arg_2; t->d.args.arg_3 = arg_3; t->d.args.arg_4 = arg_4; t->d.args.arg_5 = arg_5; t->d.args.arg_6 = arg_6; t->d.args.arg_7 = arg_7; t->d.args.arg_8 = arg_8; t->d.args.arg_9 = arg_9; t->d.args.arg_10 = arg_10;\
     atomic_thread_fence(memory_order_acquire);                                        \
                                                                                       \
-    Worker *wt = w->_public;                                                          \
-    if (__builtin_expect(w->allstolen, 0)) {                                          \
+    Worker *wt = _lace_worker->_public;                                               \
+    if (__builtin_expect(_lace_worker->allstolen, 0)) {                               \
         if (wt->movesplit) wt->movesplit = 0;                                         \
-        head = lace_head - w->dq;                                                     \
+        head = lace_head - _lace_worker->dq;                                          \
         ts = (TailSplitNA){{head,head+1}};                                            \
         wt->ts.v = ts.v;                                                              \
         wt->allstolen = 0;                                                            \
-        w->split = lace_head+1;                                                       \
-        w->allstolen = 0;                                                             \
+        _lace_worker->split = lace_head+1;                                            \
+        _lace_worker->allstolen = 0;                                                  \
     } else if (__builtin_expect(wt->movesplit, 0)) {                                  \
-        head = lace_head - w->dq;                                                     \
-        split = w->split - w->dq;                                                     \
+        head = lace_head - _lace_worker->dq;                                          \
+        split = _lace_worker->split - _lace_worker->dq;                               \
         newsplit = (split + head + 2)/2;                                              \
         wt->ts.ts.split = newsplit;                                                   \
-        w->split = w->dq + newsplit;                                                  \
+        _lace_worker->split = _lace_worker->dq + newsplit;                            \
         wt->movesplit = 0;                                                            \
-        PR_COUNTSPLITS(w, CTR_split_grow);                                            \
+        PR_COUNTSPLITS(_lace_worker, CTR_split_grow);                                 \
     }                                                                                 \
                                                                                       \
-    w->head = lace_head+1;                                                            \
+    _lace_worker->head = lace_head+1;                                                 \
 }                                                                                     \
                                                                                       \
 static inline __attribute__((unused))                                                 \
@@ -3091,8 +3070,9 @@ void NAME##_TOGETHER(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4,
 static inline __attribute__((unused))                                                 \
 RTYPE NAME##_RUN(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, ATYPE_5 arg_5, ATYPE_6 arg_6, ATYPE_7 arg_7, ATYPE_8 arg_8, ATYPE_9 arg_9, ATYPE_10 arg_10)\
 {                                                                                     \
-    if (lace_is_worker()) {                                                           \
-        return NAME(arg_1, arg_2, arg_3, arg_4, arg_5, arg_6, arg_7, arg_8, arg_9, arg_10);\
+    LaceWorker *worker = lace_get_worker();                                           \
+    if (worker != NULL) {                                                             \
+        return NAME(worker, arg_1, arg_2, arg_3, arg_4, arg_5, arg_6, arg_7, arg_8, arg_9, arg_10);\
     }                                                                                 \
     Task _t;                                                                          \
     TD_##NAME *t = (TD_##NAME *)&_t;                                                  \
@@ -3104,27 +3084,26 @@ RTYPE NAME##_RUN(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, ATY
 }                                                                                     \
                                                                                       \
 static inline __attribute__((unused))                                                 \
-RTYPE NAME##_SYNC()                                                                   \
+RTYPE NAME##_SYNC(LaceWorker* _lace_worker)                                           \
 {                                                                                     \
-    WorkerP* w = lace_get_worker();                                                   \
-    Task* head = w->head - 1;                                                         \
-    w->head = head;                                                                   \
+    Task* head = _lace_worker->head - 1;                                              \
+    _lace_worker->head = head;                                                        \
                                                                                       \
     /* assert (__dq_head > 0); */  /* Commented out because we assume contract */     \
     TD_##NAME *t = (TD_##NAME *)head;                                                 \
                                                                                       \
-    if (__builtin_expect(0 == w->_public->movesplit, 1)) {                            \
-        if (__builtin_expect(w->split <= head, 1)) {                                  \
+    if (__builtin_expect(0 == _lace_worker->_public->movesplit, 1)) {                 \
+        if (__builtin_expect(_lace_worker->split <= head, 1)) {                       \
             atomic_store_explicit(&t->thief, THIEF_EMPTY, memory_order_relaxed);      \
-            return NAME(t->d.args.arg_1, t->d.args.arg_2, t->d.args.arg_3, t->d.args.arg_4, t->d.args.arg_5, t->d.args.arg_6, t->d.args.arg_7, t->d.args.arg_8, t->d.args.arg_9, t->d.args.arg_10);\
+            return NAME(_lace_worker, t->d.args.arg_1, t->d.args.arg_2, t->d.args.arg_3, t->d.args.arg_4, t->d.args.arg_5, t->d.args.arg_6, t->d.args.arg_7, t->d.args.arg_8, t->d.args.arg_9, t->d.args.arg_10);\
         }                                                                             \
     }                                                                                 \
                                                                                       \
-    if (lace_sync(w, head)) {                                                         \
+    if (lace_sync(_lace_worker, head)) {                                              \
         return ((TD_##NAME *)t)->d.res;                                               \
     } else {                                                                          \
         atomic_store_explicit(&t->thief, THIEF_EMPTY, memory_order_relaxed);          \
-        return NAME(t->d.args.arg_1, t->d.args.arg_2, t->d.args.arg_3, t->d.args.arg_4, t->d.args.arg_5, t->d.args.arg_6, t->d.args.arg_7, t->d.args.arg_8, t->d.args.arg_9, t->d.args.arg_10);\
+        return NAME(_lace_worker, t->d.args.arg_1, t->d.args.arg_2, t->d.args.arg_3, t->d.args.arg_4, t->d.args.arg_5, t->d.args.arg_6, t->d.args.arg_7, t->d.args.arg_8, t->d.args.arg_9, t->d.args.arg_10);\
     }                                                                                 \
 }                                                                                     \
                                                                                       \
@@ -3140,21 +3119,20 @@ typedef struct _TD_##NAME {                                                     
 /* If this line generates an error, please manually set the define LACE_TASKSIZE to a higher value */\
 typedef char assertion_failed_task_descriptor_out_of_bounds_##NAME[(sizeof(TD_##NAME)<=sizeof(Task)) ? 0 : -1];\
                                                                                       \
-void NAME(ATYPE_1, ATYPE_2, ATYPE_3, ATYPE_4, ATYPE_5, ATYPE_6, ATYPE_7, ATYPE_8, ATYPE_9, ATYPE_10);\
+void NAME(LaceWorker*, ATYPE_1, ATYPE_2, ATYPE_3, ATYPE_4, ATYPE_5, ATYPE_6, ATYPE_7, ATYPE_8, ATYPE_9, ATYPE_10);\
                                                                                       \
-static void NAME##_WRAP(TD_##NAME *t __attribute__((unused)))                         \
+static void NAME##_WRAP(LaceWorker* lace_worker, TD_##NAME *t __attribute__((unused)))\
 {                                                                                     \
-     NAME(t->d.args.arg_1, t->d.args.arg_2, t->d.args.arg_3, t->d.args.arg_4, t->d.args.arg_5, t->d.args.arg_6, t->d.args.arg_7, t->d.args.arg_8, t->d.args.arg_9, t->d.args.arg_10);\
+     NAME(lace_worker, t->d.args.arg_1, t->d.args.arg_2, t->d.args.arg_3, t->d.args.arg_4, t->d.args.arg_5, t->d.args.arg_6, t->d.args.arg_7, t->d.args.arg_8, t->d.args.arg_9, t->d.args.arg_10);\
 }                                                                                     \
                                                                                       \
 static inline __attribute__((unused))                                                 \
-void NAME##_SPAWN(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, ATYPE_5 arg_5, ATYPE_6 arg_6, ATYPE_7 arg_7, ATYPE_8 arg_8, ATYPE_9 arg_9, ATYPE_10 arg_10)\
+void NAME##_SPAWN(LaceWorker* _lace_worker, ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, ATYPE_5 arg_5, ATYPE_6 arg_6, ATYPE_7 arg_7, ATYPE_8 arg_8, ATYPE_9 arg_9, ATYPE_10 arg_10)\
 {                                                                                     \
     PR_COUNTTASK(w);                                                                  \
                                                                                       \
-    WorkerP *w = lace_get_worker();                                                   \
-    Task *lace_head = w->head;                                                        \
-    if (lace_head == w->end) lace_abort_stack_overflow();                             \
+    Task *lace_head = _lace_worker->head;                                             \
+    if (lace_head == _lace_worker->end) lace_abort_stack_overflow();                  \
                                                                                       \
     TD_##NAME *t;                                                                     \
     TailSplitNA ts;                                                                   \
@@ -3166,26 +3144,26 @@ void NAME##_SPAWN(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, AT
      t->d.args.arg_1 = arg_1; t->d.args.arg_2 = arg_2; t->d.args.arg_3 = arg_3; t->d.args.arg_4 = arg_4; t->d.args.arg_5 = arg_5; t->d.args.arg_6 = arg_6; t->d.args.arg_7 = arg_7; t->d.args.arg_8 = arg_8; t->d.args.arg_9 = arg_9; t->d.args.arg_10 = arg_10;\
     atomic_thread_fence(memory_order_acquire);                                        \
                                                                                       \
-    Worker *wt = w->_public;                                                          \
-    if (__builtin_expect(w->allstolen, 0)) {                                          \
+    Worker *wt = _lace_worker->_public;                                               \
+    if (__builtin_expect(_lace_worker->allstolen, 0)) {                               \
         if (wt->movesplit) wt->movesplit = 0;                                         \
-        head = lace_head - w->dq;                                                     \
+        head = lace_head - _lace_worker->dq;                                          \
         ts = (TailSplitNA){{head,head+1}};                                            \
         wt->ts.v = ts.v;                                                              \
         wt->allstolen = 0;                                                            \
-        w->split = lace_head+1;                                                       \
-        w->allstolen = 0;                                                             \
+        _lace_worker->split = lace_head+1;                                            \
+        _lace_worker->allstolen = 0;                                                  \
     } else if (__builtin_expect(wt->movesplit, 0)) {                                  \
-        head = lace_head - w->dq;                                                     \
-        split = w->split - w->dq;                                                     \
+        head = lace_head - _lace_worker->dq;                                          \
+        split = _lace_worker->split - _lace_worker->dq;                               \
         newsplit = (split + head + 2)/2;                                              \
         wt->ts.ts.split = newsplit;                                                   \
-        w->split = w->dq + newsplit;                                                  \
+        _lace_worker->split = _lace_worker->dq + newsplit;                            \
         wt->movesplit = 0;                                                            \
-        PR_COUNTSPLITS(w, CTR_split_grow);                                            \
+        PR_COUNTSPLITS(_lace_worker, CTR_split_grow);                                 \
     }                                                                                 \
                                                                                       \
-    w->head = lace_head+1;                                                            \
+    _lace_worker->head = lace_head+1;                                                 \
 }                                                                                     \
                                                                                       \
 static inline __attribute__((unused))                                                 \
@@ -3214,8 +3192,9 @@ void NAME##_TOGETHER(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4,
 static inline __attribute__((unused))                                                 \
 void NAME##_RUN(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, ATYPE_5 arg_5, ATYPE_6 arg_6, ATYPE_7 arg_7, ATYPE_8 arg_8, ATYPE_9 arg_9, ATYPE_10 arg_10)\
 {                                                                                     \
-    if (lace_is_worker()) {                                                           \
-        return NAME(arg_1, arg_2, arg_3, arg_4, arg_5, arg_6, arg_7, arg_8, arg_9, arg_10);\
+    LaceWorker *worker = lace_get_worker();                                           \
+    if (worker != NULL) {                                                             \
+        return NAME(worker, arg_1, arg_2, arg_3, arg_4, arg_5, arg_6, arg_7, arg_8, arg_9, arg_10);\
     }                                                                                 \
     Task _t;                                                                          \
     TD_##NAME *t = (TD_##NAME *)&_t;                                                  \
@@ -3227,27 +3206,26 @@ void NAME##_RUN(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, ATYP
 }                                                                                     \
                                                                                       \
 static inline __attribute__((unused))                                                 \
-void NAME##_SYNC()                                                                    \
+void NAME##_SYNC(LaceWorker* _lace_worker)                                            \
 {                                                                                     \
-    WorkerP* w = lace_get_worker();                                                   \
-    Task* head = w->head - 1;                                                         \
-    w->head = head;                                                                   \
+    Task* head = _lace_worker->head - 1;                                              \
+    _lace_worker->head = head;                                                        \
                                                                                       \
     /* assert (__dq_head > 0); */  /* Commented out because we assume contract */     \
     TD_##NAME *t = (TD_##NAME *)head;                                                 \
                                                                                       \
-    if (__builtin_expect(0 == w->_public->movesplit, 1)) {                            \
-        if (__builtin_expect(w->split <= head, 1)) {                                  \
+    if (__builtin_expect(0 == _lace_worker->_public->movesplit, 1)) {                 \
+        if (__builtin_expect(_lace_worker->split <= head, 1)) {                       \
             atomic_store_explicit(&t->thief, THIEF_EMPTY, memory_order_relaxed);      \
-            return NAME(t->d.args.arg_1, t->d.args.arg_2, t->d.args.arg_3, t->d.args.arg_4, t->d.args.arg_5, t->d.args.arg_6, t->d.args.arg_7, t->d.args.arg_8, t->d.args.arg_9, t->d.args.arg_10);\
+            return NAME(_lace_worker, t->d.args.arg_1, t->d.args.arg_2, t->d.args.arg_3, t->d.args.arg_4, t->d.args.arg_5, t->d.args.arg_6, t->d.args.arg_7, t->d.args.arg_8, t->d.args.arg_9, t->d.args.arg_10);\
         }                                                                             \
     }                                                                                 \
                                                                                       \
-    if (lace_sync(w, head)) {                                                         \
+    if (lace_sync(_lace_worker, head)) {                                              \
         return ;                                                                      \
     } else {                                                                          \
         atomic_store_explicit(&t->thief, THIEF_EMPTY, memory_order_relaxed);          \
-        return NAME(t->d.args.arg_1, t->d.args.arg_2, t->d.args.arg_3, t->d.args.arg_4, t->d.args.arg_5, t->d.args.arg_6, t->d.args.arg_7, t->d.args.arg_8, t->d.args.arg_9, t->d.args.arg_10);\
+        return NAME(_lace_worker, t->d.args.arg_1, t->d.args.arg_2, t->d.args.arg_3, t->d.args.arg_4, t->d.args.arg_5, t->d.args.arg_6, t->d.args.arg_7, t->d.args.arg_8, t->d.args.arg_9, t->d.args.arg_10);\
     }                                                                                 \
 }                                                                                     \
                                                                                       \
@@ -3266,21 +3244,20 @@ typedef struct _TD_##NAME {                                                     
 /* If this line generates an error, please manually set the define LACE_TASKSIZE to a higher value */\
 typedef char assertion_failed_task_descriptor_out_of_bounds_##NAME[(sizeof(TD_##NAME)<=sizeof(Task)) ? 0 : -1];\
                                                                                       \
-RTYPE NAME(ATYPE_1, ATYPE_2, ATYPE_3, ATYPE_4, ATYPE_5, ATYPE_6, ATYPE_7, ATYPE_8, ATYPE_9, ATYPE_10, ATYPE_11);\
+RTYPE NAME(LaceWorker*, ATYPE_1, ATYPE_2, ATYPE_3, ATYPE_4, ATYPE_5, ATYPE_6, ATYPE_7, ATYPE_8, ATYPE_9, ATYPE_10, ATYPE_11);\
                                                                                       \
-static void NAME##_WRAP(TD_##NAME *t __attribute__((unused)))                         \
+static void NAME##_WRAP(LaceWorker* lace_worker, TD_##NAME *t __attribute__((unused)))\
 {                                                                                     \
-    t->d.res = NAME(t->d.args.arg_1, t->d.args.arg_2, t->d.args.arg_3, t->d.args.arg_4, t->d.args.arg_5, t->d.args.arg_6, t->d.args.arg_7, t->d.args.arg_8, t->d.args.arg_9, t->d.args.arg_10, t->d.args.arg_11);\
+    t->d.res = NAME(lace_worker, t->d.args.arg_1, t->d.args.arg_2, t->d.args.arg_3, t->d.args.arg_4, t->d.args.arg_5, t->d.args.arg_6, t->d.args.arg_7, t->d.args.arg_8, t->d.args.arg_9, t->d.args.arg_10, t->d.args.arg_11);\
 }                                                                                     \
                                                                                       \
 static inline __attribute__((unused))                                                 \
-void NAME##_SPAWN(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, ATYPE_5 arg_5, ATYPE_6 arg_6, ATYPE_7 arg_7, ATYPE_8 arg_8, ATYPE_9 arg_9, ATYPE_10 arg_10, ATYPE_11 arg_11)\
+void NAME##_SPAWN(LaceWorker* _lace_worker, ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, ATYPE_5 arg_5, ATYPE_6 arg_6, ATYPE_7 arg_7, ATYPE_8 arg_8, ATYPE_9 arg_9, ATYPE_10 arg_10, ATYPE_11 arg_11)\
 {                                                                                     \
     PR_COUNTTASK(w);                                                                  \
                                                                                       \
-    WorkerP *w = lace_get_worker();                                                   \
-    Task *lace_head = w->head;                                                        \
-    if (lace_head == w->end) lace_abort_stack_overflow();                             \
+    Task *lace_head = _lace_worker->head;                                             \
+    if (lace_head == _lace_worker->end) lace_abort_stack_overflow();                  \
                                                                                       \
     TD_##NAME *t;                                                                     \
     TailSplitNA ts;                                                                   \
@@ -3292,26 +3269,26 @@ void NAME##_SPAWN(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, AT
      t->d.args.arg_1 = arg_1; t->d.args.arg_2 = arg_2; t->d.args.arg_3 = arg_3; t->d.args.arg_4 = arg_4; t->d.args.arg_5 = arg_5; t->d.args.arg_6 = arg_6; t->d.args.arg_7 = arg_7; t->d.args.arg_8 = arg_8; t->d.args.arg_9 = arg_9; t->d.args.arg_10 = arg_10; t->d.args.arg_11 = arg_11;\
     atomic_thread_fence(memory_order_acquire);                                        \
                                                                                       \
-    Worker *wt = w->_public;                                                          \
-    if (__builtin_expect(w->allstolen, 0)) {                                          \
+    Worker *wt = _lace_worker->_public;                                               \
+    if (__builtin_expect(_lace_worker->allstolen, 0)) {                               \
         if (wt->movesplit) wt->movesplit = 0;                                         \
-        head = lace_head - w->dq;                                                     \
+        head = lace_head - _lace_worker->dq;                                          \
         ts = (TailSplitNA){{head,head+1}};                                            \
         wt->ts.v = ts.v;                                                              \
         wt->allstolen = 0;                                                            \
-        w->split = lace_head+1;                                                       \
-        w->allstolen = 0;                                                             \
+        _lace_worker->split = lace_head+1;                                            \
+        _lace_worker->allstolen = 0;                                                  \
     } else if (__builtin_expect(wt->movesplit, 0)) {                                  \
-        head = lace_head - w->dq;                                                     \
-        split = w->split - w->dq;                                                     \
+        head = lace_head - _lace_worker->dq;                                          \
+        split = _lace_worker->split - _lace_worker->dq;                               \
         newsplit = (split + head + 2)/2;                                              \
         wt->ts.ts.split = newsplit;                                                   \
-        w->split = w->dq + newsplit;                                                  \
+        _lace_worker->split = _lace_worker->dq + newsplit;                            \
         wt->movesplit = 0;                                                            \
-        PR_COUNTSPLITS(w, CTR_split_grow);                                            \
+        PR_COUNTSPLITS(_lace_worker, CTR_split_grow);                                 \
     }                                                                                 \
                                                                                       \
-    w->head = lace_head+1;                                                            \
+    _lace_worker->head = lace_head+1;                                                 \
 }                                                                                     \
                                                                                       \
 static inline __attribute__((unused))                                                 \
@@ -3340,8 +3317,9 @@ void NAME##_TOGETHER(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4,
 static inline __attribute__((unused))                                                 \
 RTYPE NAME##_RUN(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, ATYPE_5 arg_5, ATYPE_6 arg_6, ATYPE_7 arg_7, ATYPE_8 arg_8, ATYPE_9 arg_9, ATYPE_10 arg_10, ATYPE_11 arg_11)\
 {                                                                                     \
-    if (lace_is_worker()) {                                                           \
-        return NAME(arg_1, arg_2, arg_3, arg_4, arg_5, arg_6, arg_7, arg_8, arg_9, arg_10, arg_11);\
+    LaceWorker *worker = lace_get_worker();                                           \
+    if (worker != NULL) {                                                             \
+        return NAME(worker, arg_1, arg_2, arg_3, arg_4, arg_5, arg_6, arg_7, arg_8, arg_9, arg_10, arg_11);\
     }                                                                                 \
     Task _t;                                                                          \
     TD_##NAME *t = (TD_##NAME *)&_t;                                                  \
@@ -3353,27 +3331,26 @@ RTYPE NAME##_RUN(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, ATY
 }                                                                                     \
                                                                                       \
 static inline __attribute__((unused))                                                 \
-RTYPE NAME##_SYNC()                                                                   \
+RTYPE NAME##_SYNC(LaceWorker* _lace_worker)                                           \
 {                                                                                     \
-    WorkerP* w = lace_get_worker();                                                   \
-    Task* head = w->head - 1;                                                         \
-    w->head = head;                                                                   \
+    Task* head = _lace_worker->head - 1;                                              \
+    _lace_worker->head = head;                                                        \
                                                                                       \
     /* assert (__dq_head > 0); */  /* Commented out because we assume contract */     \
     TD_##NAME *t = (TD_##NAME *)head;                                                 \
                                                                                       \
-    if (__builtin_expect(0 == w->_public->movesplit, 1)) {                            \
-        if (__builtin_expect(w->split <= head, 1)) {                                  \
+    if (__builtin_expect(0 == _lace_worker->_public->movesplit, 1)) {                 \
+        if (__builtin_expect(_lace_worker->split <= head, 1)) {                       \
             atomic_store_explicit(&t->thief, THIEF_EMPTY, memory_order_relaxed);      \
-            return NAME(t->d.args.arg_1, t->d.args.arg_2, t->d.args.arg_3, t->d.args.arg_4, t->d.args.arg_5, t->d.args.arg_6, t->d.args.arg_7, t->d.args.arg_8, t->d.args.arg_9, t->d.args.arg_10, t->d.args.arg_11);\
+            return NAME(_lace_worker, t->d.args.arg_1, t->d.args.arg_2, t->d.args.arg_3, t->d.args.arg_4, t->d.args.arg_5, t->d.args.arg_6, t->d.args.arg_7, t->d.args.arg_8, t->d.args.arg_9, t->d.args.arg_10, t->d.args.arg_11);\
         }                                                                             \
     }                                                                                 \
                                                                                       \
-    if (lace_sync(w, head)) {                                                         \
+    if (lace_sync(_lace_worker, head)) {                                              \
         return ((TD_##NAME *)t)->d.res;                                               \
     } else {                                                                          \
         atomic_store_explicit(&t->thief, THIEF_EMPTY, memory_order_relaxed);          \
-        return NAME(t->d.args.arg_1, t->d.args.arg_2, t->d.args.arg_3, t->d.args.arg_4, t->d.args.arg_5, t->d.args.arg_6, t->d.args.arg_7, t->d.args.arg_8, t->d.args.arg_9, t->d.args.arg_10, t->d.args.arg_11);\
+        return NAME(_lace_worker, t->d.args.arg_1, t->d.args.arg_2, t->d.args.arg_3, t->d.args.arg_4, t->d.args.arg_5, t->d.args.arg_6, t->d.args.arg_7, t->d.args.arg_8, t->d.args.arg_9, t->d.args.arg_10, t->d.args.arg_11);\
     }                                                                                 \
 }                                                                                     \
                                                                                       \
@@ -3389,21 +3366,20 @@ typedef struct _TD_##NAME {                                                     
 /* If this line generates an error, please manually set the define LACE_TASKSIZE to a higher value */\
 typedef char assertion_failed_task_descriptor_out_of_bounds_##NAME[(sizeof(TD_##NAME)<=sizeof(Task)) ? 0 : -1];\
                                                                                       \
-void NAME(ATYPE_1, ATYPE_2, ATYPE_3, ATYPE_4, ATYPE_5, ATYPE_6, ATYPE_7, ATYPE_8, ATYPE_9, ATYPE_10, ATYPE_11);\
+void NAME(LaceWorker*, ATYPE_1, ATYPE_2, ATYPE_3, ATYPE_4, ATYPE_5, ATYPE_6, ATYPE_7, ATYPE_8, ATYPE_9, ATYPE_10, ATYPE_11);\
                                                                                       \
-static void NAME##_WRAP(TD_##NAME *t __attribute__((unused)))                         \
+static void NAME##_WRAP(LaceWorker* lace_worker, TD_##NAME *t __attribute__((unused)))\
 {                                                                                     \
-     NAME(t->d.args.arg_1, t->d.args.arg_2, t->d.args.arg_3, t->d.args.arg_4, t->d.args.arg_5, t->d.args.arg_6, t->d.args.arg_7, t->d.args.arg_8, t->d.args.arg_9, t->d.args.arg_10, t->d.args.arg_11);\
+     NAME(lace_worker, t->d.args.arg_1, t->d.args.arg_2, t->d.args.arg_3, t->d.args.arg_4, t->d.args.arg_5, t->d.args.arg_6, t->d.args.arg_7, t->d.args.arg_8, t->d.args.arg_9, t->d.args.arg_10, t->d.args.arg_11);\
 }                                                                                     \
                                                                                       \
 static inline __attribute__((unused))                                                 \
-void NAME##_SPAWN(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, ATYPE_5 arg_5, ATYPE_6 arg_6, ATYPE_7 arg_7, ATYPE_8 arg_8, ATYPE_9 arg_9, ATYPE_10 arg_10, ATYPE_11 arg_11)\
+void NAME##_SPAWN(LaceWorker* _lace_worker, ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, ATYPE_5 arg_5, ATYPE_6 arg_6, ATYPE_7 arg_7, ATYPE_8 arg_8, ATYPE_9 arg_9, ATYPE_10 arg_10, ATYPE_11 arg_11)\
 {                                                                                     \
     PR_COUNTTASK(w);                                                                  \
                                                                                       \
-    WorkerP *w = lace_get_worker();                                                   \
-    Task *lace_head = w->head;                                                        \
-    if (lace_head == w->end) lace_abort_stack_overflow();                             \
+    Task *lace_head = _lace_worker->head;                                             \
+    if (lace_head == _lace_worker->end) lace_abort_stack_overflow();                  \
                                                                                       \
     TD_##NAME *t;                                                                     \
     TailSplitNA ts;                                                                   \
@@ -3415,26 +3391,26 @@ void NAME##_SPAWN(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, AT
      t->d.args.arg_1 = arg_1; t->d.args.arg_2 = arg_2; t->d.args.arg_3 = arg_3; t->d.args.arg_4 = arg_4; t->d.args.arg_5 = arg_5; t->d.args.arg_6 = arg_6; t->d.args.arg_7 = arg_7; t->d.args.arg_8 = arg_8; t->d.args.arg_9 = arg_9; t->d.args.arg_10 = arg_10; t->d.args.arg_11 = arg_11;\
     atomic_thread_fence(memory_order_acquire);                                        \
                                                                                       \
-    Worker *wt = w->_public;                                                          \
-    if (__builtin_expect(w->allstolen, 0)) {                                          \
+    Worker *wt = _lace_worker->_public;                                               \
+    if (__builtin_expect(_lace_worker->allstolen, 0)) {                               \
         if (wt->movesplit) wt->movesplit = 0;                                         \
-        head = lace_head - w->dq;                                                     \
+        head = lace_head - _lace_worker->dq;                                          \
         ts = (TailSplitNA){{head,head+1}};                                            \
         wt->ts.v = ts.v;                                                              \
         wt->allstolen = 0;                                                            \
-        w->split = lace_head+1;                                                       \
-        w->allstolen = 0;                                                             \
+        _lace_worker->split = lace_head+1;                                            \
+        _lace_worker->allstolen = 0;                                                  \
     } else if (__builtin_expect(wt->movesplit, 0)) {                                  \
-        head = lace_head - w->dq;                                                     \
-        split = w->split - w->dq;                                                     \
+        head = lace_head - _lace_worker->dq;                                          \
+        split = _lace_worker->split - _lace_worker->dq;                               \
         newsplit = (split + head + 2)/2;                                              \
         wt->ts.ts.split = newsplit;                                                   \
-        w->split = w->dq + newsplit;                                                  \
+        _lace_worker->split = _lace_worker->dq + newsplit;                            \
         wt->movesplit = 0;                                                            \
-        PR_COUNTSPLITS(w, CTR_split_grow);                                            \
+        PR_COUNTSPLITS(_lace_worker, CTR_split_grow);                                 \
     }                                                                                 \
                                                                                       \
-    w->head = lace_head+1;                                                            \
+    _lace_worker->head = lace_head+1;                                                 \
 }                                                                                     \
                                                                                       \
 static inline __attribute__((unused))                                                 \
@@ -3463,8 +3439,9 @@ void NAME##_TOGETHER(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4,
 static inline __attribute__((unused))                                                 \
 void NAME##_RUN(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, ATYPE_5 arg_5, ATYPE_6 arg_6, ATYPE_7 arg_7, ATYPE_8 arg_8, ATYPE_9 arg_9, ATYPE_10 arg_10, ATYPE_11 arg_11)\
 {                                                                                     \
-    if (lace_is_worker()) {                                                           \
-        return NAME(arg_1, arg_2, arg_3, arg_4, arg_5, arg_6, arg_7, arg_8, arg_9, arg_10, arg_11);\
+    LaceWorker *worker = lace_get_worker();                                           \
+    if (worker != NULL) {                                                             \
+        return NAME(worker, arg_1, arg_2, arg_3, arg_4, arg_5, arg_6, arg_7, arg_8, arg_9, arg_10, arg_11);\
     }                                                                                 \
     Task _t;                                                                          \
     TD_##NAME *t = (TD_##NAME *)&_t;                                                  \
@@ -3476,27 +3453,26 @@ void NAME##_RUN(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, ATYP
 }                                                                                     \
                                                                                       \
 static inline __attribute__((unused))                                                 \
-void NAME##_SYNC()                                                                    \
+void NAME##_SYNC(LaceWorker* _lace_worker)                                            \
 {                                                                                     \
-    WorkerP* w = lace_get_worker();                                                   \
-    Task* head = w->head - 1;                                                         \
-    w->head = head;                                                                   \
+    Task* head = _lace_worker->head - 1;                                              \
+    _lace_worker->head = head;                                                        \
                                                                                       \
     /* assert (__dq_head > 0); */  /* Commented out because we assume contract */     \
     TD_##NAME *t = (TD_##NAME *)head;                                                 \
                                                                                       \
-    if (__builtin_expect(0 == w->_public->movesplit, 1)) {                            \
-        if (__builtin_expect(w->split <= head, 1)) {                                  \
+    if (__builtin_expect(0 == _lace_worker->_public->movesplit, 1)) {                 \
+        if (__builtin_expect(_lace_worker->split <= head, 1)) {                       \
             atomic_store_explicit(&t->thief, THIEF_EMPTY, memory_order_relaxed);      \
-            return NAME(t->d.args.arg_1, t->d.args.arg_2, t->d.args.arg_3, t->d.args.arg_4, t->d.args.arg_5, t->d.args.arg_6, t->d.args.arg_7, t->d.args.arg_8, t->d.args.arg_9, t->d.args.arg_10, t->d.args.arg_11);\
+            return NAME(_lace_worker, t->d.args.arg_1, t->d.args.arg_2, t->d.args.arg_3, t->d.args.arg_4, t->d.args.arg_5, t->d.args.arg_6, t->d.args.arg_7, t->d.args.arg_8, t->d.args.arg_9, t->d.args.arg_10, t->d.args.arg_11);\
         }                                                                             \
     }                                                                                 \
                                                                                       \
-    if (lace_sync(w, head)) {                                                         \
+    if (lace_sync(_lace_worker, head)) {                                              \
         return ;                                                                      \
     } else {                                                                          \
         atomic_store_explicit(&t->thief, THIEF_EMPTY, memory_order_relaxed);          \
-        return NAME(t->d.args.arg_1, t->d.args.arg_2, t->d.args.arg_3, t->d.args.arg_4, t->d.args.arg_5, t->d.args.arg_6, t->d.args.arg_7, t->d.args.arg_8, t->d.args.arg_9, t->d.args.arg_10, t->d.args.arg_11);\
+        return NAME(_lace_worker, t->d.args.arg_1, t->d.args.arg_2, t->d.args.arg_3, t->d.args.arg_4, t->d.args.arg_5, t->d.args.arg_6, t->d.args.arg_7, t->d.args.arg_8, t->d.args.arg_9, t->d.args.arg_10, t->d.args.arg_11);\
     }                                                                                 \
 }                                                                                     \
                                                                                       \
@@ -3515,21 +3491,20 @@ typedef struct _TD_##NAME {                                                     
 /* If this line generates an error, please manually set the define LACE_TASKSIZE to a higher value */\
 typedef char assertion_failed_task_descriptor_out_of_bounds_##NAME[(sizeof(TD_##NAME)<=sizeof(Task)) ? 0 : -1];\
                                                                                       \
-RTYPE NAME(ATYPE_1, ATYPE_2, ATYPE_3, ATYPE_4, ATYPE_5, ATYPE_6, ATYPE_7, ATYPE_8, ATYPE_9, ATYPE_10, ATYPE_11, ATYPE_12);\
+RTYPE NAME(LaceWorker*, ATYPE_1, ATYPE_2, ATYPE_3, ATYPE_4, ATYPE_5, ATYPE_6, ATYPE_7, ATYPE_8, ATYPE_9, ATYPE_10, ATYPE_11, ATYPE_12);\
                                                                                       \
-static void NAME##_WRAP(TD_##NAME *t __attribute__((unused)))                         \
+static void NAME##_WRAP(LaceWorker* lace_worker, TD_##NAME *t __attribute__((unused)))\
 {                                                                                     \
-    t->d.res = NAME(t->d.args.arg_1, t->d.args.arg_2, t->d.args.arg_3, t->d.args.arg_4, t->d.args.arg_5, t->d.args.arg_6, t->d.args.arg_7, t->d.args.arg_8, t->d.args.arg_9, t->d.args.arg_10, t->d.args.arg_11, t->d.args.arg_12);\
+    t->d.res = NAME(lace_worker, t->d.args.arg_1, t->d.args.arg_2, t->d.args.arg_3, t->d.args.arg_4, t->d.args.arg_5, t->d.args.arg_6, t->d.args.arg_7, t->d.args.arg_8, t->d.args.arg_9, t->d.args.arg_10, t->d.args.arg_11, t->d.args.arg_12);\
 }                                                                                     \
                                                                                       \
 static inline __attribute__((unused))                                                 \
-void NAME##_SPAWN(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, ATYPE_5 arg_5, ATYPE_6 arg_6, ATYPE_7 arg_7, ATYPE_8 arg_8, ATYPE_9 arg_9, ATYPE_10 arg_10, ATYPE_11 arg_11, ATYPE_12 arg_12)\
+void NAME##_SPAWN(LaceWorker* _lace_worker, ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, ATYPE_5 arg_5, ATYPE_6 arg_6, ATYPE_7 arg_7, ATYPE_8 arg_8, ATYPE_9 arg_9, ATYPE_10 arg_10, ATYPE_11 arg_11, ATYPE_12 arg_12)\
 {                                                                                     \
     PR_COUNTTASK(w);                                                                  \
                                                                                       \
-    WorkerP *w = lace_get_worker();                                                   \
-    Task *lace_head = w->head;                                                        \
-    if (lace_head == w->end) lace_abort_stack_overflow();                             \
+    Task *lace_head = _lace_worker->head;                                             \
+    if (lace_head == _lace_worker->end) lace_abort_stack_overflow();                  \
                                                                                       \
     TD_##NAME *t;                                                                     \
     TailSplitNA ts;                                                                   \
@@ -3541,26 +3516,26 @@ void NAME##_SPAWN(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, AT
      t->d.args.arg_1 = arg_1; t->d.args.arg_2 = arg_2; t->d.args.arg_3 = arg_3; t->d.args.arg_4 = arg_4; t->d.args.arg_5 = arg_5; t->d.args.arg_6 = arg_6; t->d.args.arg_7 = arg_7; t->d.args.arg_8 = arg_8; t->d.args.arg_9 = arg_9; t->d.args.arg_10 = arg_10; t->d.args.arg_11 = arg_11; t->d.args.arg_12 = arg_12;\
     atomic_thread_fence(memory_order_acquire);                                        \
                                                                                       \
-    Worker *wt = w->_public;                                                          \
-    if (__builtin_expect(w->allstolen, 0)) {                                          \
+    Worker *wt = _lace_worker->_public;                                               \
+    if (__builtin_expect(_lace_worker->allstolen, 0)) {                               \
         if (wt->movesplit) wt->movesplit = 0;                                         \
-        head = lace_head - w->dq;                                                     \
+        head = lace_head - _lace_worker->dq;                                          \
         ts = (TailSplitNA){{head,head+1}};                                            \
         wt->ts.v = ts.v;                                                              \
         wt->allstolen = 0;                                                            \
-        w->split = lace_head+1;                                                       \
-        w->allstolen = 0;                                                             \
+        _lace_worker->split = lace_head+1;                                            \
+        _lace_worker->allstolen = 0;                                                  \
     } else if (__builtin_expect(wt->movesplit, 0)) {                                  \
-        head = lace_head - w->dq;                                                     \
-        split = w->split - w->dq;                                                     \
+        head = lace_head - _lace_worker->dq;                                          \
+        split = _lace_worker->split - _lace_worker->dq;                               \
         newsplit = (split + head + 2)/2;                                              \
         wt->ts.ts.split = newsplit;                                                   \
-        w->split = w->dq + newsplit;                                                  \
+        _lace_worker->split = _lace_worker->dq + newsplit;                            \
         wt->movesplit = 0;                                                            \
-        PR_COUNTSPLITS(w, CTR_split_grow);                                            \
+        PR_COUNTSPLITS(_lace_worker, CTR_split_grow);                                 \
     }                                                                                 \
                                                                                       \
-    w->head = lace_head+1;                                                            \
+    _lace_worker->head = lace_head+1;                                                 \
 }                                                                                     \
                                                                                       \
 static inline __attribute__((unused))                                                 \
@@ -3589,8 +3564,9 @@ void NAME##_TOGETHER(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4,
 static inline __attribute__((unused))                                                 \
 RTYPE NAME##_RUN(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, ATYPE_5 arg_5, ATYPE_6 arg_6, ATYPE_7 arg_7, ATYPE_8 arg_8, ATYPE_9 arg_9, ATYPE_10 arg_10, ATYPE_11 arg_11, ATYPE_12 arg_12)\
 {                                                                                     \
-    if (lace_is_worker()) {                                                           \
-        return NAME(arg_1, arg_2, arg_3, arg_4, arg_5, arg_6, arg_7, arg_8, arg_9, arg_10, arg_11, arg_12);\
+    LaceWorker *worker = lace_get_worker();                                           \
+    if (worker != NULL) {                                                             \
+        return NAME(worker, arg_1, arg_2, arg_3, arg_4, arg_5, arg_6, arg_7, arg_8, arg_9, arg_10, arg_11, arg_12);\
     }                                                                                 \
     Task _t;                                                                          \
     TD_##NAME *t = (TD_##NAME *)&_t;                                                  \
@@ -3602,27 +3578,26 @@ RTYPE NAME##_RUN(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, ATY
 }                                                                                     \
                                                                                       \
 static inline __attribute__((unused))                                                 \
-RTYPE NAME##_SYNC()                                                                   \
+RTYPE NAME##_SYNC(LaceWorker* _lace_worker)                                           \
 {                                                                                     \
-    WorkerP* w = lace_get_worker();                                                   \
-    Task* head = w->head - 1;                                                         \
-    w->head = head;                                                                   \
+    Task* head = _lace_worker->head - 1;                                              \
+    _lace_worker->head = head;                                                        \
                                                                                       \
     /* assert (__dq_head > 0); */  /* Commented out because we assume contract */     \
     TD_##NAME *t = (TD_##NAME *)head;                                                 \
                                                                                       \
-    if (__builtin_expect(0 == w->_public->movesplit, 1)) {                            \
-        if (__builtin_expect(w->split <= head, 1)) {                                  \
+    if (__builtin_expect(0 == _lace_worker->_public->movesplit, 1)) {                 \
+        if (__builtin_expect(_lace_worker->split <= head, 1)) {                       \
             atomic_store_explicit(&t->thief, THIEF_EMPTY, memory_order_relaxed);      \
-            return NAME(t->d.args.arg_1, t->d.args.arg_2, t->d.args.arg_3, t->d.args.arg_4, t->d.args.arg_5, t->d.args.arg_6, t->d.args.arg_7, t->d.args.arg_8, t->d.args.arg_9, t->d.args.arg_10, t->d.args.arg_11, t->d.args.arg_12);\
+            return NAME(_lace_worker, t->d.args.arg_1, t->d.args.arg_2, t->d.args.arg_3, t->d.args.arg_4, t->d.args.arg_5, t->d.args.arg_6, t->d.args.arg_7, t->d.args.arg_8, t->d.args.arg_9, t->d.args.arg_10, t->d.args.arg_11, t->d.args.arg_12);\
         }                                                                             \
     }                                                                                 \
                                                                                       \
-    if (lace_sync(w, head)) {                                                         \
+    if (lace_sync(_lace_worker, head)) {                                              \
         return ((TD_##NAME *)t)->d.res;                                               \
     } else {                                                                          \
         atomic_store_explicit(&t->thief, THIEF_EMPTY, memory_order_relaxed);          \
-        return NAME(t->d.args.arg_1, t->d.args.arg_2, t->d.args.arg_3, t->d.args.arg_4, t->d.args.arg_5, t->d.args.arg_6, t->d.args.arg_7, t->d.args.arg_8, t->d.args.arg_9, t->d.args.arg_10, t->d.args.arg_11, t->d.args.arg_12);\
+        return NAME(_lace_worker, t->d.args.arg_1, t->d.args.arg_2, t->d.args.arg_3, t->d.args.arg_4, t->d.args.arg_5, t->d.args.arg_6, t->d.args.arg_7, t->d.args.arg_8, t->d.args.arg_9, t->d.args.arg_10, t->d.args.arg_11, t->d.args.arg_12);\
     }                                                                                 \
 }                                                                                     \
                                                                                       \
@@ -3638,21 +3613,20 @@ typedef struct _TD_##NAME {                                                     
 /* If this line generates an error, please manually set the define LACE_TASKSIZE to a higher value */\
 typedef char assertion_failed_task_descriptor_out_of_bounds_##NAME[(sizeof(TD_##NAME)<=sizeof(Task)) ? 0 : -1];\
                                                                                       \
-void NAME(ATYPE_1, ATYPE_2, ATYPE_3, ATYPE_4, ATYPE_5, ATYPE_6, ATYPE_7, ATYPE_8, ATYPE_9, ATYPE_10, ATYPE_11, ATYPE_12);\
+void NAME(LaceWorker*, ATYPE_1, ATYPE_2, ATYPE_3, ATYPE_4, ATYPE_5, ATYPE_6, ATYPE_7, ATYPE_8, ATYPE_9, ATYPE_10, ATYPE_11, ATYPE_12);\
                                                                                       \
-static void NAME##_WRAP(TD_##NAME *t __attribute__((unused)))                         \
+static void NAME##_WRAP(LaceWorker* lace_worker, TD_##NAME *t __attribute__((unused)))\
 {                                                                                     \
-     NAME(t->d.args.arg_1, t->d.args.arg_2, t->d.args.arg_3, t->d.args.arg_4, t->d.args.arg_5, t->d.args.arg_6, t->d.args.arg_7, t->d.args.arg_8, t->d.args.arg_9, t->d.args.arg_10, t->d.args.arg_11, t->d.args.arg_12);\
+     NAME(lace_worker, t->d.args.arg_1, t->d.args.arg_2, t->d.args.arg_3, t->d.args.arg_4, t->d.args.arg_5, t->d.args.arg_6, t->d.args.arg_7, t->d.args.arg_8, t->d.args.arg_9, t->d.args.arg_10, t->d.args.arg_11, t->d.args.arg_12);\
 }                                                                                     \
                                                                                       \
 static inline __attribute__((unused))                                                 \
-void NAME##_SPAWN(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, ATYPE_5 arg_5, ATYPE_6 arg_6, ATYPE_7 arg_7, ATYPE_8 arg_8, ATYPE_9 arg_9, ATYPE_10 arg_10, ATYPE_11 arg_11, ATYPE_12 arg_12)\
+void NAME##_SPAWN(LaceWorker* _lace_worker, ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, ATYPE_5 arg_5, ATYPE_6 arg_6, ATYPE_7 arg_7, ATYPE_8 arg_8, ATYPE_9 arg_9, ATYPE_10 arg_10, ATYPE_11 arg_11, ATYPE_12 arg_12)\
 {                                                                                     \
     PR_COUNTTASK(w);                                                                  \
                                                                                       \
-    WorkerP *w = lace_get_worker();                                                   \
-    Task *lace_head = w->head;                                                        \
-    if (lace_head == w->end) lace_abort_stack_overflow();                             \
+    Task *lace_head = _lace_worker->head;                                             \
+    if (lace_head == _lace_worker->end) lace_abort_stack_overflow();                  \
                                                                                       \
     TD_##NAME *t;                                                                     \
     TailSplitNA ts;                                                                   \
@@ -3664,26 +3638,26 @@ void NAME##_SPAWN(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, AT
      t->d.args.arg_1 = arg_1; t->d.args.arg_2 = arg_2; t->d.args.arg_3 = arg_3; t->d.args.arg_4 = arg_4; t->d.args.arg_5 = arg_5; t->d.args.arg_6 = arg_6; t->d.args.arg_7 = arg_7; t->d.args.arg_8 = arg_8; t->d.args.arg_9 = arg_9; t->d.args.arg_10 = arg_10; t->d.args.arg_11 = arg_11; t->d.args.arg_12 = arg_12;\
     atomic_thread_fence(memory_order_acquire);                                        \
                                                                                       \
-    Worker *wt = w->_public;                                                          \
-    if (__builtin_expect(w->allstolen, 0)) {                                          \
+    Worker *wt = _lace_worker->_public;                                               \
+    if (__builtin_expect(_lace_worker->allstolen, 0)) {                               \
         if (wt->movesplit) wt->movesplit = 0;                                         \
-        head = lace_head - w->dq;                                                     \
+        head = lace_head - _lace_worker->dq;                                          \
         ts = (TailSplitNA){{head,head+1}};                                            \
         wt->ts.v = ts.v;                                                              \
         wt->allstolen = 0;                                                            \
-        w->split = lace_head+1;                                                       \
-        w->allstolen = 0;                                                             \
+        _lace_worker->split = lace_head+1;                                            \
+        _lace_worker->allstolen = 0;                                                  \
     } else if (__builtin_expect(wt->movesplit, 0)) {                                  \
-        head = lace_head - w->dq;                                                     \
-        split = w->split - w->dq;                                                     \
+        head = lace_head - _lace_worker->dq;                                          \
+        split = _lace_worker->split - _lace_worker->dq;                               \
         newsplit = (split + head + 2)/2;                                              \
         wt->ts.ts.split = newsplit;                                                   \
-        w->split = w->dq + newsplit;                                                  \
+        _lace_worker->split = _lace_worker->dq + newsplit;                            \
         wt->movesplit = 0;                                                            \
-        PR_COUNTSPLITS(w, CTR_split_grow);                                            \
+        PR_COUNTSPLITS(_lace_worker, CTR_split_grow);                                 \
     }                                                                                 \
                                                                                       \
-    w->head = lace_head+1;                                                            \
+    _lace_worker->head = lace_head+1;                                                 \
 }                                                                                     \
                                                                                       \
 static inline __attribute__((unused))                                                 \
@@ -3712,8 +3686,9 @@ void NAME##_TOGETHER(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4,
 static inline __attribute__((unused))                                                 \
 void NAME##_RUN(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, ATYPE_5 arg_5, ATYPE_6 arg_6, ATYPE_7 arg_7, ATYPE_8 arg_8, ATYPE_9 arg_9, ATYPE_10 arg_10, ATYPE_11 arg_11, ATYPE_12 arg_12)\
 {                                                                                     \
-    if (lace_is_worker()) {                                                           \
-        return NAME(arg_1, arg_2, arg_3, arg_4, arg_5, arg_6, arg_7, arg_8, arg_9, arg_10, arg_11, arg_12);\
+    LaceWorker *worker = lace_get_worker();                                           \
+    if (worker != NULL) {                                                             \
+        return NAME(worker, arg_1, arg_2, arg_3, arg_4, arg_5, arg_6, arg_7, arg_8, arg_9, arg_10, arg_11, arg_12);\
     }                                                                                 \
     Task _t;                                                                          \
     TD_##NAME *t = (TD_##NAME *)&_t;                                                  \
@@ -3725,27 +3700,26 @@ void NAME##_RUN(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, ATYP
 }                                                                                     \
                                                                                       \
 static inline __attribute__((unused))                                                 \
-void NAME##_SYNC()                                                                    \
+void NAME##_SYNC(LaceWorker* _lace_worker)                                            \
 {                                                                                     \
-    WorkerP* w = lace_get_worker();                                                   \
-    Task* head = w->head - 1;                                                         \
-    w->head = head;                                                                   \
+    Task* head = _lace_worker->head - 1;                                              \
+    _lace_worker->head = head;                                                        \
                                                                                       \
     /* assert (__dq_head > 0); */  /* Commented out because we assume contract */     \
     TD_##NAME *t = (TD_##NAME *)head;                                                 \
                                                                                       \
-    if (__builtin_expect(0 == w->_public->movesplit, 1)) {                            \
-        if (__builtin_expect(w->split <= head, 1)) {                                  \
+    if (__builtin_expect(0 == _lace_worker->_public->movesplit, 1)) {                 \
+        if (__builtin_expect(_lace_worker->split <= head, 1)) {                       \
             atomic_store_explicit(&t->thief, THIEF_EMPTY, memory_order_relaxed);      \
-            return NAME(t->d.args.arg_1, t->d.args.arg_2, t->d.args.arg_3, t->d.args.arg_4, t->d.args.arg_5, t->d.args.arg_6, t->d.args.arg_7, t->d.args.arg_8, t->d.args.arg_9, t->d.args.arg_10, t->d.args.arg_11, t->d.args.arg_12);\
+            return NAME(_lace_worker, t->d.args.arg_1, t->d.args.arg_2, t->d.args.arg_3, t->d.args.arg_4, t->d.args.arg_5, t->d.args.arg_6, t->d.args.arg_7, t->d.args.arg_8, t->d.args.arg_9, t->d.args.arg_10, t->d.args.arg_11, t->d.args.arg_12);\
         }                                                                             \
     }                                                                                 \
                                                                                       \
-    if (lace_sync(w, head)) {                                                         \
+    if (lace_sync(_lace_worker, head)) {                                              \
         return ;                                                                      \
     } else {                                                                          \
         atomic_store_explicit(&t->thief, THIEF_EMPTY, memory_order_relaxed);          \
-        return NAME(t->d.args.arg_1, t->d.args.arg_2, t->d.args.arg_3, t->d.args.arg_4, t->d.args.arg_5, t->d.args.arg_6, t->d.args.arg_7, t->d.args.arg_8, t->d.args.arg_9, t->d.args.arg_10, t->d.args.arg_11, t->d.args.arg_12);\
+        return NAME(_lace_worker, t->d.args.arg_1, t->d.args.arg_2, t->d.args.arg_3, t->d.args.arg_4, t->d.args.arg_5, t->d.args.arg_6, t->d.args.arg_7, t->d.args.arg_8, t->d.args.arg_9, t->d.args.arg_10, t->d.args.arg_11, t->d.args.arg_12);\
     }                                                                                 \
 }                                                                                     \
                                                                                       \
@@ -3764,21 +3738,20 @@ typedef struct _TD_##NAME {                                                     
 /* If this line generates an error, please manually set the define LACE_TASKSIZE to a higher value */\
 typedef char assertion_failed_task_descriptor_out_of_bounds_##NAME[(sizeof(TD_##NAME)<=sizeof(Task)) ? 0 : -1];\
                                                                                       \
-RTYPE NAME(ATYPE_1, ATYPE_2, ATYPE_3, ATYPE_4, ATYPE_5, ATYPE_6, ATYPE_7, ATYPE_8, ATYPE_9, ATYPE_10, ATYPE_11, ATYPE_12, ATYPE_13);\
+RTYPE NAME(LaceWorker*, ATYPE_1, ATYPE_2, ATYPE_3, ATYPE_4, ATYPE_5, ATYPE_6, ATYPE_7, ATYPE_8, ATYPE_9, ATYPE_10, ATYPE_11, ATYPE_12, ATYPE_13);\
                                                                                       \
-static void NAME##_WRAP(TD_##NAME *t __attribute__((unused)))                         \
+static void NAME##_WRAP(LaceWorker* lace_worker, TD_##NAME *t __attribute__((unused)))\
 {                                                                                     \
-    t->d.res = NAME(t->d.args.arg_1, t->d.args.arg_2, t->d.args.arg_3, t->d.args.arg_4, t->d.args.arg_5, t->d.args.arg_6, t->d.args.arg_7, t->d.args.arg_8, t->d.args.arg_9, t->d.args.arg_10, t->d.args.arg_11, t->d.args.arg_12, t->d.args.arg_13);\
+    t->d.res = NAME(lace_worker, t->d.args.arg_1, t->d.args.arg_2, t->d.args.arg_3, t->d.args.arg_4, t->d.args.arg_5, t->d.args.arg_6, t->d.args.arg_7, t->d.args.arg_8, t->d.args.arg_9, t->d.args.arg_10, t->d.args.arg_11, t->d.args.arg_12, t->d.args.arg_13);\
 }                                                                                     \
                                                                                       \
 static inline __attribute__((unused))                                                 \
-void NAME##_SPAWN(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, ATYPE_5 arg_5, ATYPE_6 arg_6, ATYPE_7 arg_7, ATYPE_8 arg_8, ATYPE_9 arg_9, ATYPE_10 arg_10, ATYPE_11 arg_11, ATYPE_12 arg_12, ATYPE_13 arg_13)\
+void NAME##_SPAWN(LaceWorker* _lace_worker, ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, ATYPE_5 arg_5, ATYPE_6 arg_6, ATYPE_7 arg_7, ATYPE_8 arg_8, ATYPE_9 arg_9, ATYPE_10 arg_10, ATYPE_11 arg_11, ATYPE_12 arg_12, ATYPE_13 arg_13)\
 {                                                                                     \
     PR_COUNTTASK(w);                                                                  \
                                                                                       \
-    WorkerP *w = lace_get_worker();                                                   \
-    Task *lace_head = w->head;                                                        \
-    if (lace_head == w->end) lace_abort_stack_overflow();                             \
+    Task *lace_head = _lace_worker->head;                                             \
+    if (lace_head == _lace_worker->end) lace_abort_stack_overflow();                  \
                                                                                       \
     TD_##NAME *t;                                                                     \
     TailSplitNA ts;                                                                   \
@@ -3790,26 +3763,26 @@ void NAME##_SPAWN(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, AT
      t->d.args.arg_1 = arg_1; t->d.args.arg_2 = arg_2; t->d.args.arg_3 = arg_3; t->d.args.arg_4 = arg_4; t->d.args.arg_5 = arg_5; t->d.args.arg_6 = arg_6; t->d.args.arg_7 = arg_7; t->d.args.arg_8 = arg_8; t->d.args.arg_9 = arg_9; t->d.args.arg_10 = arg_10; t->d.args.arg_11 = arg_11; t->d.args.arg_12 = arg_12; t->d.args.arg_13 = arg_13;\
     atomic_thread_fence(memory_order_acquire);                                        \
                                                                                       \
-    Worker *wt = w->_public;                                                          \
-    if (__builtin_expect(w->allstolen, 0)) {                                          \
+    Worker *wt = _lace_worker->_public;                                               \
+    if (__builtin_expect(_lace_worker->allstolen, 0)) {                               \
         if (wt->movesplit) wt->movesplit = 0;                                         \
-        head = lace_head - w->dq;                                                     \
+        head = lace_head - _lace_worker->dq;                                          \
         ts = (TailSplitNA){{head,head+1}};                                            \
         wt->ts.v = ts.v;                                                              \
         wt->allstolen = 0;                                                            \
-        w->split = lace_head+1;                                                       \
-        w->allstolen = 0;                                                             \
+        _lace_worker->split = lace_head+1;                                            \
+        _lace_worker->allstolen = 0;                                                  \
     } else if (__builtin_expect(wt->movesplit, 0)) {                                  \
-        head = lace_head - w->dq;                                                     \
-        split = w->split - w->dq;                                                     \
+        head = lace_head - _lace_worker->dq;                                          \
+        split = _lace_worker->split - _lace_worker->dq;                               \
         newsplit = (split + head + 2)/2;                                              \
         wt->ts.ts.split = newsplit;                                                   \
-        w->split = w->dq + newsplit;                                                  \
+        _lace_worker->split = _lace_worker->dq + newsplit;                            \
         wt->movesplit = 0;                                                            \
-        PR_COUNTSPLITS(w, CTR_split_grow);                                            \
+        PR_COUNTSPLITS(_lace_worker, CTR_split_grow);                                 \
     }                                                                                 \
                                                                                       \
-    w->head = lace_head+1;                                                            \
+    _lace_worker->head = lace_head+1;                                                 \
 }                                                                                     \
                                                                                       \
 static inline __attribute__((unused))                                                 \
@@ -3838,8 +3811,9 @@ void NAME##_TOGETHER(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4,
 static inline __attribute__((unused))                                                 \
 RTYPE NAME##_RUN(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, ATYPE_5 arg_5, ATYPE_6 arg_6, ATYPE_7 arg_7, ATYPE_8 arg_8, ATYPE_9 arg_9, ATYPE_10 arg_10, ATYPE_11 arg_11, ATYPE_12 arg_12, ATYPE_13 arg_13)\
 {                                                                                     \
-    if (lace_is_worker()) {                                                           \
-        return NAME(arg_1, arg_2, arg_3, arg_4, arg_5, arg_6, arg_7, arg_8, arg_9, arg_10, arg_11, arg_12, arg_13);\
+    LaceWorker *worker = lace_get_worker();                                           \
+    if (worker != NULL) {                                                             \
+        return NAME(worker, arg_1, arg_2, arg_3, arg_4, arg_5, arg_6, arg_7, arg_8, arg_9, arg_10, arg_11, arg_12, arg_13);\
     }                                                                                 \
     Task _t;                                                                          \
     TD_##NAME *t = (TD_##NAME *)&_t;                                                  \
@@ -3851,27 +3825,26 @@ RTYPE NAME##_RUN(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, ATY
 }                                                                                     \
                                                                                       \
 static inline __attribute__((unused))                                                 \
-RTYPE NAME##_SYNC()                                                                   \
+RTYPE NAME##_SYNC(LaceWorker* _lace_worker)                                           \
 {                                                                                     \
-    WorkerP* w = lace_get_worker();                                                   \
-    Task* head = w->head - 1;                                                         \
-    w->head = head;                                                                   \
+    Task* head = _lace_worker->head - 1;                                              \
+    _lace_worker->head = head;                                                        \
                                                                                       \
     /* assert (__dq_head > 0); */  /* Commented out because we assume contract */     \
     TD_##NAME *t = (TD_##NAME *)head;                                                 \
                                                                                       \
-    if (__builtin_expect(0 == w->_public->movesplit, 1)) {                            \
-        if (__builtin_expect(w->split <= head, 1)) {                                  \
+    if (__builtin_expect(0 == _lace_worker->_public->movesplit, 1)) {                 \
+        if (__builtin_expect(_lace_worker->split <= head, 1)) {                       \
             atomic_store_explicit(&t->thief, THIEF_EMPTY, memory_order_relaxed);      \
-            return NAME(t->d.args.arg_1, t->d.args.arg_2, t->d.args.arg_3, t->d.args.arg_4, t->d.args.arg_5, t->d.args.arg_6, t->d.args.arg_7, t->d.args.arg_8, t->d.args.arg_9, t->d.args.arg_10, t->d.args.arg_11, t->d.args.arg_12, t->d.args.arg_13);\
+            return NAME(_lace_worker, t->d.args.arg_1, t->d.args.arg_2, t->d.args.arg_3, t->d.args.arg_4, t->d.args.arg_5, t->d.args.arg_6, t->d.args.arg_7, t->d.args.arg_8, t->d.args.arg_9, t->d.args.arg_10, t->d.args.arg_11, t->d.args.arg_12, t->d.args.arg_13);\
         }                                                                             \
     }                                                                                 \
                                                                                       \
-    if (lace_sync(w, head)) {                                                         \
+    if (lace_sync(_lace_worker, head)) {                                              \
         return ((TD_##NAME *)t)->d.res;                                               \
     } else {                                                                          \
         atomic_store_explicit(&t->thief, THIEF_EMPTY, memory_order_relaxed);          \
-        return NAME(t->d.args.arg_1, t->d.args.arg_2, t->d.args.arg_3, t->d.args.arg_4, t->d.args.arg_5, t->d.args.arg_6, t->d.args.arg_7, t->d.args.arg_8, t->d.args.arg_9, t->d.args.arg_10, t->d.args.arg_11, t->d.args.arg_12, t->d.args.arg_13);\
+        return NAME(_lace_worker, t->d.args.arg_1, t->d.args.arg_2, t->d.args.arg_3, t->d.args.arg_4, t->d.args.arg_5, t->d.args.arg_6, t->d.args.arg_7, t->d.args.arg_8, t->d.args.arg_9, t->d.args.arg_10, t->d.args.arg_11, t->d.args.arg_12, t->d.args.arg_13);\
     }                                                                                 \
 }                                                                                     \
                                                                                       \
@@ -3887,21 +3860,20 @@ typedef struct _TD_##NAME {                                                     
 /* If this line generates an error, please manually set the define LACE_TASKSIZE to a higher value */\
 typedef char assertion_failed_task_descriptor_out_of_bounds_##NAME[(sizeof(TD_##NAME)<=sizeof(Task)) ? 0 : -1];\
                                                                                       \
-void NAME(ATYPE_1, ATYPE_2, ATYPE_3, ATYPE_4, ATYPE_5, ATYPE_6, ATYPE_7, ATYPE_8, ATYPE_9, ATYPE_10, ATYPE_11, ATYPE_12, ATYPE_13);\
+void NAME(LaceWorker*, ATYPE_1, ATYPE_2, ATYPE_3, ATYPE_4, ATYPE_5, ATYPE_6, ATYPE_7, ATYPE_8, ATYPE_9, ATYPE_10, ATYPE_11, ATYPE_12, ATYPE_13);\
                                                                                       \
-static void NAME##_WRAP(TD_##NAME *t __attribute__((unused)))                         \
+static void NAME##_WRAP(LaceWorker* lace_worker, TD_##NAME *t __attribute__((unused)))\
 {                                                                                     \
-     NAME(t->d.args.arg_1, t->d.args.arg_2, t->d.args.arg_3, t->d.args.arg_4, t->d.args.arg_5, t->d.args.arg_6, t->d.args.arg_7, t->d.args.arg_8, t->d.args.arg_9, t->d.args.arg_10, t->d.args.arg_11, t->d.args.arg_12, t->d.args.arg_13);\
+     NAME(lace_worker, t->d.args.arg_1, t->d.args.arg_2, t->d.args.arg_3, t->d.args.arg_4, t->d.args.arg_5, t->d.args.arg_6, t->d.args.arg_7, t->d.args.arg_8, t->d.args.arg_9, t->d.args.arg_10, t->d.args.arg_11, t->d.args.arg_12, t->d.args.arg_13);\
 }                                                                                     \
                                                                                       \
 static inline __attribute__((unused))                                                 \
-void NAME##_SPAWN(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, ATYPE_5 arg_5, ATYPE_6 arg_6, ATYPE_7 arg_7, ATYPE_8 arg_8, ATYPE_9 arg_9, ATYPE_10 arg_10, ATYPE_11 arg_11, ATYPE_12 arg_12, ATYPE_13 arg_13)\
+void NAME##_SPAWN(LaceWorker* _lace_worker, ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, ATYPE_5 arg_5, ATYPE_6 arg_6, ATYPE_7 arg_7, ATYPE_8 arg_8, ATYPE_9 arg_9, ATYPE_10 arg_10, ATYPE_11 arg_11, ATYPE_12 arg_12, ATYPE_13 arg_13)\
 {                                                                                     \
     PR_COUNTTASK(w);                                                                  \
                                                                                       \
-    WorkerP *w = lace_get_worker();                                                   \
-    Task *lace_head = w->head;                                                        \
-    if (lace_head == w->end) lace_abort_stack_overflow();                             \
+    Task *lace_head = _lace_worker->head;                                             \
+    if (lace_head == _lace_worker->end) lace_abort_stack_overflow();                  \
                                                                                       \
     TD_##NAME *t;                                                                     \
     TailSplitNA ts;                                                                   \
@@ -3913,26 +3885,26 @@ void NAME##_SPAWN(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, AT
      t->d.args.arg_1 = arg_1; t->d.args.arg_2 = arg_2; t->d.args.arg_3 = arg_3; t->d.args.arg_4 = arg_4; t->d.args.arg_5 = arg_5; t->d.args.arg_6 = arg_6; t->d.args.arg_7 = arg_7; t->d.args.arg_8 = arg_8; t->d.args.arg_9 = arg_9; t->d.args.arg_10 = arg_10; t->d.args.arg_11 = arg_11; t->d.args.arg_12 = arg_12; t->d.args.arg_13 = arg_13;\
     atomic_thread_fence(memory_order_acquire);                                        \
                                                                                       \
-    Worker *wt = w->_public;                                                          \
-    if (__builtin_expect(w->allstolen, 0)) {                                          \
+    Worker *wt = _lace_worker->_public;                                               \
+    if (__builtin_expect(_lace_worker->allstolen, 0)) {                               \
         if (wt->movesplit) wt->movesplit = 0;                                         \
-        head = lace_head - w->dq;                                                     \
+        head = lace_head - _lace_worker->dq;                                          \
         ts = (TailSplitNA){{head,head+1}};                                            \
         wt->ts.v = ts.v;                                                              \
         wt->allstolen = 0;                                                            \
-        w->split = lace_head+1;                                                       \
-        w->allstolen = 0;                                                             \
+        _lace_worker->split = lace_head+1;                                            \
+        _lace_worker->allstolen = 0;                                                  \
     } else if (__builtin_expect(wt->movesplit, 0)) {                                  \
-        head = lace_head - w->dq;                                                     \
-        split = w->split - w->dq;                                                     \
+        head = lace_head - _lace_worker->dq;                                          \
+        split = _lace_worker->split - _lace_worker->dq;                               \
         newsplit = (split + head + 2)/2;                                              \
         wt->ts.ts.split = newsplit;                                                   \
-        w->split = w->dq + newsplit;                                                  \
+        _lace_worker->split = _lace_worker->dq + newsplit;                            \
         wt->movesplit = 0;                                                            \
-        PR_COUNTSPLITS(w, CTR_split_grow);                                            \
+        PR_COUNTSPLITS(_lace_worker, CTR_split_grow);                                 \
     }                                                                                 \
                                                                                       \
-    w->head = lace_head+1;                                                            \
+    _lace_worker->head = lace_head+1;                                                 \
 }                                                                                     \
                                                                                       \
 static inline __attribute__((unused))                                                 \
@@ -3961,8 +3933,9 @@ void NAME##_TOGETHER(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4,
 static inline __attribute__((unused))                                                 \
 void NAME##_RUN(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, ATYPE_5 arg_5, ATYPE_6 arg_6, ATYPE_7 arg_7, ATYPE_8 arg_8, ATYPE_9 arg_9, ATYPE_10 arg_10, ATYPE_11 arg_11, ATYPE_12 arg_12, ATYPE_13 arg_13)\
 {                                                                                     \
-    if (lace_is_worker()) {                                                           \
-        return NAME(arg_1, arg_2, arg_3, arg_4, arg_5, arg_6, arg_7, arg_8, arg_9, arg_10, arg_11, arg_12, arg_13);\
+    LaceWorker *worker = lace_get_worker();                                           \
+    if (worker != NULL) {                                                             \
+        return NAME(worker, arg_1, arg_2, arg_3, arg_4, arg_5, arg_6, arg_7, arg_8, arg_9, arg_10, arg_11, arg_12, arg_13);\
     }                                                                                 \
     Task _t;                                                                          \
     TD_##NAME *t = (TD_##NAME *)&_t;                                                  \
@@ -3974,27 +3947,26 @@ void NAME##_RUN(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, ATYP
 }                                                                                     \
                                                                                       \
 static inline __attribute__((unused))                                                 \
-void NAME##_SYNC()                                                                    \
+void NAME##_SYNC(LaceWorker* _lace_worker)                                            \
 {                                                                                     \
-    WorkerP* w = lace_get_worker();                                                   \
-    Task* head = w->head - 1;                                                         \
-    w->head = head;                                                                   \
+    Task* head = _lace_worker->head - 1;                                              \
+    _lace_worker->head = head;                                                        \
                                                                                       \
     /* assert (__dq_head > 0); */  /* Commented out because we assume contract */     \
     TD_##NAME *t = (TD_##NAME *)head;                                                 \
                                                                                       \
-    if (__builtin_expect(0 == w->_public->movesplit, 1)) {                            \
-        if (__builtin_expect(w->split <= head, 1)) {                                  \
+    if (__builtin_expect(0 == _lace_worker->_public->movesplit, 1)) {                 \
+        if (__builtin_expect(_lace_worker->split <= head, 1)) {                       \
             atomic_store_explicit(&t->thief, THIEF_EMPTY, memory_order_relaxed);      \
-            return NAME(t->d.args.arg_1, t->d.args.arg_2, t->d.args.arg_3, t->d.args.arg_4, t->d.args.arg_5, t->d.args.arg_6, t->d.args.arg_7, t->d.args.arg_8, t->d.args.arg_9, t->d.args.arg_10, t->d.args.arg_11, t->d.args.arg_12, t->d.args.arg_13);\
+            return NAME(_lace_worker, t->d.args.arg_1, t->d.args.arg_2, t->d.args.arg_3, t->d.args.arg_4, t->d.args.arg_5, t->d.args.arg_6, t->d.args.arg_7, t->d.args.arg_8, t->d.args.arg_9, t->d.args.arg_10, t->d.args.arg_11, t->d.args.arg_12, t->d.args.arg_13);\
         }                                                                             \
     }                                                                                 \
                                                                                       \
-    if (lace_sync(w, head)) {                                                         \
+    if (lace_sync(_lace_worker, head)) {                                              \
         return ;                                                                      \
     } else {                                                                          \
         atomic_store_explicit(&t->thief, THIEF_EMPTY, memory_order_relaxed);          \
-        return NAME(t->d.args.arg_1, t->d.args.arg_2, t->d.args.arg_3, t->d.args.arg_4, t->d.args.arg_5, t->d.args.arg_6, t->d.args.arg_7, t->d.args.arg_8, t->d.args.arg_9, t->d.args.arg_10, t->d.args.arg_11, t->d.args.arg_12, t->d.args.arg_13);\
+        return NAME(_lace_worker, t->d.args.arg_1, t->d.args.arg_2, t->d.args.arg_3, t->d.args.arg_4, t->d.args.arg_5, t->d.args.arg_6, t->d.args.arg_7, t->d.args.arg_8, t->d.args.arg_9, t->d.args.arg_10, t->d.args.arg_11, t->d.args.arg_12, t->d.args.arg_13);\
     }                                                                                 \
 }                                                                                     \
                                                                                       \
@@ -4013,21 +3985,20 @@ typedef struct _TD_##NAME {                                                     
 /* If this line generates an error, please manually set the define LACE_TASKSIZE to a higher value */\
 typedef char assertion_failed_task_descriptor_out_of_bounds_##NAME[(sizeof(TD_##NAME)<=sizeof(Task)) ? 0 : -1];\
                                                                                       \
-RTYPE NAME(ATYPE_1, ATYPE_2, ATYPE_3, ATYPE_4, ATYPE_5, ATYPE_6, ATYPE_7, ATYPE_8, ATYPE_9, ATYPE_10, ATYPE_11, ATYPE_12, ATYPE_13, ATYPE_14);\
+RTYPE NAME(LaceWorker*, ATYPE_1, ATYPE_2, ATYPE_3, ATYPE_4, ATYPE_5, ATYPE_6, ATYPE_7, ATYPE_8, ATYPE_9, ATYPE_10, ATYPE_11, ATYPE_12, ATYPE_13, ATYPE_14);\
                                                                                       \
-static void NAME##_WRAP(TD_##NAME *t __attribute__((unused)))                         \
+static void NAME##_WRAP(LaceWorker* lace_worker, TD_##NAME *t __attribute__((unused)))\
 {                                                                                     \
-    t->d.res = NAME(t->d.args.arg_1, t->d.args.arg_2, t->d.args.arg_3, t->d.args.arg_4, t->d.args.arg_5, t->d.args.arg_6, t->d.args.arg_7, t->d.args.arg_8, t->d.args.arg_9, t->d.args.arg_10, t->d.args.arg_11, t->d.args.arg_12, t->d.args.arg_13, t->d.args.arg_14);\
+    t->d.res = NAME(lace_worker, t->d.args.arg_1, t->d.args.arg_2, t->d.args.arg_3, t->d.args.arg_4, t->d.args.arg_5, t->d.args.arg_6, t->d.args.arg_7, t->d.args.arg_8, t->d.args.arg_9, t->d.args.arg_10, t->d.args.arg_11, t->d.args.arg_12, t->d.args.arg_13, t->d.args.arg_14);\
 }                                                                                     \
                                                                                       \
 static inline __attribute__((unused))                                                 \
-void NAME##_SPAWN(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, ATYPE_5 arg_5, ATYPE_6 arg_6, ATYPE_7 arg_7, ATYPE_8 arg_8, ATYPE_9 arg_9, ATYPE_10 arg_10, ATYPE_11 arg_11, ATYPE_12 arg_12, ATYPE_13 arg_13, ATYPE_14 arg_14)\
+void NAME##_SPAWN(LaceWorker* _lace_worker, ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, ATYPE_5 arg_5, ATYPE_6 arg_6, ATYPE_7 arg_7, ATYPE_8 arg_8, ATYPE_9 arg_9, ATYPE_10 arg_10, ATYPE_11 arg_11, ATYPE_12 arg_12, ATYPE_13 arg_13, ATYPE_14 arg_14)\
 {                                                                                     \
     PR_COUNTTASK(w);                                                                  \
                                                                                       \
-    WorkerP *w = lace_get_worker();                                                   \
-    Task *lace_head = w->head;                                                        \
-    if (lace_head == w->end) lace_abort_stack_overflow();                             \
+    Task *lace_head = _lace_worker->head;                                             \
+    if (lace_head == _lace_worker->end) lace_abort_stack_overflow();                  \
                                                                                       \
     TD_##NAME *t;                                                                     \
     TailSplitNA ts;                                                                   \
@@ -4039,26 +4010,26 @@ void NAME##_SPAWN(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, AT
      t->d.args.arg_1 = arg_1; t->d.args.arg_2 = arg_2; t->d.args.arg_3 = arg_3; t->d.args.arg_4 = arg_4; t->d.args.arg_5 = arg_5; t->d.args.arg_6 = arg_6; t->d.args.arg_7 = arg_7; t->d.args.arg_8 = arg_8; t->d.args.arg_9 = arg_9; t->d.args.arg_10 = arg_10; t->d.args.arg_11 = arg_11; t->d.args.arg_12 = arg_12; t->d.args.arg_13 = arg_13; t->d.args.arg_14 = arg_14;\
     atomic_thread_fence(memory_order_acquire);                                        \
                                                                                       \
-    Worker *wt = w->_public;                                                          \
-    if (__builtin_expect(w->allstolen, 0)) {                                          \
+    Worker *wt = _lace_worker->_public;                                               \
+    if (__builtin_expect(_lace_worker->allstolen, 0)) {                               \
         if (wt->movesplit) wt->movesplit = 0;                                         \
-        head = lace_head - w->dq;                                                     \
+        head = lace_head - _lace_worker->dq;                                          \
         ts = (TailSplitNA){{head,head+1}};                                            \
         wt->ts.v = ts.v;                                                              \
         wt->allstolen = 0;                                                            \
-        w->split = lace_head+1;                                                       \
-        w->allstolen = 0;                                                             \
+        _lace_worker->split = lace_head+1;                                            \
+        _lace_worker->allstolen = 0;                                                  \
     } else if (__builtin_expect(wt->movesplit, 0)) {                                  \
-        head = lace_head - w->dq;                                                     \
-        split = w->split - w->dq;                                                     \
+        head = lace_head - _lace_worker->dq;                                          \
+        split = _lace_worker->split - _lace_worker->dq;                               \
         newsplit = (split + head + 2)/2;                                              \
         wt->ts.ts.split = newsplit;                                                   \
-        w->split = w->dq + newsplit;                                                  \
+        _lace_worker->split = _lace_worker->dq + newsplit;                            \
         wt->movesplit = 0;                                                            \
-        PR_COUNTSPLITS(w, CTR_split_grow);                                            \
+        PR_COUNTSPLITS(_lace_worker, CTR_split_grow);                                 \
     }                                                                                 \
                                                                                       \
-    w->head = lace_head+1;                                                            \
+    _lace_worker->head = lace_head+1;                                                 \
 }                                                                                     \
                                                                                       \
 static inline __attribute__((unused))                                                 \
@@ -4087,8 +4058,9 @@ void NAME##_TOGETHER(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4,
 static inline __attribute__((unused))                                                 \
 RTYPE NAME##_RUN(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, ATYPE_5 arg_5, ATYPE_6 arg_6, ATYPE_7 arg_7, ATYPE_8 arg_8, ATYPE_9 arg_9, ATYPE_10 arg_10, ATYPE_11 arg_11, ATYPE_12 arg_12, ATYPE_13 arg_13, ATYPE_14 arg_14)\
 {                                                                                     \
-    if (lace_is_worker()) {                                                           \
-        return NAME(arg_1, arg_2, arg_3, arg_4, arg_5, arg_6, arg_7, arg_8, arg_9, arg_10, arg_11, arg_12, arg_13, arg_14);\
+    LaceWorker *worker = lace_get_worker();                                           \
+    if (worker != NULL) {                                                             \
+        return NAME(worker, arg_1, arg_2, arg_3, arg_4, arg_5, arg_6, arg_7, arg_8, arg_9, arg_10, arg_11, arg_12, arg_13, arg_14);\
     }                                                                                 \
     Task _t;                                                                          \
     TD_##NAME *t = (TD_##NAME *)&_t;                                                  \
@@ -4100,27 +4072,26 @@ RTYPE NAME##_RUN(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, ATY
 }                                                                                     \
                                                                                       \
 static inline __attribute__((unused))                                                 \
-RTYPE NAME##_SYNC()                                                                   \
+RTYPE NAME##_SYNC(LaceWorker* _lace_worker)                                           \
 {                                                                                     \
-    WorkerP* w = lace_get_worker();                                                   \
-    Task* head = w->head - 1;                                                         \
-    w->head = head;                                                                   \
+    Task* head = _lace_worker->head - 1;                                              \
+    _lace_worker->head = head;                                                        \
                                                                                       \
     /* assert (__dq_head > 0); */  /* Commented out because we assume contract */     \
     TD_##NAME *t = (TD_##NAME *)head;                                                 \
                                                                                       \
-    if (__builtin_expect(0 == w->_public->movesplit, 1)) {                            \
-        if (__builtin_expect(w->split <= head, 1)) {                                  \
+    if (__builtin_expect(0 == _lace_worker->_public->movesplit, 1)) {                 \
+        if (__builtin_expect(_lace_worker->split <= head, 1)) {                       \
             atomic_store_explicit(&t->thief, THIEF_EMPTY, memory_order_relaxed);      \
-            return NAME(t->d.args.arg_1, t->d.args.arg_2, t->d.args.arg_3, t->d.args.arg_4, t->d.args.arg_5, t->d.args.arg_6, t->d.args.arg_7, t->d.args.arg_8, t->d.args.arg_9, t->d.args.arg_10, t->d.args.arg_11, t->d.args.arg_12, t->d.args.arg_13, t->d.args.arg_14);\
+            return NAME(_lace_worker, t->d.args.arg_1, t->d.args.arg_2, t->d.args.arg_3, t->d.args.arg_4, t->d.args.arg_5, t->d.args.arg_6, t->d.args.arg_7, t->d.args.arg_8, t->d.args.arg_9, t->d.args.arg_10, t->d.args.arg_11, t->d.args.arg_12, t->d.args.arg_13, t->d.args.arg_14);\
         }                                                                             \
     }                                                                                 \
                                                                                       \
-    if (lace_sync(w, head)) {                                                         \
+    if (lace_sync(_lace_worker, head)) {                                              \
         return ((TD_##NAME *)t)->d.res;                                               \
     } else {                                                                          \
         atomic_store_explicit(&t->thief, THIEF_EMPTY, memory_order_relaxed);          \
-        return NAME(t->d.args.arg_1, t->d.args.arg_2, t->d.args.arg_3, t->d.args.arg_4, t->d.args.arg_5, t->d.args.arg_6, t->d.args.arg_7, t->d.args.arg_8, t->d.args.arg_9, t->d.args.arg_10, t->d.args.arg_11, t->d.args.arg_12, t->d.args.arg_13, t->d.args.arg_14);\
+        return NAME(_lace_worker, t->d.args.arg_1, t->d.args.arg_2, t->d.args.arg_3, t->d.args.arg_4, t->d.args.arg_5, t->d.args.arg_6, t->d.args.arg_7, t->d.args.arg_8, t->d.args.arg_9, t->d.args.arg_10, t->d.args.arg_11, t->d.args.arg_12, t->d.args.arg_13, t->d.args.arg_14);\
     }                                                                                 \
 }                                                                                     \
                                                                                       \
@@ -4136,21 +4107,20 @@ typedef struct _TD_##NAME {                                                     
 /* If this line generates an error, please manually set the define LACE_TASKSIZE to a higher value */\
 typedef char assertion_failed_task_descriptor_out_of_bounds_##NAME[(sizeof(TD_##NAME)<=sizeof(Task)) ? 0 : -1];\
                                                                                       \
-void NAME(ATYPE_1, ATYPE_2, ATYPE_3, ATYPE_4, ATYPE_5, ATYPE_6, ATYPE_7, ATYPE_8, ATYPE_9, ATYPE_10, ATYPE_11, ATYPE_12, ATYPE_13, ATYPE_14);\
+void NAME(LaceWorker*, ATYPE_1, ATYPE_2, ATYPE_3, ATYPE_4, ATYPE_5, ATYPE_6, ATYPE_7, ATYPE_8, ATYPE_9, ATYPE_10, ATYPE_11, ATYPE_12, ATYPE_13, ATYPE_14);\
                                                                                       \
-static void NAME##_WRAP(TD_##NAME *t __attribute__((unused)))                         \
+static void NAME##_WRAP(LaceWorker* lace_worker, TD_##NAME *t __attribute__((unused)))\
 {                                                                                     \
-     NAME(t->d.args.arg_1, t->d.args.arg_2, t->d.args.arg_3, t->d.args.arg_4, t->d.args.arg_5, t->d.args.arg_6, t->d.args.arg_7, t->d.args.arg_8, t->d.args.arg_9, t->d.args.arg_10, t->d.args.arg_11, t->d.args.arg_12, t->d.args.arg_13, t->d.args.arg_14);\
+     NAME(lace_worker, t->d.args.arg_1, t->d.args.arg_2, t->d.args.arg_3, t->d.args.arg_4, t->d.args.arg_5, t->d.args.arg_6, t->d.args.arg_7, t->d.args.arg_8, t->d.args.arg_9, t->d.args.arg_10, t->d.args.arg_11, t->d.args.arg_12, t->d.args.arg_13, t->d.args.arg_14);\
 }                                                                                     \
                                                                                       \
 static inline __attribute__((unused))                                                 \
-void NAME##_SPAWN(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, ATYPE_5 arg_5, ATYPE_6 arg_6, ATYPE_7 arg_7, ATYPE_8 arg_8, ATYPE_9 arg_9, ATYPE_10 arg_10, ATYPE_11 arg_11, ATYPE_12 arg_12, ATYPE_13 arg_13, ATYPE_14 arg_14)\
+void NAME##_SPAWN(LaceWorker* _lace_worker, ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, ATYPE_5 arg_5, ATYPE_6 arg_6, ATYPE_7 arg_7, ATYPE_8 arg_8, ATYPE_9 arg_9, ATYPE_10 arg_10, ATYPE_11 arg_11, ATYPE_12 arg_12, ATYPE_13 arg_13, ATYPE_14 arg_14)\
 {                                                                                     \
     PR_COUNTTASK(w);                                                                  \
                                                                                       \
-    WorkerP *w = lace_get_worker();                                                   \
-    Task *lace_head = w->head;                                                        \
-    if (lace_head == w->end) lace_abort_stack_overflow();                             \
+    Task *lace_head = _lace_worker->head;                                             \
+    if (lace_head == _lace_worker->end) lace_abort_stack_overflow();                  \
                                                                                       \
     TD_##NAME *t;                                                                     \
     TailSplitNA ts;                                                                   \
@@ -4162,26 +4132,26 @@ void NAME##_SPAWN(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, AT
      t->d.args.arg_1 = arg_1; t->d.args.arg_2 = arg_2; t->d.args.arg_3 = arg_3; t->d.args.arg_4 = arg_4; t->d.args.arg_5 = arg_5; t->d.args.arg_6 = arg_6; t->d.args.arg_7 = arg_7; t->d.args.arg_8 = arg_8; t->d.args.arg_9 = arg_9; t->d.args.arg_10 = arg_10; t->d.args.arg_11 = arg_11; t->d.args.arg_12 = arg_12; t->d.args.arg_13 = arg_13; t->d.args.arg_14 = arg_14;\
     atomic_thread_fence(memory_order_acquire);                                        \
                                                                                       \
-    Worker *wt = w->_public;                                                          \
-    if (__builtin_expect(w->allstolen, 0)) {                                          \
+    Worker *wt = _lace_worker->_public;                                               \
+    if (__builtin_expect(_lace_worker->allstolen, 0)) {                               \
         if (wt->movesplit) wt->movesplit = 0;                                         \
-        head = lace_head - w->dq;                                                     \
+        head = lace_head - _lace_worker->dq;                                          \
         ts = (TailSplitNA){{head,head+1}};                                            \
         wt->ts.v = ts.v;                                                              \
         wt->allstolen = 0;                                                            \
-        w->split = lace_head+1;                                                       \
-        w->allstolen = 0;                                                             \
+        _lace_worker->split = lace_head+1;                                            \
+        _lace_worker->allstolen = 0;                                                  \
     } else if (__builtin_expect(wt->movesplit, 0)) {                                  \
-        head = lace_head - w->dq;                                                     \
-        split = w->split - w->dq;                                                     \
+        head = lace_head - _lace_worker->dq;                                          \
+        split = _lace_worker->split - _lace_worker->dq;                               \
         newsplit = (split + head + 2)/2;                                              \
         wt->ts.ts.split = newsplit;                                                   \
-        w->split = w->dq + newsplit;                                                  \
+        _lace_worker->split = _lace_worker->dq + newsplit;                            \
         wt->movesplit = 0;                                                            \
-        PR_COUNTSPLITS(w, CTR_split_grow);                                            \
+        PR_COUNTSPLITS(_lace_worker, CTR_split_grow);                                 \
     }                                                                                 \
                                                                                       \
-    w->head = lace_head+1;                                                            \
+    _lace_worker->head = lace_head+1;                                                 \
 }                                                                                     \
                                                                                       \
 static inline __attribute__((unused))                                                 \
@@ -4210,8 +4180,9 @@ void NAME##_TOGETHER(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4,
 static inline __attribute__((unused))                                                 \
 void NAME##_RUN(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, ATYPE_5 arg_5, ATYPE_6 arg_6, ATYPE_7 arg_7, ATYPE_8 arg_8, ATYPE_9 arg_9, ATYPE_10 arg_10, ATYPE_11 arg_11, ATYPE_12 arg_12, ATYPE_13 arg_13, ATYPE_14 arg_14)\
 {                                                                                     \
-    if (lace_is_worker()) {                                                           \
-        return NAME(arg_1, arg_2, arg_3, arg_4, arg_5, arg_6, arg_7, arg_8, arg_9, arg_10, arg_11, arg_12, arg_13, arg_14);\
+    LaceWorker *worker = lace_get_worker();                                           \
+    if (worker != NULL) {                                                             \
+        return NAME(worker, arg_1, arg_2, arg_3, arg_4, arg_5, arg_6, arg_7, arg_8, arg_9, arg_10, arg_11, arg_12, arg_13, arg_14);\
     }                                                                                 \
     Task _t;                                                                          \
     TD_##NAME *t = (TD_##NAME *)&_t;                                                  \
@@ -4223,27 +4194,26 @@ void NAME##_RUN(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, ATYP
 }                                                                                     \
                                                                                       \
 static inline __attribute__((unused))                                                 \
-void NAME##_SYNC()                                                                    \
+void NAME##_SYNC(LaceWorker* _lace_worker)                                            \
 {                                                                                     \
-    WorkerP* w = lace_get_worker();                                                   \
-    Task* head = w->head - 1;                                                         \
-    w->head = head;                                                                   \
+    Task* head = _lace_worker->head - 1;                                              \
+    _lace_worker->head = head;                                                        \
                                                                                       \
     /* assert (__dq_head > 0); */  /* Commented out because we assume contract */     \
     TD_##NAME *t = (TD_##NAME *)head;                                                 \
                                                                                       \
-    if (__builtin_expect(0 == w->_public->movesplit, 1)) {                            \
-        if (__builtin_expect(w->split <= head, 1)) {                                  \
+    if (__builtin_expect(0 == _lace_worker->_public->movesplit, 1)) {                 \
+        if (__builtin_expect(_lace_worker->split <= head, 1)) {                       \
             atomic_store_explicit(&t->thief, THIEF_EMPTY, memory_order_relaxed);      \
-            return NAME(t->d.args.arg_1, t->d.args.arg_2, t->d.args.arg_3, t->d.args.arg_4, t->d.args.arg_5, t->d.args.arg_6, t->d.args.arg_7, t->d.args.arg_8, t->d.args.arg_9, t->d.args.arg_10, t->d.args.arg_11, t->d.args.arg_12, t->d.args.arg_13, t->d.args.arg_14);\
+            return NAME(_lace_worker, t->d.args.arg_1, t->d.args.arg_2, t->d.args.arg_3, t->d.args.arg_4, t->d.args.arg_5, t->d.args.arg_6, t->d.args.arg_7, t->d.args.arg_8, t->d.args.arg_9, t->d.args.arg_10, t->d.args.arg_11, t->d.args.arg_12, t->d.args.arg_13, t->d.args.arg_14);\
         }                                                                             \
     }                                                                                 \
                                                                                       \
-    if (lace_sync(w, head)) {                                                         \
+    if (lace_sync(_lace_worker, head)) {                                              \
         return ;                                                                      \
     } else {                                                                          \
         atomic_store_explicit(&t->thief, THIEF_EMPTY, memory_order_relaxed);          \
-        return NAME(t->d.args.arg_1, t->d.args.arg_2, t->d.args.arg_3, t->d.args.arg_4, t->d.args.arg_5, t->d.args.arg_6, t->d.args.arg_7, t->d.args.arg_8, t->d.args.arg_9, t->d.args.arg_10, t->d.args.arg_11, t->d.args.arg_12, t->d.args.arg_13, t->d.args.arg_14);\
+        return NAME(_lace_worker, t->d.args.arg_1, t->d.args.arg_2, t->d.args.arg_3, t->d.args.arg_4, t->d.args.arg_5, t->d.args.arg_6, t->d.args.arg_7, t->d.args.arg_8, t->d.args.arg_9, t->d.args.arg_10, t->d.args.arg_11, t->d.args.arg_12, t->d.args.arg_13, t->d.args.arg_14);\
     }                                                                                 \
 }                                                                                     \
                                                                                       \
