@@ -47,7 +47,7 @@ double wctime()
 
 /* The real numbers we are using --- either double or float */
 typedef double REAL;
-typedef unsigned long PTR;
+typedef size_t PTR;
 
 /* maximum tolerable relative error (for the checking routine) */
 #define EPSILON (1.0E-6)

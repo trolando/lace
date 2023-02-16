@@ -22,6 +22,9 @@ endmacro(add_lace14_benchmark)
 
 macro(add_seq_benchmark NAME)
     add_executable(${NAME} ${ARGN})
+    if (WIN32)
+        target_link_libraries(${NAME} PRIVATE pthread) # for Windows compatibility :(
+    endif (WIN32)
     set_compilation_settings(${NAME})
 endmacro(add_seq_benchmark)
 
