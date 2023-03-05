@@ -464,21 +464,53 @@ lace_init_worker(unsigned int worker)
 #endif
 }
 
-static atomic_int must_suspend = 0; // TODO make bool?
+static atomic_int must_suspend = 0;
 static sem_t suspend_semaphore;
+static atomic_int lace_awaken_count = 0;
 
 void
 lace_suspend()
 {
-    atomic_store_explicit(&must_suspend, 1, memory_order_relaxed);
-    while (workers_running != 0) {}
-    atomic_store_explicit(&must_suspend, 0, memory_order_relaxed);
+    while (1) {
+        int state = atomic_load_explicit(&lace_awaken_count, memory_order_consume);
+        // state "should" be >= 1 !!
+        if (state <= 0) {
+            continue; // ???
+        } else if (state == 1) {
+            int next = -1; // intermediate state
+            if (atomic_compare_exchange_weak(&lace_awaken_count, &state, next) == 1) {
+                atomic_store_explicit(&must_suspend, 1, memory_order_relaxed);
+                while (workers_running != 0) {}
+                atomic_store_explicit(&must_suspend, 0, memory_order_relaxed);
+                atomic_store_explicit(&lace_awaken_count, 0, memory_order_release);
+                break;
+            }
+        } else {
+            int next = state - 1;
+            if (atomic_compare_exchange_weak(&lace_awaken_count, &state, next) == 1) break;
+        }
+    }
 }
 
 void
 lace_resume()
 {
-    for (unsigned int i=0; i<n_workers; i++) sem_post(&suspend_semaphore);
+    while (1) {
+        int state = atomic_load_explicit(&lace_awaken_count, memory_order_consume);
+        if (state < 0) {
+            continue; // wait until suspending is done
+        } else if (state == 0) {
+            int next = -1; // intermediate state
+            if (atomic_compare_exchange_weak(&lace_awaken_count, &state, next) == 1) {
+                for (unsigned int i=0; i<n_workers; i++) sem_post(&suspend_semaphore);
+                atomic_store_explicit(&lace_awaken_count, 1, memory_order_release);
+                break;
+            }
+        } else {
+            int next = state + 1;
+            if (atomic_compare_exchange_weak(&lace_awaken_count, &state, next) == 1) break;
+        }
+    }
 }
 
 /**
@@ -520,6 +552,9 @@ lace_run_task(Task *task)
     if (self != 0) {
         task->f(self, lace_get_head(self), task);
     } else {
+        // if needed, wake up the workers
+        lace_resume();
+
         ExtTask et;
         et.task = task;
         atomic_store_explicit(&et.task->thief, 0, memory_order_relaxed);
@@ -530,6 +565,9 @@ lace_run_task(Task *task)
 
         sem_wait(&et.sem);
         sem_destroy(&et.sem);
+
+        // allow Lace workers to sleep again
+        lace_suspend();
     }
 }
 
@@ -649,6 +687,9 @@ lace_worker_thread(void* arg)
 
     // Pin CPU
     lace_pin_worker();
+
+    // Wait for the first time we are resumed
+    sem_wait(&suspend_semaphore);
 
     // Signal that we are running
     workers_running += 1;
@@ -964,6 +1005,9 @@ lace_count_report_file(FILE *file)
  */
 void lace_stop()
 {
+    // Workers need to be awake for this
+    lace_resume();
+
     // Do not stop if not all workers are running yet
     while (workers_running != n_workers) {}
 
