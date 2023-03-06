@@ -63,8 +63,8 @@ jobs:
         benchmarks/fib-lace -w 2 38
         benchmarks/pi-lace -w 1 100000000
         benchmarks/pi-lace -w 2 100000000
-        benchmarks/queens-lace -w 1 12
-        benchmarks/queens-lace -w 2 12
+        benchmarks/nqueens-lace -w 1 12
+        benchmarks/nqueens-lace -w 2 12
         benchmarks/matmul-lace -w 1 1024
         benchmarks/matmul-lace -w 2 1024
         benchmarks/uts-lace -w 1 -t 0 -b 2000 -q 0.124875 -m 8 -r 42
@@ -126,8 +126,8 @@ jobs:
         benchmarks/fib-lace -w 2 38
         benchmarks/pi-lace -w 1 100000000
         benchmarks/pi-lace -w 2 100000000
-        benchmarks/queens-lace -w 1 12
-        benchmarks/queens-lace -w 2 12
+        benchmarks/nqueens-lace -w 1 12
+        benchmarks/nqueens-lace -w 2 12
         benchmarks/matmul-lace -w 1 1024
         benchmarks/matmul-lace -w 2 1024
         benchmarks/uts-lace -w 1 -t 0 -b 2000 -q 0.124875 -m 8 -r 42
@@ -184,8 +184,8 @@ jobs:
         benchmarks/fib-lace -w 2 38
         benchmarks/pi-lace -w 1 100000000
         benchmarks/pi-lace -w 2 100000000
-        benchmarks/queens-lace -w 1 12
-        benchmarks/queens-lace -w 2 12
+        benchmarks/nqueens-lace -w 1 12
+        benchmarks/nqueens-lace -w 2 12
         benchmarks/matmul-lace -w 1 1024
         benchmarks/matmul-lace -w 2 1024
         benchmarks/uts-lace -w 1 -t 0 -b 2000 -q 0.124875 -m 8 -r 42

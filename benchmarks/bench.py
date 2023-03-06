@@ -171,20 +171,32 @@ if __name__ == "__main__":
         if os.path.isfile('uts-lace'):
             experiments.append(("uts-t2l",["./uts-lace", "-w", str(w)] + globals()["T2L"].split(), w))
             experiments.append(("uts-t3l",["./uts-lace", "-w", str(w)] + globals()["T3L"].split(), w))
-        if os.path.isfile('queens-lace'):
-            experiments.append(("queens",("./queens-lace", "-w", str(w), "14"), w))
+        if os.path.isfile('nqueens-lace'):
+            experiments.append(("nqueens",("./nqueens-lace", "-w", str(w), "14"), w))
         if os.path.isfile('matmul-lace'):
             experiments.append(("matmul",("./matmul-lace", "-w", str(w), "2048"), w))
+        if os.path.isfile('cholesky-lace'):
+            experiments.append(("cholesky",("./cholesky-lace", "-w", str(w), "4000", "40000"), w))
+        if os.path.isfile('integrate-lace'):
+            experiments.append(("integrate",("./integrate-lace", "-w", str(w), "10000"), w))
+        if os.path.isfile('heat-lace'):
+            experiments.append(("heat",("./heat-lace", "-w", str(w), "1"), w))
 
     if os.path.isfile('fib-seq'):
         experiments.append(("fib-seq",("./fib-seq", "46"), 1))
     if os.path.isfile('uts-seq'):
         experiments.append(("uts-t2l-seq",["./uts-seq"] + globals()["T2L"].split(), 1))
         experiments.append(("uts-t3l-seq",["./uts-seq"] + globals()["T3L"].split(), 1))
-    if os.path.isfile('queens-seq'):
-        experiments.append(("queens-seq",("./queens-seq", "14"), 1))
+    if os.path.isfile('nqueens-seq'):
+        experiments.append(("nqueens-seq",("./nqueens-seq", "14"), 1))
     if os.path.isfile('matmul-seq'):
         experiments.append(("matmul-seq",("./matmul-seq", "2048"), 1))
+    if os.path.isfile('cholesky-seq'):
+        experiments.append(("cholesky-seq",("./cholesky-seq", "4000", "40000"), 1))
+    if os.path.isfile('integrate-seq'):
+        experiments.append(("integrate-seq",("./integrate-seq", "10000"), 1))
+    if os.path.isfile('heat-seq'):
+        experiments.append(("heat-seq",("./heat-seq", "1"), 1))
 
     outdir = 'exp-out'
 
