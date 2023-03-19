@@ -57,7 +57,7 @@ if(CMAKE_CURRENT_SOURCE_DIR STREQUAL CMAKE_SOURCE_DIR)
         add_subdirectory(benchmarks)
     endif()
 
-    if(LACE_TEST)
+    if(LACE_BUILD_TESTS)
         # Add test directory and tests
         include(CTest)
         enable_testing()
