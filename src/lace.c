@@ -479,8 +479,11 @@ lace_suspend()
         } else if (state == 1) {
             int next = -1; // intermediate state
             if (atomic_compare_exchange_weak(&lace_awaken_count, &state, next) == 1) {
+                while (workers_running != n_workers) {} // they must first run, to avoid rare condition
+                atomic_thread_fence(memory_order_seq_cst);
                 atomic_store_explicit(&must_suspend, 1, memory_order_relaxed);
                 while (workers_running != 0) {}
+                atomic_thread_fence(memory_order_seq_cst);
                 atomic_store_explicit(&must_suspend, 0, memory_order_relaxed);
                 atomic_store_explicit(&lace_awaken_count, 0, memory_order_release);
                 break;
@@ -777,6 +780,9 @@ lace_start(unsigned int _n_workers, size_t dqsize)
     memset(&suspend_semaphore, 0, sizeof(sem_t));
     sem_init(&suspend_semaphore, 0, 0);
 
+    must_suspend = 0;
+    lace_awaken_count = 0;
+
     // Allocate array with all workers
     // first make sure that the amount to allocate (n_workers times pointer) is a multiple of LINE_SIZE
     size_t to_allocate = n_workers * sizeof(void*);
@@ -858,6 +864,9 @@ lace_start(unsigned int _n_workers, size_t dqsize)
         pthread_t res;
         pthread_create(&res, &worker_attr, lace_worker_thread, (void*)(size_t)i);
     }
+
+    /* Make sure we start resumed */
+    lace_resume();
 
     pthread_attr_destroy(&worker_attr);
 }
