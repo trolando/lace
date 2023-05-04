@@ -190,3 +190,58 @@ jobs:
         benchmarks/matmul-lace -w 2 1024
         benchmarks/uts-lace -w 1 -t 0 -b 2000 -q 0.124875 -m 8 -r 42
         benchmarks/uts-lace -w 2 -t 0 -b 2000 -q 0.124875 -m 8 -r 42
+
+  msvc-build:
+    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+    name: MSVC build 
+    defaults:
+      run:
+        shell: msys2 {0}
+    steps:
+
+    - name: '🧰 Checkout'
+      uses: actions/checkout@v3
+      with:
+        fetch-depth: 0
+
+    - name: 'Setup MSYS2'
+      uses: msys2/setup-msys2@v2
+      with:
+        msystem: ucrt64
+        update: true
+        install: >-
+          git
+          make
+        pacboy: >-
+          toolchain:p
+          cmake:p
+          ninja:p
+
+    - name: 'Setup MSVC'
+      uses: ilammy/msvc-dev-cmd@v1
+
+    - name: '🚧 Build TOOL'
+      run: |
+        cmake -G "Visual Studio 17 2022" -B build -DCMAKE_BUILD_TYPE=Release
+        cmake --build build
+
+    - name: 'Test'
+      working-directory: ${{github.workspace}}/build
+      run:  |
+        ctest -C ${{ matrix.build_type }} -VV --timeout 30
+
+    - name: 'Performance'
+      working-directory: ${{github.workspace}}/build
+      run:  |
+        benchmarks/fib-lace -w 1 38
+        benchmarks/fib-lace -w 2 38
+        benchmarks/pi-lace -w 1 100000000
+        benchmarks/pi-lace -w 2 100000000
+        benchmarks/queens-lace -w 1 12
+        benchmarks/queens-lace -w 2 12
+        benchmarks/matmul-lace -w 1 1024
+        benchmarks/matmul-lace -w 2 1024
+        benchmarks/uts-lace -w 1 -t 0 -b 2000 -q 0.124875 -m 8 -r 42
+        benchmarks/uts-lace -w 2 -t 0 -b 2000 -q 0.124875 -m 8 -r 42
