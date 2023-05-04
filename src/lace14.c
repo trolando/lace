@@ -479,8 +479,11 @@ lace_suspend()
         } else if (state == 1) {
             int next = -1; // intermediate state
             if (atomic_compare_exchange_weak(&lace_awaken_count, &state, next) == 1) {
+                while (workers_running != n_workers) {} // they must first run, to avoid rare condition
+                atomic_thread_fence(memory_order_seq_cst);
                 atomic_store_explicit(&must_suspend, 1, memory_order_relaxed);
                 while (workers_running != 0) {}
+                atomic_thread_fence(memory_order_seq_cst);
                 atomic_store_explicit(&must_suspend, 0, memory_order_relaxed);
                 atomic_store_explicit(&lace_awaken_count, 0, memory_order_release);
                 break;
@@ -544,6 +547,12 @@ typedef struct _ExtTask {
 
 static _Atomic(ExtTask*) external_task = NULL;
 
+static pthread_mutex_t external_task_lock = PTHREAD_MUTEX_INITIALIZER;
+static pthread_cond_t external_task_cond = PTHREAD_COND_INITIALIZER;
+
+static int external_task_counter = 0;
+static int external_task_exclusive = 0;
+
 void
 lace_run_task(Task *task)
 {
@@ -560,11 +569,72 @@ lace_run_task(Task *task)
         atomic_store_explicit(&et.task->thief, 0, memory_order_relaxed);
         sem_init(&et.sem, 0, 0);
 
+        pthread_mutex_lock(&external_task_lock);
+        while (external_task_exclusive) {
+            // if "exclusive" is set, then we wait until we can continue
+            pthread_cond_wait(&external_task_cond, &external_task_lock);
+        }
+        external_task_counter++;
+        pthread_mutex_unlock(&external_task_lock);
+
         ExtTask *exp = 0;
         while (atomic_compare_exchange_weak(&external_task, &exp, &et) != 1) {}
 
         sem_wait(&et.sem);
         sem_destroy(&et.sem);
+
+        pthread_mutex_lock(&external_task_lock);
+        external_task_counter--;
+        if (external_task_exclusive && external_task_counter == 0) {
+            // if counter is 0 and exclusive is set, then we should wake up the threads
+            pthread_cond_broadcast(&external_task_cond);
+        }
+        pthread_mutex_unlock(&external_task_lock);
+
+        // allow Lace workers to sleep again
+        lace_suspend();
+    }
+}
+
+void
+lace_run_task_exclusive(Task *task)
+{
+    // check if we are really not in a Lace thread
+    WorkerP* self = lace_get_worker();
+    if (self != 0) {
+        task->f(self, lace_get_head(self), task);
+    } else {
+        // if needed, wake up the workers
+        lace_resume();
+
+        ExtTask et;
+        et.task = task;
+        atomic_store_explicit(&et.task->thief, 0, memory_order_relaxed);
+        sem_init(&et.sem, 0, 0);
+
+        pthread_mutex_lock(&external_task_lock);
+        while (external_task_exclusive) {
+            // if "exclusive" is set, then we wait until we can continue
+            pthread_cond_wait(&external_task_cond, &external_task_lock);
+        }
+        external_task_exclusive = 1;
+        while (external_task_counter > 0) {
+            // wait until all other tasks are done
+            pthread_cond_wait(&external_task_cond, &external_task_lock);
+        }
+        pthread_mutex_unlock(&external_task_lock);
+
+        ExtTask *exp = 0;
+        while (atomic_compare_exchange_weak(&external_task, &exp, &et) != 1) {}
+
+        sem_wait(&et.sem);
+        sem_destroy(&et.sem);
+
+        pthread_mutex_lock(&external_task_lock);
+        external_task_exclusive = 0;
+        // wake up any waiters
+        pthread_cond_broadcast(&external_task_cond);
+        pthread_mutex_unlock(&external_task_lock);
 
         // allow Lace workers to sleep again
         lace_suspend();
@@ -777,6 +847,9 @@ lace_start(unsigned int _n_workers, size_t dqsize)
     memset(&suspend_semaphore, 0, sizeof(sem_t));
     sem_init(&suspend_semaphore, 0, 0);
 
+    must_suspend = 0;
+    lace_awaken_count = 0;
+
     // Allocate array with all workers
     // first make sure that the amount to allocate (n_workers times pointer) is a multiple of LINE_SIZE
     size_t to_allocate = n_workers * sizeof(void*);
@@ -858,6 +931,9 @@ lace_start(unsigned int _n_workers, size_t dqsize)
         pthread_t res;
         pthread_create(&res, &worker_attr, lace_worker_thread, (void*)(size_t)i);
     }
+
+    /* Make sure we start resumed */
+    lace_resume();
 
     pthread_attr_destroy(&worker_attr);
 }

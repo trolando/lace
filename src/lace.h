@@ -161,6 +161,12 @@ Task *lace_get_head(WorkerP *);
 void lace_run_task(Task *task);
 
 /**
+ * Helper function to call from outside Lace threads.
+ * This helper function is used by the _RUN methods for the RUN() macro.
+ */
+void lace_run_task_exclusive(Task *task);
+
+/**
  * Helper function to start a new task execution (task frame) on a given task.
  * This helper function is used by the _NEWFRAME methods for the NEWFRAME() macro
  * Only when the task is done, do workers continue with the previous task frame.
@@ -209,6 +215,7 @@ void lace_run_together(Task *task);
  * Directly execute a task from outside Lace threads.
  */
 #define RUN(f, ...)    ( f##_RUN ( __VA_ARGS__ ) )
+#define RUNEX(f, ...)    ( f##_RUNEX ( __VA_ARGS__ ) )
 
 /**
  * Signal all workers to interrupt their current tasks and instead perform (a personal copy of) the given task.
@@ -789,6 +796,18 @@ RTYPE NAME##_RUN()                                                              
     return ((TD_##NAME *)t)->d.res;                                                   \
 }                                                                                     \
                                                                                       \
+static inline __attribute__((unused))                                                 \
+RTYPE NAME##_RUNEX()                                                                  \
+{                                                                                     \
+    Task _t;                                                                          \
+    TD_##NAME *t = (TD_##NAME *)&_t;                                                  \
+    t->f = &NAME##_WRAP;                                                              \
+    atomic_store_explicit(&t->thief, THIEF_TASK, memory_order_relaxed);               \
+                                                                                      \
+    lace_run_task_exclusive(&_t);                                                     \
+    return ((TD_##NAME *)t)->d.res;                                                   \
+}                                                                                     \
+                                                                                      \
 static __attribute__((noinline))                                                      \
 RTYPE NAME##_SYNC_SLOW(WorkerP *w, Task *__dq_head)                                   \
 {                                                                                     \
@@ -946,6 +965,18 @@ void NAME##_RUN()                                                               
     atomic_store_explicit(&t->thief, THIEF_TASK, memory_order_relaxed);               \
                                                                                       \
     lace_run_task(&_t);                                                               \
+    return ;                                                                          \
+}                                                                                     \
+                                                                                      \
+static inline __attribute__((unused))                                                 \
+void NAME##_RUNEX()                                                                   \
+{                                                                                     \
+    Task _t;                                                                          \
+    TD_##NAME *t = (TD_##NAME *)&_t;                                                  \
+    t->f = &NAME##_WRAP;                                                              \
+    atomic_store_explicit(&t->thief, THIEF_TASK, memory_order_relaxed);               \
+                                                                                      \
+    lace_run_task_exclusive(&_t);                                                     \
     return ;                                                                          \
 }                                                                                     \
                                                                                       \
@@ -1112,6 +1143,18 @@ RTYPE NAME##_RUN(ATYPE_1 arg_1)                                                 
     return ((TD_##NAME *)t)->d.res;                                                   \
 }                                                                                     \
                                                                                       \
+static inline __attribute__((unused))                                                 \
+RTYPE NAME##_RUNEX(ATYPE_1 arg_1)                                                     \
+{                                                                                     \
+    Task _t;                                                                          \
+    TD_##NAME *t = (TD_##NAME *)&_t;                                                  \
+    t->f = &NAME##_WRAP;                                                              \
+    atomic_store_explicit(&t->thief, THIEF_TASK, memory_order_relaxed);               \
+     t->d.args.arg_1 = arg_1;                                                         \
+    lace_run_task_exclusive(&_t);                                                     \
+    return ((TD_##NAME *)t)->d.res;                                                   \
+}                                                                                     \
+                                                                                      \
 static __attribute__((noinline))                                                      \
 RTYPE NAME##_SYNC_SLOW(WorkerP *w, Task *__dq_head)                                   \
 {                                                                                     \
@@ -1269,6 +1312,18 @@ void NAME##_RUN(ATYPE_1 arg_1)                                                  
     atomic_store_explicit(&t->thief, THIEF_TASK, memory_order_relaxed);               \
      t->d.args.arg_1 = arg_1;                                                         \
     lace_run_task(&_t);                                                               \
+    return ;                                                                          \
+}                                                                                     \
+                                                                                      \
+static inline __attribute__((unused))                                                 \
+void NAME##_RUNEX(ATYPE_1 arg_1)                                                      \
+{                                                                                     \
+    Task _t;                                                                          \
+    TD_##NAME *t = (TD_##NAME *)&_t;                                                  \
+    t->f = &NAME##_WRAP;                                                              \
+    atomic_store_explicit(&t->thief, THIEF_TASK, memory_order_relaxed);               \
+     t->d.args.arg_1 = arg_1;                                                         \
+    lace_run_task_exclusive(&_t);                                                     \
     return ;                                                                          \
 }                                                                                     \
                                                                                       \
@@ -1435,6 +1490,18 @@ RTYPE NAME##_RUN(ATYPE_1 arg_1, ATYPE_2 arg_2)                                  
     return ((TD_##NAME *)t)->d.res;                                                   \
 }                                                                                     \
                                                                                       \
+static inline __attribute__((unused))                                                 \
+RTYPE NAME##_RUNEX(ATYPE_1 arg_1, ATYPE_2 arg_2)                                      \
+{                                                                                     \
+    Task _t;                                                                          \
+    TD_##NAME *t = (TD_##NAME *)&_t;                                                  \
+    t->f = &NAME##_WRAP;                                                              \
+    atomic_store_explicit(&t->thief, THIEF_TASK, memory_order_relaxed);               \
+     t->d.args.arg_1 = arg_1; t->d.args.arg_2 = arg_2;                                \
+    lace_run_task_exclusive(&_t);                                                     \
+    return ((TD_##NAME *)t)->d.res;                                                   \
+}                                                                                     \
+                                                                                      \
 static __attribute__((noinline))                                                      \
 RTYPE NAME##_SYNC_SLOW(WorkerP *w, Task *__dq_head)                                   \
 {                                                                                     \
@@ -1592,6 +1659,18 @@ void NAME##_RUN(ATYPE_1 arg_1, ATYPE_2 arg_2)                                   
     atomic_store_explicit(&t->thief, THIEF_TASK, memory_order_relaxed);               \
      t->d.args.arg_1 = arg_1; t->d.args.arg_2 = arg_2;                                \
     lace_run_task(&_t);                                                               \
+    return ;                                                                          \
+}                                                                                     \
+                                                                                      \
+static inline __attribute__((unused))                                                 \
+void NAME##_RUNEX(ATYPE_1 arg_1, ATYPE_2 arg_2)                                       \
+{                                                                                     \
+    Task _t;                                                                          \
+    TD_##NAME *t = (TD_##NAME *)&_t;                                                  \
+    t->f = &NAME##_WRAP;                                                              \
+    atomic_store_explicit(&t->thief, THIEF_TASK, memory_order_relaxed);               \
+     t->d.args.arg_1 = arg_1; t->d.args.arg_2 = arg_2;                                \
+    lace_run_task_exclusive(&_t);                                                     \
     return ;                                                                          \
 }                                                                                     \
                                                                                       \
@@ -1758,6 +1837,18 @@ RTYPE NAME##_RUN(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3)                   
     return ((TD_##NAME *)t)->d.res;                                                   \
 }                                                                                     \
                                                                                       \
+static inline __attribute__((unused))                                                 \
+RTYPE NAME##_RUNEX(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3)                       \
+{                                                                                     \
+    Task _t;                                                                          \
+    TD_##NAME *t = (TD_##NAME *)&_t;                                                  \
+    t->f = &NAME##_WRAP;                                                              \
+    atomic_store_explicit(&t->thief, THIEF_TASK, memory_order_relaxed);               \
+     t->d.args.arg_1 = arg_1; t->d.args.arg_2 = arg_2; t->d.args.arg_3 = arg_3;       \
+    lace_run_task_exclusive(&_t);                                                     \
+    return ((TD_##NAME *)t)->d.res;                                                   \
+}                                                                                     \
+                                                                                      \
 static __attribute__((noinline))                                                      \
 RTYPE NAME##_SYNC_SLOW(WorkerP *w, Task *__dq_head)                                   \
 {                                                                                     \
@@ -1915,6 +2006,18 @@ void NAME##_RUN(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3)                    
     atomic_store_explicit(&t->thief, THIEF_TASK, memory_order_relaxed);               \
      t->d.args.arg_1 = arg_1; t->d.args.arg_2 = arg_2; t->d.args.arg_3 = arg_3;       \
     lace_run_task(&_t);                                                               \
+    return ;                                                                          \
+}                                                                                     \
+                                                                                      \
+static inline __attribute__((unused))                                                 \
+void NAME##_RUNEX(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3)                        \
+{                                                                                     \
+    Task _t;                                                                          \
+    TD_##NAME *t = (TD_##NAME *)&_t;                                                  \
+    t->f = &NAME##_WRAP;                                                              \
+    atomic_store_explicit(&t->thief, THIEF_TASK, memory_order_relaxed);               \
+     t->d.args.arg_1 = arg_1; t->d.args.arg_2 = arg_2; t->d.args.arg_3 = arg_3;       \
+    lace_run_task_exclusive(&_t);                                                     \
     return ;                                                                          \
 }                                                                                     \
                                                                                       \
@@ -2081,6 +2184,18 @@ RTYPE NAME##_RUN(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4)    
     return ((TD_##NAME *)t)->d.res;                                                   \
 }                                                                                     \
                                                                                       \
+static inline __attribute__((unused))                                                 \
+RTYPE NAME##_RUNEX(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4)        \
+{                                                                                     \
+    Task _t;                                                                          \
+    TD_##NAME *t = (TD_##NAME *)&_t;                                                  \
+    t->f = &NAME##_WRAP;                                                              \
+    atomic_store_explicit(&t->thief, THIEF_TASK, memory_order_relaxed);               \
+     t->d.args.arg_1 = arg_1; t->d.args.arg_2 = arg_2; t->d.args.arg_3 = arg_3; t->d.args.arg_4 = arg_4;\
+    lace_run_task_exclusive(&_t);                                                     \
+    return ((TD_##NAME *)t)->d.res;                                                   \
+}                                                                                     \
+                                                                                      \
 static __attribute__((noinline))                                                      \
 RTYPE NAME##_SYNC_SLOW(WorkerP *w, Task *__dq_head)                                   \
 {                                                                                     \
@@ -2238,6 +2353,18 @@ void NAME##_RUN(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4)     
     atomic_store_explicit(&t->thief, THIEF_TASK, memory_order_relaxed);               \
      t->d.args.arg_1 = arg_1; t->d.args.arg_2 = arg_2; t->d.args.arg_3 = arg_3; t->d.args.arg_4 = arg_4;\
     lace_run_task(&_t);                                                               \
+    return ;                                                                          \
+}                                                                                     \
+                                                                                      \
+static inline __attribute__((unused))                                                 \
+void NAME##_RUNEX(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4)         \
+{                                                                                     \
+    Task _t;                                                                          \
+    TD_##NAME *t = (TD_##NAME *)&_t;                                                  \
+    t->f = &NAME##_WRAP;                                                              \
+    atomic_store_explicit(&t->thief, THIEF_TASK, memory_order_relaxed);               \
+     t->d.args.arg_1 = arg_1; t->d.args.arg_2 = arg_2; t->d.args.arg_3 = arg_3; t->d.args.arg_4 = arg_4;\
+    lace_run_task_exclusive(&_t);                                                     \
     return ;                                                                          \
 }                                                                                     \
                                                                                       \
@@ -2404,6 +2531,18 @@ RTYPE NAME##_RUN(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, ATY
     return ((TD_##NAME *)t)->d.res;                                                   \
 }                                                                                     \
                                                                                       \
+static inline __attribute__((unused))                                                 \
+RTYPE NAME##_RUNEX(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, ATYPE_5 arg_5)\
+{                                                                                     \
+    Task _t;                                                                          \
+    TD_##NAME *t = (TD_##NAME *)&_t;                                                  \
+    t->f = &NAME##_WRAP;                                                              \
+    atomic_store_explicit(&t->thief, THIEF_TASK, memory_order_relaxed);               \
+     t->d.args.arg_1 = arg_1; t->d.args.arg_2 = arg_2; t->d.args.arg_3 = arg_3; t->d.args.arg_4 = arg_4; t->d.args.arg_5 = arg_5;\
+    lace_run_task_exclusive(&_t);                                                     \
+    return ((TD_##NAME *)t)->d.res;                                                   \
+}                                                                                     \
+                                                                                      \
 static __attribute__((noinline))                                                      \
 RTYPE NAME##_SYNC_SLOW(WorkerP *w, Task *__dq_head)                                   \
 {                                                                                     \
@@ -2561,6 +2700,18 @@ void NAME##_RUN(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, ATYP
     atomic_store_explicit(&t->thief, THIEF_TASK, memory_order_relaxed);               \
      t->d.args.arg_1 = arg_1; t->d.args.arg_2 = arg_2; t->d.args.arg_3 = arg_3; t->d.args.arg_4 = arg_4; t->d.args.arg_5 = arg_5;\
     lace_run_task(&_t);                                                               \
+    return ;                                                                          \
+}                                                                                     \
+                                                                                      \
+static inline __attribute__((unused))                                                 \
+void NAME##_RUNEX(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, ATYPE_5 arg_5)\
+{                                                                                     \
+    Task _t;                                                                          \
+    TD_##NAME *t = (TD_##NAME *)&_t;                                                  \
+    t->f = &NAME##_WRAP;                                                              \
+    atomic_store_explicit(&t->thief, THIEF_TASK, memory_order_relaxed);               \
+     t->d.args.arg_1 = arg_1; t->d.args.arg_2 = arg_2; t->d.args.arg_3 = arg_3; t->d.args.arg_4 = arg_4; t->d.args.arg_5 = arg_5;\
+    lace_run_task_exclusive(&_t);                                                     \
     return ;                                                                          \
 }                                                                                     \
                                                                                       \
@@ -2727,6 +2878,18 @@ RTYPE NAME##_RUN(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, ATY
     return ((TD_##NAME *)t)->d.res;                                                   \
 }                                                                                     \
                                                                                       \
+static inline __attribute__((unused))                                                 \
+RTYPE NAME##_RUNEX(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, ATYPE_5 arg_5, ATYPE_6 arg_6)\
+{                                                                                     \
+    Task _t;                                                                          \
+    TD_##NAME *t = (TD_##NAME *)&_t;                                                  \
+    t->f = &NAME##_WRAP;                                                              \
+    atomic_store_explicit(&t->thief, THIEF_TASK, memory_order_relaxed);               \
+     t->d.args.arg_1 = arg_1; t->d.args.arg_2 = arg_2; t->d.args.arg_3 = arg_3; t->d.args.arg_4 = arg_4; t->d.args.arg_5 = arg_5; t->d.args.arg_6 = arg_6;\
+    lace_run_task_exclusive(&_t);                                                     \
+    return ((TD_##NAME *)t)->d.res;                                                   \
+}                                                                                     \
+                                                                                      \
 static __attribute__((noinline))                                                      \
 RTYPE NAME##_SYNC_SLOW(WorkerP *w, Task *__dq_head)                                   \
 {                                                                                     \
@@ -2884,6 +3047,18 @@ void NAME##_RUN(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, ATYP
     atomic_store_explicit(&t->thief, THIEF_TASK, memory_order_relaxed);               \
      t->d.args.arg_1 = arg_1; t->d.args.arg_2 = arg_2; t->d.args.arg_3 = arg_3; t->d.args.arg_4 = arg_4; t->d.args.arg_5 = arg_5; t->d.args.arg_6 = arg_6;\
     lace_run_task(&_t);                                                               \
+    return ;                                                                          \
+}                                                                                     \
+                                                                                      \
+static inline __attribute__((unused))                                                 \
+void NAME##_RUNEX(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, ATYPE_5 arg_5, ATYPE_6 arg_6)\
+{                                                                                     \
+    Task _t;                                                                          \
+    TD_##NAME *t = (TD_##NAME *)&_t;                                                  \
+    t->f = &NAME##_WRAP;                                                              \
+    atomic_store_explicit(&t->thief, THIEF_TASK, memory_order_relaxed);               \
+     t->d.args.arg_1 = arg_1; t->d.args.arg_2 = arg_2; t->d.args.arg_3 = arg_3; t->d.args.arg_4 = arg_4; t->d.args.arg_5 = arg_5; t->d.args.arg_6 = arg_6;\
+    lace_run_task_exclusive(&_t);                                                     \
     return ;                                                                          \
 }                                                                                     \
                                                                                       \

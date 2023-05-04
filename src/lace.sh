@@ -168,6 +168,12 @@ Task *lace_get_head(WorkerP *);
 void lace_run_task(Task *task);
 
 /**
+ * Helper function to call from outside Lace threads.
+ * This helper function is used by the _RUN methods for the RUN() macro.
+ */
+void lace_run_task_exclusive(Task *task);
+
+/**
  * Helper function to start a new task execution (task frame) on a given task.
  * This helper function is used by the _NEWFRAME methods for the NEWFRAME() macro
  * Only when the task is done, do workers continue with the previous task frame.
@@ -216,6 +222,7 @@ void lace_run_together(Task *task);
  * Directly execute a task from outside Lace threads.
  */
 #define RUN(f, ...)    ( f##_RUN ( __VA_ARGS__ ) )
+#define RUNEX(f, ...)    ( f##_RUNEX ( __VA_ARGS__ ) )
 
 /**
  * Signal all workers to interrupt their current tasks and instead perform (a personal copy of) the given task.
@@ -840,6 +847,18 @@ $RTYPE NAME##_RUN($FUN_ARGS_NC)
     atomic_store_explicit(&t->thief, THIEF_TASK, memory_order_relaxed);
     $TASK_INIT
     lace_run_task(&_t);
+    return $RETURN_RES;
+}
+
+static inline __attribute__((unused))
+$RTYPE NAME##_RUNEX($FUN_ARGS_NC)
+{
+    Task _t;
+    TD_##NAME *t = (TD_##NAME *)&_t;
+    t->f = &NAME##_WRAP;
+    atomic_store_explicit(&t->thief, THIEF_TASK, memory_order_relaxed);
+    $TASK_INIT
+    lace_run_task_exclusive(&_t);
     return $RETURN_RES;
 }
 
