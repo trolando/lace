@@ -16,6 +16,7 @@
  * limitations under the License.
  */
 
+#include <assert.h>
 #include <unistd.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -400,12 +401,16 @@ typedef enum {
 struct __lace_common_fields_only { TASK_COMMON_FIELDS(_Task) };
 #define LACE_COMMON_FIELD_SIZE sizeof(struct __lace_common_fields_only)
 
+static_assert((LACE_COMMON_FIELD_SIZE % P_SZ) == 0, "LACE_COMMON_FIELD_SIZE is not a multiple of P_SZ");
+
 typedef struct _Task {
-    TASK_COMMON_FIELDS(_Task);
-    char p1[PAD(LACE_COMMON_FIELD_SIZE, P_SZ)];
+    TASK_COMMON_FIELDS(_Task)
     char d[LACE_TASKSIZE];
-    char p2[PAD(ROUND(LACE_COMMON_FIELD_SIZE, P_SZ) + LACE_TASKSIZE, LINE_SIZE)];
+//    char d[LACE_TASKSIZE];
+//    char p2[PAD(ROUND(LACE_COMMON_FIELD_SIZE, P_SZ) + LACE_TASKSIZE, LINE_SIZE)];
 } Task;
+
+static_assert((sizeof(Task) % LINE_SIZE) == 0, "Task size should be a multiple of LINE_SIZE");
 
 /* hopefully packed? */
 typedef union {
@@ -713,8 +718,7 @@ typedef struct _TD_##NAME {                                                     
   union {  RTYPE res; } d;                                                            \
 } TD_##NAME;                                                                          \
                                                                                       \
-/* If this line generates an error, please manually set the define LACE_TASKSIZE to a higher value */\
-typedef char assertion_failed_task_descriptor_out_of_bounds_##NAME[(sizeof(TD_##NAME)<=sizeof(Task)) ? 0 : -1];\
+static_assert(sizeof(TD_##NAME) <= sizeof(Task), "TD_" #NAME " is too large, set LACE_TASKSIZE to a higher value!");\
                                                                                       \
 void NAME##_WRAP(WorkerP *, Task *, TD_##NAME *);                                     \
 RTYPE NAME##_CALL(WorkerP *, Task * );                                                \
@@ -850,6 +854,7 @@ RTYPE NAME##_SYNC(WorkerP *w, Task *__dq_head)                                  
             TD_##NAME *t = (TD_##NAME *)__dq_head;                                    \
             atomic_store_explicit(&t->thief, THIEF_EMPTY, memory_order_relaxed);      \
             return NAME##_CALL(w, __dq_head );                                        \
+                                                                                      \
         }                                                                             \
     }                                                                                 \
                                                                                       \
@@ -885,8 +890,7 @@ typedef struct _TD_##NAME {                                                     
                                                                                       \
 } TD_##NAME;                                                                          \
                                                                                       \
-/* If this line generates an error, please manually set the define LACE_TASKSIZE to a higher value */\
-typedef char assertion_failed_task_descriptor_out_of_bounds_##NAME[(sizeof(TD_##NAME)<=sizeof(Task)) ? 0 : -1];\
+static_assert(sizeof(TD_##NAME) <= sizeof(Task), "TD_" #NAME " is too large, set LACE_TASKSIZE to a higher value!");\
                                                                                       \
 void NAME##_WRAP(WorkerP *, Task *, TD_##NAME *);                                     \
 void NAME##_CALL(WorkerP *, Task * );                                                 \
@@ -1009,7 +1013,7 @@ void NAME##_SYNC_SLOW(WorkerP *w, Task *__dq_head)                              
                                                                                       \
     t = (TD_##NAME *)__dq_head;                                                       \
     atomic_store_explicit(&t->thief, THIEF_EMPTY, memory_order_relaxed);              \
-    return NAME##_CALL(w, __dq_head );                                                \
+    NAME##_CALL(w, __dq_head );                                                       \
 }                                                                                     \
                                                                                       \
 static inline __attribute__((unused))                                                 \
@@ -1021,11 +1025,12 @@ void NAME##_SYNC(WorkerP *w, Task *__dq_head)                                   
         if (likely(w->split <= __dq_head)) {                                          \
             TD_##NAME *t = (TD_##NAME *)__dq_head;                                    \
             atomic_store_explicit(&t->thief, THIEF_EMPTY, memory_order_relaxed);      \
-            return NAME##_CALL(w, __dq_head );                                        \
+            NAME##_CALL(w, __dq_head );                                               \
+            return;                                                                   \
         }                                                                             \
     }                                                                                 \
                                                                                       \
-    return NAME##_SYNC_SLOW(w, __dq_head);                                            \
+    NAME##_SYNC_SLOW(w, __dq_head);                                                   \
 }                                                                                     \
                                                                                       \
                                                                                       \
@@ -1042,7 +1047,7 @@ void NAME##_WORK(WorkerP *__lace_worker, Task *__lace_dq_head );                
 /* NAME##_WORK is inlined in NAME##_CALL and the parameter __lace_in_task will disappear */\
 void NAME##_CALL(WorkerP *w, Task *__dq_head )                                        \
 {                                                                                     \
-    return NAME##_WORK(w, __dq_head );                                                \
+    NAME##_WORK(w, __dq_head );                                                       \
 }                                                                                     \
                                                                                       \
 static inline __attribute__((always_inline))                                          \
@@ -1060,8 +1065,7 @@ typedef struct _TD_##NAME {                                                     
   union { struct {  ATYPE_1 arg_1; } args; RTYPE res; } d;                            \
 } TD_##NAME;                                                                          \
                                                                                       \
-/* If this line generates an error, please manually set the define LACE_TASKSIZE to a higher value */\
-typedef char assertion_failed_task_descriptor_out_of_bounds_##NAME[(sizeof(TD_##NAME)<=sizeof(Task)) ? 0 : -1];\
+static_assert(sizeof(TD_##NAME) <= sizeof(Task), "TD_" #NAME " is too large, set LACE_TASKSIZE to a higher value!");\
                                                                                       \
 void NAME##_WRAP(WorkerP *, Task *, TD_##NAME *);                                     \
 RTYPE NAME##_CALL(WorkerP *, Task * , ATYPE_1 arg_1);                                 \
@@ -1197,6 +1201,7 @@ RTYPE NAME##_SYNC(WorkerP *w, Task *__dq_head)                                  
             TD_##NAME *t = (TD_##NAME *)__dq_head;                                    \
             atomic_store_explicit(&t->thief, THIEF_EMPTY, memory_order_relaxed);      \
             return NAME##_CALL(w, __dq_head , t->d.args.arg_1);                       \
+                                                                                      \
         }                                                                             \
     }                                                                                 \
                                                                                       \
@@ -1232,8 +1237,7 @@ typedef struct _TD_##NAME {                                                     
   union { struct {  ATYPE_1 arg_1; } args; } d;                                       \
 } TD_##NAME;                                                                          \
                                                                                       \
-/* If this line generates an error, please manually set the define LACE_TASKSIZE to a higher value */\
-typedef char assertion_failed_task_descriptor_out_of_bounds_##NAME[(sizeof(TD_##NAME)<=sizeof(Task)) ? 0 : -1];\
+static_assert(sizeof(TD_##NAME) <= sizeof(Task), "TD_" #NAME " is too large, set LACE_TASKSIZE to a higher value!");\
                                                                                       \
 void NAME##_WRAP(WorkerP *, Task *, TD_##NAME *);                                     \
 void NAME##_CALL(WorkerP *, Task * , ATYPE_1 arg_1);                                  \
@@ -1356,7 +1360,7 @@ void NAME##_SYNC_SLOW(WorkerP *w, Task *__dq_head)                              
                                                                                       \
     t = (TD_##NAME *)__dq_head;                                                       \
     atomic_store_explicit(&t->thief, THIEF_EMPTY, memory_order_relaxed);              \
-    return NAME##_CALL(w, __dq_head , t->d.args.arg_1);                               \
+    NAME##_CALL(w, __dq_head , t->d.args.arg_1);                                      \
 }                                                                                     \
                                                                                       \
 static inline __attribute__((unused))                                                 \
@@ -1368,11 +1372,12 @@ void NAME##_SYNC(WorkerP *w, Task *__dq_head)                                   
         if (likely(w->split <= __dq_head)) {                                          \
             TD_##NAME *t = (TD_##NAME *)__dq_head;                                    \
             atomic_store_explicit(&t->thief, THIEF_EMPTY, memory_order_relaxed);      \
-            return NAME##_CALL(w, __dq_head , t->d.args.arg_1);                       \
+            NAME##_CALL(w, __dq_head , t->d.args.arg_1);                              \
+            return;                                                                   \
         }                                                                             \
     }                                                                                 \
                                                                                       \
-    return NAME##_SYNC_SLOW(w, __dq_head);                                            \
+    NAME##_SYNC_SLOW(w, __dq_head);                                                   \
 }                                                                                     \
                                                                                       \
                                                                                       \
@@ -1389,7 +1394,7 @@ void NAME##_WORK(WorkerP *__lace_worker, Task *__lace_dq_head , ATYPE_1);       
 /* NAME##_WORK is inlined in NAME##_CALL and the parameter __lace_in_task will disappear */\
 void NAME##_CALL(WorkerP *w, Task *__dq_head , ATYPE_1 arg_1)                         \
 {                                                                                     \
-    return NAME##_WORK(w, __dq_head , arg_1);                                         \
+    NAME##_WORK(w, __dq_head , arg_1);                                                \
 }                                                                                     \
                                                                                       \
 static inline __attribute__((always_inline))                                          \
@@ -1407,8 +1412,7 @@ typedef struct _TD_##NAME {                                                     
   union { struct {  ATYPE_1 arg_1; ATYPE_2 arg_2; } args; RTYPE res; } d;             \
 } TD_##NAME;                                                                          \
                                                                                       \
-/* If this line generates an error, please manually set the define LACE_TASKSIZE to a higher value */\
-typedef char assertion_failed_task_descriptor_out_of_bounds_##NAME[(sizeof(TD_##NAME)<=sizeof(Task)) ? 0 : -1];\
+static_assert(sizeof(TD_##NAME) <= sizeof(Task), "TD_" #NAME " is too large, set LACE_TASKSIZE to a higher value!");\
                                                                                       \
 void NAME##_WRAP(WorkerP *, Task *, TD_##NAME *);                                     \
 RTYPE NAME##_CALL(WorkerP *, Task * , ATYPE_1 arg_1, ATYPE_2 arg_2);                  \
@@ -1544,6 +1548,7 @@ RTYPE NAME##_SYNC(WorkerP *w, Task *__dq_head)                                  
             TD_##NAME *t = (TD_##NAME *)__dq_head;                                    \
             atomic_store_explicit(&t->thief, THIEF_EMPTY, memory_order_relaxed);      \
             return NAME##_CALL(w, __dq_head , t->d.args.arg_1, t->d.args.arg_2);      \
+                                                                                      \
         }                                                                             \
     }                                                                                 \
                                                                                       \
@@ -1579,8 +1584,7 @@ typedef struct _TD_##NAME {                                                     
   union { struct {  ATYPE_1 arg_1; ATYPE_2 arg_2; } args; } d;                        \
 } TD_##NAME;                                                                          \
                                                                                       \
-/* If this line generates an error, please manually set the define LACE_TASKSIZE to a higher value */\
-typedef char assertion_failed_task_descriptor_out_of_bounds_##NAME[(sizeof(TD_##NAME)<=sizeof(Task)) ? 0 : -1];\
+static_assert(sizeof(TD_##NAME) <= sizeof(Task), "TD_" #NAME " is too large, set LACE_TASKSIZE to a higher value!");\
                                                                                       \
 void NAME##_WRAP(WorkerP *, Task *, TD_##NAME *);                                     \
 void NAME##_CALL(WorkerP *, Task * , ATYPE_1 arg_1, ATYPE_2 arg_2);                   \
@@ -1703,7 +1707,7 @@ void NAME##_SYNC_SLOW(WorkerP *w, Task *__dq_head)                              
                                                                                       \
     t = (TD_##NAME *)__dq_head;                                                       \
     atomic_store_explicit(&t->thief, THIEF_EMPTY, memory_order_relaxed);              \
-    return NAME##_CALL(w, __dq_head , t->d.args.arg_1, t->d.args.arg_2);              \
+    NAME##_CALL(w, __dq_head , t->d.args.arg_1, t->d.args.arg_2);                     \
 }                                                                                     \
                                                                                       \
 static inline __attribute__((unused))                                                 \
@@ -1715,11 +1719,12 @@ void NAME##_SYNC(WorkerP *w, Task *__dq_head)                                   
         if (likely(w->split <= __dq_head)) {                                          \
             TD_##NAME *t = (TD_##NAME *)__dq_head;                                    \
             atomic_store_explicit(&t->thief, THIEF_EMPTY, memory_order_relaxed);      \
-            return NAME##_CALL(w, __dq_head , t->d.args.arg_1, t->d.args.arg_2);      \
+            NAME##_CALL(w, __dq_head , t->d.args.arg_1, t->d.args.arg_2);             \
+            return;                                                                   \
         }                                                                             \
     }                                                                                 \
                                                                                       \
-    return NAME##_SYNC_SLOW(w, __dq_head);                                            \
+    NAME##_SYNC_SLOW(w, __dq_head);                                                   \
 }                                                                                     \
                                                                                       \
                                                                                       \
@@ -1736,7 +1741,7 @@ void NAME##_WORK(WorkerP *__lace_worker, Task *__lace_dq_head , ATYPE_1, ATYPE_2
 /* NAME##_WORK is inlined in NAME##_CALL and the parameter __lace_in_task will disappear */\
 void NAME##_CALL(WorkerP *w, Task *__dq_head , ATYPE_1 arg_1, ATYPE_2 arg_2)          \
 {                                                                                     \
-    return NAME##_WORK(w, __dq_head , arg_1, arg_2);                                  \
+    NAME##_WORK(w, __dq_head , arg_1, arg_2);                                         \
 }                                                                                     \
                                                                                       \
 static inline __attribute__((always_inline))                                          \
@@ -1754,8 +1759,7 @@ typedef struct _TD_##NAME {                                                     
   union { struct {  ATYPE_1 arg_1; ATYPE_2 arg_2; ATYPE_3 arg_3; } args; RTYPE res; } d;\
 } TD_##NAME;                                                                          \
                                                                                       \
-/* If this line generates an error, please manually set the define LACE_TASKSIZE to a higher value */\
-typedef char assertion_failed_task_descriptor_out_of_bounds_##NAME[(sizeof(TD_##NAME)<=sizeof(Task)) ? 0 : -1];\
+static_assert(sizeof(TD_##NAME) <= sizeof(Task), "TD_" #NAME " is too large, set LACE_TASKSIZE to a higher value!");\
                                                                                       \
 void NAME##_WRAP(WorkerP *, Task *, TD_##NAME *);                                     \
 RTYPE NAME##_CALL(WorkerP *, Task * , ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3);   \
@@ -1891,6 +1895,7 @@ RTYPE NAME##_SYNC(WorkerP *w, Task *__dq_head)                                  
             TD_##NAME *t = (TD_##NAME *)__dq_head;                                    \
             atomic_store_explicit(&t->thief, THIEF_EMPTY, memory_order_relaxed);      \
             return NAME##_CALL(w, __dq_head , t->d.args.arg_1, t->d.args.arg_2, t->d.args.arg_3);\
+                                                                                      \
         }                                                                             \
     }                                                                                 \
                                                                                       \
@@ -1926,8 +1931,7 @@ typedef struct _TD_##NAME {                                                     
   union { struct {  ATYPE_1 arg_1; ATYPE_2 arg_2; ATYPE_3 arg_3; } args; } d;         \
 } TD_##NAME;                                                                          \
                                                                                       \
-/* If this line generates an error, please manually set the define LACE_TASKSIZE to a higher value */\
-typedef char assertion_failed_task_descriptor_out_of_bounds_##NAME[(sizeof(TD_##NAME)<=sizeof(Task)) ? 0 : -1];\
+static_assert(sizeof(TD_##NAME) <= sizeof(Task), "TD_" #NAME " is too large, set LACE_TASKSIZE to a higher value!");\
                                                                                       \
 void NAME##_WRAP(WorkerP *, Task *, TD_##NAME *);                                     \
 void NAME##_CALL(WorkerP *, Task * , ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3);    \
@@ -2050,7 +2054,7 @@ void NAME##_SYNC_SLOW(WorkerP *w, Task *__dq_head)                              
                                                                                       \
     t = (TD_##NAME *)__dq_head;                                                       \
     atomic_store_explicit(&t->thief, THIEF_EMPTY, memory_order_relaxed);              \
-    return NAME##_CALL(w, __dq_head , t->d.args.arg_1, t->d.args.arg_2, t->d.args.arg_3);\
+    NAME##_CALL(w, __dq_head , t->d.args.arg_1, t->d.args.arg_2, t->d.args.arg_3);    \
 }                                                                                     \
                                                                                       \
 static inline __attribute__((unused))                                                 \
@@ -2062,11 +2066,12 @@ void NAME##_SYNC(WorkerP *w, Task *__dq_head)                                   
         if (likely(w->split <= __dq_head)) {                                          \
             TD_##NAME *t = (TD_##NAME *)__dq_head;                                    \
             atomic_store_explicit(&t->thief, THIEF_EMPTY, memory_order_relaxed);      \
-            return NAME##_CALL(w, __dq_head , t->d.args.arg_1, t->d.args.arg_2, t->d.args.arg_3);\
+            NAME##_CALL(w, __dq_head , t->d.args.arg_1, t->d.args.arg_2, t->d.args.arg_3);\
+            return;                                                                   \
         }                                                                             \
     }                                                                                 \
                                                                                       \
-    return NAME##_SYNC_SLOW(w, __dq_head);                                            \
+    NAME##_SYNC_SLOW(w, __dq_head);                                                   \
 }                                                                                     \
                                                                                       \
                                                                                       \
@@ -2083,7 +2088,7 @@ void NAME##_WORK(WorkerP *__lace_worker, Task *__lace_dq_head , ATYPE_1, ATYPE_2
 /* NAME##_WORK is inlined in NAME##_CALL and the parameter __lace_in_task will disappear */\
 void NAME##_CALL(WorkerP *w, Task *__dq_head , ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3)\
 {                                                                                     \
-    return NAME##_WORK(w, __dq_head , arg_1, arg_2, arg_3);                           \
+    NAME##_WORK(w, __dq_head , arg_1, arg_2, arg_3);                                  \
 }                                                                                     \
                                                                                       \
 static inline __attribute__((always_inline))                                          \
@@ -2101,8 +2106,7 @@ typedef struct _TD_##NAME {                                                     
   union { struct {  ATYPE_1 arg_1; ATYPE_2 arg_2; ATYPE_3 arg_3; ATYPE_4 arg_4; } args; RTYPE res; } d;\
 } TD_##NAME;                                                                          \
                                                                                       \
-/* If this line generates an error, please manually set the define LACE_TASKSIZE to a higher value */\
-typedef char assertion_failed_task_descriptor_out_of_bounds_##NAME[(sizeof(TD_##NAME)<=sizeof(Task)) ? 0 : -1];\
+static_assert(sizeof(TD_##NAME) <= sizeof(Task), "TD_" #NAME " is too large, set LACE_TASKSIZE to a higher value!");\
                                                                                       \
 void NAME##_WRAP(WorkerP *, Task *, TD_##NAME *);                                     \
 RTYPE NAME##_CALL(WorkerP *, Task * , ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4);\
@@ -2238,6 +2242,7 @@ RTYPE NAME##_SYNC(WorkerP *w, Task *__dq_head)                                  
             TD_##NAME *t = (TD_##NAME *)__dq_head;                                    \
             atomic_store_explicit(&t->thief, THIEF_EMPTY, memory_order_relaxed);      \
             return NAME##_CALL(w, __dq_head , t->d.args.arg_1, t->d.args.arg_2, t->d.args.arg_3, t->d.args.arg_4);\
+                                                                                      \
         }                                                                             \
     }                                                                                 \
                                                                                       \
@@ -2273,8 +2278,7 @@ typedef struct _TD_##NAME {                                                     
   union { struct {  ATYPE_1 arg_1; ATYPE_2 arg_2; ATYPE_3 arg_3; ATYPE_4 arg_4; } args; } d;\
 } TD_##NAME;                                                                          \
                                                                                       \
-/* If this line generates an error, please manually set the define LACE_TASKSIZE to a higher value */\
-typedef char assertion_failed_task_descriptor_out_of_bounds_##NAME[(sizeof(TD_##NAME)<=sizeof(Task)) ? 0 : -1];\
+static_assert(sizeof(TD_##NAME) <= sizeof(Task), "TD_" #NAME " is too large, set LACE_TASKSIZE to a higher value!");\
                                                                                       \
 void NAME##_WRAP(WorkerP *, Task *, TD_##NAME *);                                     \
 void NAME##_CALL(WorkerP *, Task * , ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4);\
@@ -2397,7 +2401,7 @@ void NAME##_SYNC_SLOW(WorkerP *w, Task *__dq_head)                              
                                                                                       \
     t = (TD_##NAME *)__dq_head;                                                       \
     atomic_store_explicit(&t->thief, THIEF_EMPTY, memory_order_relaxed);              \
-    return NAME##_CALL(w, __dq_head , t->d.args.arg_1, t->d.args.arg_2, t->d.args.arg_3, t->d.args.arg_4);\
+    NAME##_CALL(w, __dq_head , t->d.args.arg_1, t->d.args.arg_2, t->d.args.arg_3, t->d.args.arg_4);\
 }                                                                                     \
                                                                                       \
 static inline __attribute__((unused))                                                 \
@@ -2409,11 +2413,12 @@ void NAME##_SYNC(WorkerP *w, Task *__dq_head)                                   
         if (likely(w->split <= __dq_head)) {                                          \
             TD_##NAME *t = (TD_##NAME *)__dq_head;                                    \
             atomic_store_explicit(&t->thief, THIEF_EMPTY, memory_order_relaxed);      \
-            return NAME##_CALL(w, __dq_head , t->d.args.arg_1, t->d.args.arg_2, t->d.args.arg_3, t->d.args.arg_4);\
+            NAME##_CALL(w, __dq_head , t->d.args.arg_1, t->d.args.arg_2, t->d.args.arg_3, t->d.args.arg_4);\
+            return;                                                                   \
         }                                                                             \
     }                                                                                 \
                                                                                       \
-    return NAME##_SYNC_SLOW(w, __dq_head);                                            \
+    NAME##_SYNC_SLOW(w, __dq_head);                                                   \
 }                                                                                     \
                                                                                       \
                                                                                       \
@@ -2430,7 +2435,7 @@ void NAME##_WORK(WorkerP *__lace_worker, Task *__lace_dq_head , ATYPE_1, ATYPE_2
 /* NAME##_WORK is inlined in NAME##_CALL and the parameter __lace_in_task will disappear */\
 void NAME##_CALL(WorkerP *w, Task *__dq_head , ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4)\
 {                                                                                     \
-    return NAME##_WORK(w, __dq_head , arg_1, arg_2, arg_3, arg_4);                    \
+    NAME##_WORK(w, __dq_head , arg_1, arg_2, arg_3, arg_4);                           \
 }                                                                                     \
                                                                                       \
 static inline __attribute__((always_inline))                                          \
@@ -2448,8 +2453,7 @@ typedef struct _TD_##NAME {                                                     
   union { struct {  ATYPE_1 arg_1; ATYPE_2 arg_2; ATYPE_3 arg_3; ATYPE_4 arg_4; ATYPE_5 arg_5; } args; RTYPE res; } d;\
 } TD_##NAME;                                                                          \
                                                                                       \
-/* If this line generates an error, please manually set the define LACE_TASKSIZE to a higher value */\
-typedef char assertion_failed_task_descriptor_out_of_bounds_##NAME[(sizeof(TD_##NAME)<=sizeof(Task)) ? 0 : -1];\
+static_assert(sizeof(TD_##NAME) <= sizeof(Task), "TD_" #NAME " is too large, set LACE_TASKSIZE to a higher value!");\
                                                                                       \
 void NAME##_WRAP(WorkerP *, Task *, TD_##NAME *);                                     \
 RTYPE NAME##_CALL(WorkerP *, Task * , ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, ATYPE_5 arg_5);\
@@ -2585,6 +2589,7 @@ RTYPE NAME##_SYNC(WorkerP *w, Task *__dq_head)                                  
             TD_##NAME *t = (TD_##NAME *)__dq_head;                                    \
             atomic_store_explicit(&t->thief, THIEF_EMPTY, memory_order_relaxed);      \
             return NAME##_CALL(w, __dq_head , t->d.args.arg_1, t->d.args.arg_2, t->d.args.arg_3, t->d.args.arg_4, t->d.args.arg_5);\
+                                                                                      \
         }                                                                             \
     }                                                                                 \
                                                                                       \
@@ -2620,8 +2625,7 @@ typedef struct _TD_##NAME {                                                     
   union { struct {  ATYPE_1 arg_1; ATYPE_2 arg_2; ATYPE_3 arg_3; ATYPE_4 arg_4; ATYPE_5 arg_5; } args; } d;\
 } TD_##NAME;                                                                          \
                                                                                       \
-/* If this line generates an error, please manually set the define LACE_TASKSIZE to a higher value */\
-typedef char assertion_failed_task_descriptor_out_of_bounds_##NAME[(sizeof(TD_##NAME)<=sizeof(Task)) ? 0 : -1];\
+static_assert(sizeof(TD_##NAME) <= sizeof(Task), "TD_" #NAME " is too large, set LACE_TASKSIZE to a higher value!");\
                                                                                       \
 void NAME##_WRAP(WorkerP *, Task *, TD_##NAME *);                                     \
 void NAME##_CALL(WorkerP *, Task * , ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, ATYPE_5 arg_5);\
@@ -2744,7 +2748,7 @@ void NAME##_SYNC_SLOW(WorkerP *w, Task *__dq_head)                              
                                                                                       \
     t = (TD_##NAME *)__dq_head;                                                       \
     atomic_store_explicit(&t->thief, THIEF_EMPTY, memory_order_relaxed);              \
-    return NAME##_CALL(w, __dq_head , t->d.args.arg_1, t->d.args.arg_2, t->d.args.arg_3, t->d.args.arg_4, t->d.args.arg_5);\
+    NAME##_CALL(w, __dq_head , t->d.args.arg_1, t->d.args.arg_2, t->d.args.arg_3, t->d.args.arg_4, t->d.args.arg_5);\
 }                                                                                     \
                                                                                       \
 static inline __attribute__((unused))                                                 \
@@ -2756,11 +2760,12 @@ void NAME##_SYNC(WorkerP *w, Task *__dq_head)                                   
         if (likely(w->split <= __dq_head)) {                                          \
             TD_##NAME *t = (TD_##NAME *)__dq_head;                                    \
             atomic_store_explicit(&t->thief, THIEF_EMPTY, memory_order_relaxed);      \
-            return NAME##_CALL(w, __dq_head , t->d.args.arg_1, t->d.args.arg_2, t->d.args.arg_3, t->d.args.arg_4, t->d.args.arg_5);\
+            NAME##_CALL(w, __dq_head , t->d.args.arg_1, t->d.args.arg_2, t->d.args.arg_3, t->d.args.arg_4, t->d.args.arg_5);\
+            return;                                                                   \
         }                                                                             \
     }                                                                                 \
                                                                                       \
-    return NAME##_SYNC_SLOW(w, __dq_head);                                            \
+    NAME##_SYNC_SLOW(w, __dq_head);                                                   \
 }                                                                                     \
                                                                                       \
                                                                                       \
@@ -2777,7 +2782,7 @@ void NAME##_WORK(WorkerP *__lace_worker, Task *__lace_dq_head , ATYPE_1, ATYPE_2
 /* NAME##_WORK is inlined in NAME##_CALL and the parameter __lace_in_task will disappear */\
 void NAME##_CALL(WorkerP *w, Task *__dq_head , ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, ATYPE_5 arg_5)\
 {                                                                                     \
-    return NAME##_WORK(w, __dq_head , arg_1, arg_2, arg_3, arg_4, arg_5);             \
+    NAME##_WORK(w, __dq_head , arg_1, arg_2, arg_3, arg_4, arg_5);                    \
 }                                                                                     \
                                                                                       \
 static inline __attribute__((always_inline))                                          \
@@ -2795,8 +2800,7 @@ typedef struct _TD_##NAME {                                                     
   union { struct {  ATYPE_1 arg_1; ATYPE_2 arg_2; ATYPE_3 arg_3; ATYPE_4 arg_4; ATYPE_5 arg_5; ATYPE_6 arg_6; } args; RTYPE res; } d;\
 } TD_##NAME;                                                                          \
                                                                                       \
-/* If this line generates an error, please manually set the define LACE_TASKSIZE to a higher value */\
-typedef char assertion_failed_task_descriptor_out_of_bounds_##NAME[(sizeof(TD_##NAME)<=sizeof(Task)) ? 0 : -1];\
+static_assert(sizeof(TD_##NAME) <= sizeof(Task), "TD_" #NAME " is too large, set LACE_TASKSIZE to a higher value!");\
                                                                                       \
 void NAME##_WRAP(WorkerP *, Task *, TD_##NAME *);                                     \
 RTYPE NAME##_CALL(WorkerP *, Task * , ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, ATYPE_5 arg_5, ATYPE_6 arg_6);\
@@ -2932,6 +2936,7 @@ RTYPE NAME##_SYNC(WorkerP *w, Task *__dq_head)                                  
             TD_##NAME *t = (TD_##NAME *)__dq_head;                                    \
             atomic_store_explicit(&t->thief, THIEF_EMPTY, memory_order_relaxed);      \
             return NAME##_CALL(w, __dq_head , t->d.args.arg_1, t->d.args.arg_2, t->d.args.arg_3, t->d.args.arg_4, t->d.args.arg_5, t->d.args.arg_6);\
+                                                                                      \
         }                                                                             \
     }                                                                                 \
                                                                                       \
@@ -2967,8 +2972,7 @@ typedef struct _TD_##NAME {                                                     
   union { struct {  ATYPE_1 arg_1; ATYPE_2 arg_2; ATYPE_3 arg_3; ATYPE_4 arg_4; ATYPE_5 arg_5; ATYPE_6 arg_6; } args; } d;\
 } TD_##NAME;                                                                          \
                                                                                       \
-/* If this line generates an error, please manually set the define LACE_TASKSIZE to a higher value */\
-typedef char assertion_failed_task_descriptor_out_of_bounds_##NAME[(sizeof(TD_##NAME)<=sizeof(Task)) ? 0 : -1];\
+static_assert(sizeof(TD_##NAME) <= sizeof(Task), "TD_" #NAME " is too large, set LACE_TASKSIZE to a higher value!");\
                                                                                       \
 void NAME##_WRAP(WorkerP *, Task *, TD_##NAME *);                                     \
 void NAME##_CALL(WorkerP *, Task * , ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, ATYPE_5 arg_5, ATYPE_6 arg_6);\
@@ -3091,7 +3095,7 @@ void NAME##_SYNC_SLOW(WorkerP *w, Task *__dq_head)                              
                                                                                       \
     t = (TD_##NAME *)__dq_head;                                                       \
     atomic_store_explicit(&t->thief, THIEF_EMPTY, memory_order_relaxed);              \
-    return NAME##_CALL(w, __dq_head , t->d.args.arg_1, t->d.args.arg_2, t->d.args.arg_3, t->d.args.arg_4, t->d.args.arg_5, t->d.args.arg_6);\
+    NAME##_CALL(w, __dq_head , t->d.args.arg_1, t->d.args.arg_2, t->d.args.arg_3, t->d.args.arg_4, t->d.args.arg_5, t->d.args.arg_6);\
 }                                                                                     \
                                                                                       \
 static inline __attribute__((unused))                                                 \
@@ -3103,11 +3107,12 @@ void NAME##_SYNC(WorkerP *w, Task *__dq_head)                                   
         if (likely(w->split <= __dq_head)) {                                          \
             TD_##NAME *t = (TD_##NAME *)__dq_head;                                    \
             atomic_store_explicit(&t->thief, THIEF_EMPTY, memory_order_relaxed);      \
-            return NAME##_CALL(w, __dq_head , t->d.args.arg_1, t->d.args.arg_2, t->d.args.arg_3, t->d.args.arg_4, t->d.args.arg_5, t->d.args.arg_6);\
+            NAME##_CALL(w, __dq_head , t->d.args.arg_1, t->d.args.arg_2, t->d.args.arg_3, t->d.args.arg_4, t->d.args.arg_5, t->d.args.arg_6);\
+            return;                                                                   \
         }                                                                             \
     }                                                                                 \
                                                                                       \
-    return NAME##_SYNC_SLOW(w, __dq_head);                                            \
+    NAME##_SYNC_SLOW(w, __dq_head);                                                   \
 }                                                                                     \
                                                                                       \
                                                                                       \
@@ -3124,7 +3129,7 @@ void NAME##_WORK(WorkerP *__lace_worker, Task *__lace_dq_head , ATYPE_1, ATYPE_2
 /* NAME##_WORK is inlined in NAME##_CALL and the parameter __lace_in_task will disappear */\
 void NAME##_CALL(WorkerP *w, Task *__dq_head , ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, ATYPE_5 arg_5, ATYPE_6 arg_6)\
 {                                                                                     \
-    return NAME##_WORK(w, __dq_head , arg_1, arg_2, arg_3, arg_4, arg_5, arg_6);      \
+    NAME##_WORK(w, __dq_head , arg_1, arg_2, arg_3, arg_4, arg_5, arg_6);             \
 }                                                                                     \
                                                                                       \
 static inline __attribute__((always_inline))                                          \

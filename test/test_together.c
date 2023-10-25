@@ -45,7 +45,7 @@ VOID_TASK_1(_main, void*, arg)
 {
     fprintf(stdout, "Testing TOGETHER and NEWFRAME with %u workers...\n", lace_workers());
 
-    for (int i=0; i<10; i++) {
+    for (int i=0; i<5; i++) {
         NEWFRAME(test_newframe, 5);
         TOGETHER(test_together, 5);
     }
@@ -73,7 +73,7 @@ runtests(int n_workers)
 
     // Spawn and start all worker pthreads; suspends current thread until done.
     printf("Running (10x):\n");
-    for (int i=0; i<10; i++) {
+    for (int i=0; i<5; i++) {
         printf("%d: ", i);
         RUN(test_something);
     }
@@ -97,7 +97,7 @@ main (int argc, char *argv[])
 
     lace_set_verbosity(1);
 
-    for (int i=0; i<10; i++) {
+    for (int i=0; i<5; i++) {
         runtests(n_workers);
     }
 

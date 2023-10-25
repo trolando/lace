@@ -23,6 +23,7 @@ echo "/*
  */"
 
 echo '
+#include <assert.h>
 #include <unistd.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -407,12 +408,16 @@ typedef enum {
 struct __lace_common_fields_only { TASK_COMMON_FIELDS(_Task) };
 #define LACE_COMMON_FIELD_SIZE sizeof(struct __lace_common_fields_only)
 
+static_assert((LACE_COMMON_FIELD_SIZE % P_SZ) == 0, "LACE_COMMON_FIELD_SIZE is not a multiple of P_SZ");
+
 typedef struct _Task {
-    TASK_COMMON_FIELDS(_Task);
-    char p1[PAD(LACE_COMMON_FIELD_SIZE, P_SZ)];
+    TASK_COMMON_FIELDS(_Task)
     char d[LACE_TASKSIZE];
-    char p2[PAD(ROUND(LACE_COMMON_FIELD_SIZE, P_SZ) + LACE_TASKSIZE, LINE_SIZE)];
+//    char d[LACE_TASKSIZE];
+//    char p2[PAD(ROUND(LACE_COMMON_FIELD_SIZE, P_SZ) + LACE_TASKSIZE, LINE_SIZE)];
 } Task;
+
+static_assert((sizeof(Task) % LINE_SIZE) == 0, "Task size should be a multiple of LINE_SIZE");
 
 /* hopefully packed? */
 typedef union {
@@ -747,6 +752,8 @@ if (( isvoid==0 )); then
   SAVE_RVAL="t->d.res ="
   RETURN_RES="((TD_##NAME *)t)->d.res"
   UNION="union { $ARGS_STRUCT $RTYPE res; } d;"
+  SS_RETURN="return "
+  SS_RETURN2=""
 else
   DEF_MACRO="#define VOID_TASK_$r(NAME$MACRO_ARGS) \
              VOID_TASK_DECL_$r(NAME$DECL_ARGS) VOID_TASK_IMPL_$r(NAME$MACRO_ARGS)"
@@ -756,6 +763,8 @@ else
   SAVE_RVAL=""
   RETURN_RES=""
   if ((r)); then UNION="union { $ARGS_STRUCT } d;"; else UNION=""; fi
+  SS_RETURN=""
+  SS_RETURN2="return;"
 fi
 
 # Write down the macro for the task declaration
@@ -767,8 +776,7 @@ typedef struct _TD_##NAME {
   $UNION
 } TD_##NAME;
 
-/* If this line generates an error, please manually set the define LACE_TASKSIZE to a higher value */
-typedef char assertion_failed_task_descriptor_out_of_bounds_##NAME[(sizeof(TD_##NAME)<=sizeof(Task)) ? 0 : -1];
+static_assert(sizeof(TD_##NAME) <= sizeof(Task), \"TD_\" #NAME \" is too large, set LACE_TASKSIZE to a higher value!\");
 
 void NAME##_WRAP(WorkerP *, Task *, TD_##NAME *);
 $RTYPE NAME##_CALL(WorkerP *, Task * $FUN_ARGS);
@@ -891,7 +899,7 @@ $RTYPE NAME##_SYNC_SLOW(WorkerP *w, Task *__dq_head)
 
     t = (TD_##NAME *)__dq_head;
     atomic_store_explicit(&t->thief, THIEF_EMPTY, memory_order_relaxed);
-    return NAME##_CALL(w, __dq_head $TASK_GET_FROM_t);
+    ${SS_RETURN}NAME##_CALL(w, __dq_head $TASK_GET_FROM_t);
 }
 
 static inline __attribute__((unused))
@@ -903,11 +911,12 @@ $RTYPE NAME##_SYNC(WorkerP *w, Task *__dq_head)
         if (likely(w->split <= __dq_head)) {
             TD_##NAME *t = (TD_##NAME *)__dq_head;
             atomic_store_explicit(&t->thief, THIEF_EMPTY, memory_order_relaxed);
-            return NAME##_CALL(w, __dq_head $TASK_GET_FROM_t);
+            ${SS_RETURN}NAME##_CALL(w, __dq_head $TASK_GET_FROM_t);
+            ${SS_RETURN2}
         }
     }
 
-    return NAME##_SYNC_SLOW(w, __dq_head);
+    ${SS_RETURN}NAME##_SYNC_SLOW(w, __dq_head);
 }
 
 "\
@@ -928,7 +937,7 @@ $RTYPE NAME##_WORK(WorkerP *__lace_worker, Task *__lace_dq_head $DECL_ARGS);
 /* NAME##_WORK is inlined in NAME##_CALL and the parameter __lace_in_task will disappear */
 $RTYPE NAME##_CALL(WorkerP *w, Task *__dq_head $FUN_ARGS)
 {
-    return NAME##_WORK(w, __dq_head $CALL_ARGS);
+    ${SS_RETURN}NAME##_WORK(w, __dq_head $CALL_ARGS);
 }
 
 static inline __attribute__((always_inline))
