@@ -144,12 +144,22 @@ write_basic_package_version_file(
     COMPATIBILITY SameMinorVersion
 )
 
+configure_file("${CMAKE_CURRENT_SOURCE_DIR}/src/lace.pc.in" "${CMAKE_CURRENT_BINARY_DIR}/lace.pc" @ONLY)
+configure_file("${CMAKE_CURRENT_SOURCE_DIR}/src/lace14.pc.in" "${CMAKE_CURRENT_BINARY_DIR}/lace14.pc" @ONLY)
+
 install(
     FILES
         ${CMAKE_CURRENT_BINARY_DIR}/cmake/lace-config.cmake
         ${CMAKE_CURRENT_BINARY_DIR}/cmake/lace-config-version.cmake
     DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/lace
 )
+
+install(
+    FILES
+        ${CMAKE_CURRENT_BINARY_DIR}/lace.pc
+        ${CMAKE_CURRENT_BINARY_DIR}/lace14.pc
+    DESTINATION ${CMAKE_INSTALL_LIBDIR}/pkgconfig
+)   
 
 export(EXPORT lace-targets
     FILE ${CMAKE_CURRENT_BINARY_DIR}/cmake/lace-targets.cmake
