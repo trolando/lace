@@ -2,6 +2,13 @@
 
 All notable changes to Lace will be documented in this file.
 
+## [1.5.1] - 2025-08-04
+
+### Changed
+
+- Different handling of task size and cache line size, allowing using Lace on
+  systems with 32/64/128 bytes cache lines and 32/64 bits pointers.
+
 ## [1.5.0] - 2025-08-03
 
 ### Added
