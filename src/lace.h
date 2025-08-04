@@ -284,9 +284,11 @@ void lace_yield(WorkerP *__lace_worker, Task *__lace_dq_head);
  * Now follows the implementation of Lace
  */
 
-/* Typical cacheline size of system architectures */
-#ifndef LINE_SIZE
-#define LINE_SIZE 64
+/* We add padding to some datastructures in order to avoid false sharing.
+   We just overapproximate the size of cache lines. On some modern machines,
+   cache lines are 128 bytes, so we pick that. */
+#ifndef PADDING_TARGET
+#define PADDING_TARGET 128
 #endif
 
 /* The size of a pointer, 8 bytes on a 64-bit architecture */
@@ -401,11 +403,7 @@ static_assert((LACE_COMMON_FIELD_SIZE % P_SZ) == 0, "LACE_COMMON_FIELD_SIZE is n
 typedef struct _Task {
     TASK_COMMON_FIELDS(_Task)
     char d[LACE_TASKSIZE];
-//    char d[LACE_TASKSIZE];
-//    char p2[PAD(ROUND(LACE_COMMON_FIELD_SIZE, P_SZ) + LACE_TASKSIZE, LINE_SIZE)];
 } Task;
-
-static_assert((sizeof(Task) % LINE_SIZE) == 0, "Task size should be a multiple of LINE_SIZE");
 
 /* hopefully packed? */
 typedef union {
@@ -429,7 +427,7 @@ typedef struct _Worker {
     TailSplit ts;
     uint8_t allstolen;
 
-    char pad1[PAD(P_SZ+sizeof(TailSplit)+1, LINE_SIZE)];
+    char pad1[PAD(P_SZ+sizeof(TailSplit)+1, PADDING_TARGET)];
 
     uint8_t movesplit;
 } Worker;
@@ -460,7 +458,7 @@ void lace_abort_stack_overflow(void) __attribute__((noreturn));
 typedef struct
 {
     _Atomic(Task*) t;
-    char pad[LINE_SIZE-sizeof(Task *)];
+    char pad[PADDING_TARGET-sizeof(Task *)];
 } lace_newframe_t;
 
 extern lace_newframe_t lace_newframe;
