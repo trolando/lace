@@ -23,7 +23,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
-#include <lace14.h>
+#include <lace.h>
 
 #include "fft-lace.h"
 

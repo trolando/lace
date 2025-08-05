@@ -4,7 +4,7 @@
 #include <time.h>
 #include <getopt.h>
 
-#include <lace14.h>
+#include <lace.h>
 
 #define REAL float
 
