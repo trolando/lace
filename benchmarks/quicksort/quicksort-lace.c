@@ -89,7 +89,7 @@ int main(int argc, char **argv)
     int workers = 1;
     int dqsize = 100000;
 
-    char c;
+    int c;
     while ((c=getopt(argc, argv, "w:q:h")) != -1) {
         switch (c) {
             case 'w':

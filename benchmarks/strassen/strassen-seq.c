@@ -697,7 +697,7 @@ int main(int argc, char *argv[])
     int verify = 0;
     int n = 4096;
 
-    char c;
+    int c;
     while ((c=getopt(argc, argv, "w:q:h:c")) != -1) {
         switch (c) {
             case 'c':

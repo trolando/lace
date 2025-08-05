@@ -1,7 +1,6 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <time.h>
-#include <getopt.h>
 
 static int w, n;
 
@@ -40,17 +39,17 @@ void usage(char *s)
 
 int main(int argc, char **argv)
 {
-    if (optind + 3 >= argc) {
+    if (argc < 5) {
         usage(argv[0]);
         exit(1);
     }
 
     int d, m;
 
-    d = atoi(argv[optind]);
-    w = atoi(argv[optind+1]);
-    n = atoi(argv[optind+2]);
-    m = atoi(argv[optind+3]);
+    d = atoi(argv[1]);
+    w = atoi(argv[2]);
+    n = atoi(argv[3]);
+    m = atoi(argv[4]);
 
     printf("Running depth first search on %d balanced trees with depth %d, width %d, grain %d.\n", m, d, w, n);
     printf("Running sequentially...\n");

@@ -209,7 +209,7 @@ static void usage(char *s)
 
 int main( int argc, char **argv )
 {
-    char c;
+    int c;
     while ((c=getopt(argc, argv, "w:q:h")) != -1) {
         switch (c) {
             case 'h':
