@@ -297,11 +297,12 @@ void lace_yield(WorkerP *__lace_worker, Task *__lace_dq_head);
 #define PAD(x,b) ( ( (b) - ((x)%(b)) ) & ((b)-1) ) /* b must be power of 2 */
 #define ROUND(x,b) ( (x) + PAD( (x), (b) ) )
 
-/* The size is in bytes. Note that this is without the extra overhead from Lace.
-   The value must be greater than or equal to the maximum size of your tasks.
-   The task size is the maximum of the size of the result or of the sum of the parameter sizes. */
+/* The size is in bytes. That includes the common fields, so that leaves a little less space for the
+   task and parameters. Typically tasksize is 64 for lace.h and 128 for lace14.h. If the size of a
+   pointer is 32/64 bits (4/8 bytes) then this leaves 56/48 bytes for parameters of the task and the
+   return value. */
 #ifndef LACE_TASKSIZE
-#define LACE_TASKSIZE (14)*P_SZ
+#define LACE_TASKSIZE (128)
 #endif
 
 /* Compiler specific branch prediction optimization */
@@ -402,8 +403,10 @@ static_assert((LACE_COMMON_FIELD_SIZE % P_SZ) == 0, "LACE_COMMON_FIELD_SIZE is n
 
 typedef struct _Task {
     TASK_COMMON_FIELDS(_Task)
-    char d[LACE_TASKSIZE];
+    char d[LACE_TASKSIZE-sizeof(void*)-sizeof(struct _Worker*)];
 } Task;
+
+static_assert(sizeof(Task) == 128, "A Lace task should be 128 bytes.");
 
 /* hopefully packed? */
 typedef union {
@@ -709,7 +712,7 @@ typedef struct _TD_##NAME {                                                     
   union {  RTYPE res; } d;                                                            \
 } TD_##NAME;                                                                          \
                                                                                       \
-static_assert(sizeof(TD_##NAME) <= sizeof(Task), "TD_" #NAME " is too large, set LACE_TASKSIZE to a higher value!");\
+static_assert(sizeof(TD_##NAME) <= sizeof(Task), "TD_" #NAME " is too large to fit in the Task struct!");\
                                                                                       \
 void NAME##_WRAP(WorkerP *, Task *, TD_##NAME *);                                     \
 RTYPE NAME##_CALL(WorkerP *, Task * );                                                \
@@ -881,7 +884,7 @@ typedef struct _TD_##NAME {                                                     
                                                                                       \
 } TD_##NAME;                                                                          \
                                                                                       \
-static_assert(sizeof(TD_##NAME) <= sizeof(Task), "TD_" #NAME " is too large, set LACE_TASKSIZE to a higher value!");\
+static_assert(sizeof(TD_##NAME) <= sizeof(Task), "TD_" #NAME " is too large to fit in the Task struct!");\
                                                                                       \
 void NAME##_WRAP(WorkerP *, Task *, TD_##NAME *);                                     \
 void NAME##_CALL(WorkerP *, Task * );                                                 \
@@ -1056,7 +1059,7 @@ typedef struct _TD_##NAME {                                                     
   union { struct {  ATYPE_1 arg_1; } args; RTYPE res; } d;                            \
 } TD_##NAME;                                                                          \
                                                                                       \
-static_assert(sizeof(TD_##NAME) <= sizeof(Task), "TD_" #NAME " is too large, set LACE_TASKSIZE to a higher value!");\
+static_assert(sizeof(TD_##NAME) <= sizeof(Task), "TD_" #NAME " is too large to fit in the Task struct!");\
                                                                                       \
 void NAME##_WRAP(WorkerP *, Task *, TD_##NAME *);                                     \
 RTYPE NAME##_CALL(WorkerP *, Task * , ATYPE_1 arg_1);                                 \
@@ -1228,7 +1231,7 @@ typedef struct _TD_##NAME {                                                     
   union { struct {  ATYPE_1 arg_1; } args; } d;                                       \
 } TD_##NAME;                                                                          \
                                                                                       \
-static_assert(sizeof(TD_##NAME) <= sizeof(Task), "TD_" #NAME " is too large, set LACE_TASKSIZE to a higher value!");\
+static_assert(sizeof(TD_##NAME) <= sizeof(Task), "TD_" #NAME " is too large to fit in the Task struct!");\
                                                                                       \
 void NAME##_WRAP(WorkerP *, Task *, TD_##NAME *);                                     \
 void NAME##_CALL(WorkerP *, Task * , ATYPE_1 arg_1);                                  \
@@ -1403,7 +1406,7 @@ typedef struct _TD_##NAME {                                                     
   union { struct {  ATYPE_1 arg_1; ATYPE_2 arg_2; } args; RTYPE res; } d;             \
 } TD_##NAME;                                                                          \
                                                                                       \
-static_assert(sizeof(TD_##NAME) <= sizeof(Task), "TD_" #NAME " is too large, set LACE_TASKSIZE to a higher value!");\
+static_assert(sizeof(TD_##NAME) <= sizeof(Task), "TD_" #NAME " is too large to fit in the Task struct!");\
                                                                                       \
 void NAME##_WRAP(WorkerP *, Task *, TD_##NAME *);                                     \
 RTYPE NAME##_CALL(WorkerP *, Task * , ATYPE_1 arg_1, ATYPE_2 arg_2);                  \
@@ -1575,7 +1578,7 @@ typedef struct _TD_##NAME {                                                     
   union { struct {  ATYPE_1 arg_1; ATYPE_2 arg_2; } args; } d;                        \
 } TD_##NAME;                                                                          \
                                                                                       \
-static_assert(sizeof(TD_##NAME) <= sizeof(Task), "TD_" #NAME " is too large, set LACE_TASKSIZE to a higher value!");\
+static_assert(sizeof(TD_##NAME) <= sizeof(Task), "TD_" #NAME " is too large to fit in the Task struct!");\
                                                                                       \
 void NAME##_WRAP(WorkerP *, Task *, TD_##NAME *);                                     \
 void NAME##_CALL(WorkerP *, Task * , ATYPE_1 arg_1, ATYPE_2 arg_2);                   \
@@ -1750,7 +1753,7 @@ typedef struct _TD_##NAME {                                                     
   union { struct {  ATYPE_1 arg_1; ATYPE_2 arg_2; ATYPE_3 arg_3; } args; RTYPE res; } d;\
 } TD_##NAME;                                                                          \
                                                                                       \
-static_assert(sizeof(TD_##NAME) <= sizeof(Task), "TD_" #NAME " is too large, set LACE_TASKSIZE to a higher value!");\
+static_assert(sizeof(TD_##NAME) <= sizeof(Task), "TD_" #NAME " is too large to fit in the Task struct!");\
                                                                                       \
 void NAME##_WRAP(WorkerP *, Task *, TD_##NAME *);                                     \
 RTYPE NAME##_CALL(WorkerP *, Task * , ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3);   \
@@ -1922,7 +1925,7 @@ typedef struct _TD_##NAME {                                                     
   union { struct {  ATYPE_1 arg_1; ATYPE_2 arg_2; ATYPE_3 arg_3; } args; } d;         \
 } TD_##NAME;                                                                          \
                                                                                       \
-static_assert(sizeof(TD_##NAME) <= sizeof(Task), "TD_" #NAME " is too large, set LACE_TASKSIZE to a higher value!");\
+static_assert(sizeof(TD_##NAME) <= sizeof(Task), "TD_" #NAME " is too large to fit in the Task struct!");\
                                                                                       \
 void NAME##_WRAP(WorkerP *, Task *, TD_##NAME *);                                     \
 void NAME##_CALL(WorkerP *, Task * , ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3);    \
@@ -2097,7 +2100,7 @@ typedef struct _TD_##NAME {                                                     
   union { struct {  ATYPE_1 arg_1; ATYPE_2 arg_2; ATYPE_3 arg_3; ATYPE_4 arg_4; } args; RTYPE res; } d;\
 } TD_##NAME;                                                                          \
                                                                                       \
-static_assert(sizeof(TD_##NAME) <= sizeof(Task), "TD_" #NAME " is too large, set LACE_TASKSIZE to a higher value!");\
+static_assert(sizeof(TD_##NAME) <= sizeof(Task), "TD_" #NAME " is too large to fit in the Task struct!");\
                                                                                       \
 void NAME##_WRAP(WorkerP *, Task *, TD_##NAME *);                                     \
 RTYPE NAME##_CALL(WorkerP *, Task * , ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4);\
@@ -2269,7 +2272,7 @@ typedef struct _TD_##NAME {                                                     
   union { struct {  ATYPE_1 arg_1; ATYPE_2 arg_2; ATYPE_3 arg_3; ATYPE_4 arg_4; } args; } d;\
 } TD_##NAME;                                                                          \
                                                                                       \
-static_assert(sizeof(TD_##NAME) <= sizeof(Task), "TD_" #NAME " is too large, set LACE_TASKSIZE to a higher value!");\
+static_assert(sizeof(TD_##NAME) <= sizeof(Task), "TD_" #NAME " is too large to fit in the Task struct!");\
                                                                                       \
 void NAME##_WRAP(WorkerP *, Task *, TD_##NAME *);                                     \
 void NAME##_CALL(WorkerP *, Task * , ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4);\
@@ -2444,7 +2447,7 @@ typedef struct _TD_##NAME {                                                     
   union { struct {  ATYPE_1 arg_1; ATYPE_2 arg_2; ATYPE_3 arg_3; ATYPE_4 arg_4; ATYPE_5 arg_5; } args; RTYPE res; } d;\
 } TD_##NAME;                                                                          \
                                                                                       \
-static_assert(sizeof(TD_##NAME) <= sizeof(Task), "TD_" #NAME " is too large, set LACE_TASKSIZE to a higher value!");\
+static_assert(sizeof(TD_##NAME) <= sizeof(Task), "TD_" #NAME " is too large to fit in the Task struct!");\
                                                                                       \
 void NAME##_WRAP(WorkerP *, Task *, TD_##NAME *);                                     \
 RTYPE NAME##_CALL(WorkerP *, Task * , ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, ATYPE_5 arg_5);\
@@ -2616,7 +2619,7 @@ typedef struct _TD_##NAME {                                                     
   union { struct {  ATYPE_1 arg_1; ATYPE_2 arg_2; ATYPE_3 arg_3; ATYPE_4 arg_4; ATYPE_5 arg_5; } args; } d;\
 } TD_##NAME;                                                                          \
                                                                                       \
-static_assert(sizeof(TD_##NAME) <= sizeof(Task), "TD_" #NAME " is too large, set LACE_TASKSIZE to a higher value!");\
+static_assert(sizeof(TD_##NAME) <= sizeof(Task), "TD_" #NAME " is too large to fit in the Task struct!");\
                                                                                       \
 void NAME##_WRAP(WorkerP *, Task *, TD_##NAME *);                                     \
 void NAME##_CALL(WorkerP *, Task * , ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, ATYPE_5 arg_5);\
@@ -2791,7 +2794,7 @@ typedef struct _TD_##NAME {                                                     
   union { struct {  ATYPE_1 arg_1; ATYPE_2 arg_2; ATYPE_3 arg_3; ATYPE_4 arg_4; ATYPE_5 arg_5; ATYPE_6 arg_6; } args; RTYPE res; } d;\
 } TD_##NAME;                                                                          \
                                                                                       \
-static_assert(sizeof(TD_##NAME) <= sizeof(Task), "TD_" #NAME " is too large, set LACE_TASKSIZE to a higher value!");\
+static_assert(sizeof(TD_##NAME) <= sizeof(Task), "TD_" #NAME " is too large to fit in the Task struct!");\
                                                                                       \
 void NAME##_WRAP(WorkerP *, Task *, TD_##NAME *);                                     \
 RTYPE NAME##_CALL(WorkerP *, Task * , ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, ATYPE_5 arg_5, ATYPE_6 arg_6);\
@@ -2963,7 +2966,7 @@ typedef struct _TD_##NAME {                                                     
   union { struct {  ATYPE_1 arg_1; ATYPE_2 arg_2; ATYPE_3 arg_3; ATYPE_4 arg_4; ATYPE_5 arg_5; ATYPE_6 arg_6; } args; } d;\
 } TD_##NAME;                                                                          \
                                                                                       \
-static_assert(sizeof(TD_##NAME) <= sizeof(Task), "TD_" #NAME " is too large, set LACE_TASKSIZE to a higher value!");\
+static_assert(sizeof(TD_##NAME) <= sizeof(Task), "TD_" #NAME " is too large to fit in the Task struct!");\
                                                                                       \
 void NAME##_WRAP(WorkerP *, Task *, TD_##NAME *);                                     \
 void NAME##_CALL(WorkerP *, Task * , ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, ATYPE_5 arg_5, ATYPE_6 arg_6);\
@@ -3138,7 +3141,7 @@ typedef struct _TD_##NAME {                                                     
   union { struct {  ATYPE_1 arg_1; ATYPE_2 arg_2; ATYPE_3 arg_3; ATYPE_4 arg_4; ATYPE_5 arg_5; ATYPE_6 arg_6; ATYPE_7 arg_7; } args; RTYPE res; } d;\
 } TD_##NAME;                                                                          \
                                                                                       \
-static_assert(sizeof(TD_##NAME) <= sizeof(Task), "TD_" #NAME " is too large, set LACE_TASKSIZE to a higher value!");\
+static_assert(sizeof(TD_##NAME) <= sizeof(Task), "TD_" #NAME " is too large to fit in the Task struct!");\
                                                                                       \
 void NAME##_WRAP(WorkerP *, Task *, TD_##NAME *);                                     \
 RTYPE NAME##_CALL(WorkerP *, Task * , ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, ATYPE_5 arg_5, ATYPE_6 arg_6, ATYPE_7 arg_7);\
@@ -3310,7 +3313,7 @@ typedef struct _TD_##NAME {                                                     
   union { struct {  ATYPE_1 arg_1; ATYPE_2 arg_2; ATYPE_3 arg_3; ATYPE_4 arg_4; ATYPE_5 arg_5; ATYPE_6 arg_6; ATYPE_7 arg_7; } args; } d;\
 } TD_##NAME;                                                                          \
                                                                                       \
-static_assert(sizeof(TD_##NAME) <= sizeof(Task), "TD_" #NAME " is too large, set LACE_TASKSIZE to a higher value!");\
+static_assert(sizeof(TD_##NAME) <= sizeof(Task), "TD_" #NAME " is too large to fit in the Task struct!");\
                                                                                       \
 void NAME##_WRAP(WorkerP *, Task *, TD_##NAME *);                                     \
 void NAME##_CALL(WorkerP *, Task * , ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, ATYPE_5 arg_5, ATYPE_6 arg_6, ATYPE_7 arg_7);\
@@ -3485,7 +3488,7 @@ typedef struct _TD_##NAME {                                                     
   union { struct {  ATYPE_1 arg_1; ATYPE_2 arg_2; ATYPE_3 arg_3; ATYPE_4 arg_4; ATYPE_5 arg_5; ATYPE_6 arg_6; ATYPE_7 arg_7; ATYPE_8 arg_8; } args; RTYPE res; } d;\
 } TD_##NAME;                                                                          \
                                                                                       \
-static_assert(sizeof(TD_##NAME) <= sizeof(Task), "TD_" #NAME " is too large, set LACE_TASKSIZE to a higher value!");\
+static_assert(sizeof(TD_##NAME) <= sizeof(Task), "TD_" #NAME " is too large to fit in the Task struct!");\
                                                                                       \
 void NAME##_WRAP(WorkerP *, Task *, TD_##NAME *);                                     \
 RTYPE NAME##_CALL(WorkerP *, Task * , ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, ATYPE_5 arg_5, ATYPE_6 arg_6, ATYPE_7 arg_7, ATYPE_8 arg_8);\
@@ -3657,7 +3660,7 @@ typedef struct _TD_##NAME {                                                     
   union { struct {  ATYPE_1 arg_1; ATYPE_2 arg_2; ATYPE_3 arg_3; ATYPE_4 arg_4; ATYPE_5 arg_5; ATYPE_6 arg_6; ATYPE_7 arg_7; ATYPE_8 arg_8; } args; } d;\
 } TD_##NAME;                                                                          \
                                                                                       \
-static_assert(sizeof(TD_##NAME) <= sizeof(Task), "TD_" #NAME " is too large, set LACE_TASKSIZE to a higher value!");\
+static_assert(sizeof(TD_##NAME) <= sizeof(Task), "TD_" #NAME " is too large to fit in the Task struct!");\
                                                                                       \
 void NAME##_WRAP(WorkerP *, Task *, TD_##NAME *);                                     \
 void NAME##_CALL(WorkerP *, Task * , ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, ATYPE_5 arg_5, ATYPE_6 arg_6, ATYPE_7 arg_7, ATYPE_8 arg_8);\
@@ -3832,7 +3835,7 @@ typedef struct _TD_##NAME {                                                     
   union { struct {  ATYPE_1 arg_1; ATYPE_2 arg_2; ATYPE_3 arg_3; ATYPE_4 arg_4; ATYPE_5 arg_5; ATYPE_6 arg_6; ATYPE_7 arg_7; ATYPE_8 arg_8; ATYPE_9 arg_9; } args; RTYPE res; } d;\
 } TD_##NAME;                                                                          \
                                                                                       \
-static_assert(sizeof(TD_##NAME) <= sizeof(Task), "TD_" #NAME " is too large, set LACE_TASKSIZE to a higher value!");\
+static_assert(sizeof(TD_##NAME) <= sizeof(Task), "TD_" #NAME " is too large to fit in the Task struct!");\
                                                                                       \
 void NAME##_WRAP(WorkerP *, Task *, TD_##NAME *);                                     \
 RTYPE NAME##_CALL(WorkerP *, Task * , ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, ATYPE_5 arg_5, ATYPE_6 arg_6, ATYPE_7 arg_7, ATYPE_8 arg_8, ATYPE_9 arg_9);\
@@ -4004,7 +4007,7 @@ typedef struct _TD_##NAME {                                                     
   union { struct {  ATYPE_1 arg_1; ATYPE_2 arg_2; ATYPE_3 arg_3; ATYPE_4 arg_4; ATYPE_5 arg_5; ATYPE_6 arg_6; ATYPE_7 arg_7; ATYPE_8 arg_8; ATYPE_9 arg_9; } args; } d;\
 } TD_##NAME;                                                                          \
                                                                                       \
-static_assert(sizeof(TD_##NAME) <= sizeof(Task), "TD_" #NAME " is too large, set LACE_TASKSIZE to a higher value!");\
+static_assert(sizeof(TD_##NAME) <= sizeof(Task), "TD_" #NAME " is too large to fit in the Task struct!");\
                                                                                       \
 void NAME##_WRAP(WorkerP *, Task *, TD_##NAME *);                                     \
 void NAME##_CALL(WorkerP *, Task * , ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, ATYPE_5 arg_5, ATYPE_6 arg_6, ATYPE_7 arg_7, ATYPE_8 arg_8, ATYPE_9 arg_9);\
@@ -4179,7 +4182,7 @@ typedef struct _TD_##NAME {                                                     
   union { struct {  ATYPE_1 arg_1; ATYPE_2 arg_2; ATYPE_3 arg_3; ATYPE_4 arg_4; ATYPE_5 arg_5; ATYPE_6 arg_6; ATYPE_7 arg_7; ATYPE_8 arg_8; ATYPE_9 arg_9; ATYPE_10 arg_10; } args; RTYPE res; } d;\
 } TD_##NAME;                                                                          \
                                                                                       \
-static_assert(sizeof(TD_##NAME) <= sizeof(Task), "TD_" #NAME " is too large, set LACE_TASKSIZE to a higher value!");\
+static_assert(sizeof(TD_##NAME) <= sizeof(Task), "TD_" #NAME " is too large to fit in the Task struct!");\
                                                                                       \
 void NAME##_WRAP(WorkerP *, Task *, TD_##NAME *);                                     \
 RTYPE NAME##_CALL(WorkerP *, Task * , ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, ATYPE_5 arg_5, ATYPE_6 arg_6, ATYPE_7 arg_7, ATYPE_8 arg_8, ATYPE_9 arg_9, ATYPE_10 arg_10);\
@@ -4351,7 +4354,7 @@ typedef struct _TD_##NAME {                                                     
   union { struct {  ATYPE_1 arg_1; ATYPE_2 arg_2; ATYPE_3 arg_3; ATYPE_4 arg_4; ATYPE_5 arg_5; ATYPE_6 arg_6; ATYPE_7 arg_7; ATYPE_8 arg_8; ATYPE_9 arg_9; ATYPE_10 arg_10; } args; } d;\
 } TD_##NAME;                                                                          \
                                                                                       \
-static_assert(sizeof(TD_##NAME) <= sizeof(Task), "TD_" #NAME " is too large, set LACE_TASKSIZE to a higher value!");\
+static_assert(sizeof(TD_##NAME) <= sizeof(Task), "TD_" #NAME " is too large to fit in the Task struct!");\
                                                                                       \
 void NAME##_WRAP(WorkerP *, Task *, TD_##NAME *);                                     \
 void NAME##_CALL(WorkerP *, Task * , ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, ATYPE_5 arg_5, ATYPE_6 arg_6, ATYPE_7 arg_7, ATYPE_8 arg_8, ATYPE_9 arg_9, ATYPE_10 arg_10);\
@@ -4526,7 +4529,7 @@ typedef struct _TD_##NAME {                                                     
   union { struct {  ATYPE_1 arg_1; ATYPE_2 arg_2; ATYPE_3 arg_3; ATYPE_4 arg_4; ATYPE_5 arg_5; ATYPE_6 arg_6; ATYPE_7 arg_7; ATYPE_8 arg_8; ATYPE_9 arg_9; ATYPE_10 arg_10; ATYPE_11 arg_11; } args; RTYPE res; } d;\
 } TD_##NAME;                                                                          \
                                                                                       \
-static_assert(sizeof(TD_##NAME) <= sizeof(Task), "TD_" #NAME " is too large, set LACE_TASKSIZE to a higher value!");\
+static_assert(sizeof(TD_##NAME) <= sizeof(Task), "TD_" #NAME " is too large to fit in the Task struct!");\
                                                                                       \
 void NAME##_WRAP(WorkerP *, Task *, TD_##NAME *);                                     \
 RTYPE NAME##_CALL(WorkerP *, Task * , ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, ATYPE_5 arg_5, ATYPE_6 arg_6, ATYPE_7 arg_7, ATYPE_8 arg_8, ATYPE_9 arg_9, ATYPE_10 arg_10, ATYPE_11 arg_11);\
@@ -4698,7 +4701,7 @@ typedef struct _TD_##NAME {                                                     
   union { struct {  ATYPE_1 arg_1; ATYPE_2 arg_2; ATYPE_3 arg_3; ATYPE_4 arg_4; ATYPE_5 arg_5; ATYPE_6 arg_6; ATYPE_7 arg_7; ATYPE_8 arg_8; ATYPE_9 arg_9; ATYPE_10 arg_10; ATYPE_11 arg_11; } args; } d;\
 } TD_##NAME;                                                                          \
                                                                                       \
-static_assert(sizeof(TD_##NAME) <= sizeof(Task), "TD_" #NAME " is too large, set LACE_TASKSIZE to a higher value!");\
+static_assert(sizeof(TD_##NAME) <= sizeof(Task), "TD_" #NAME " is too large to fit in the Task struct!");\
                                                                                       \
 void NAME##_WRAP(WorkerP *, Task *, TD_##NAME *);                                     \
 void NAME##_CALL(WorkerP *, Task * , ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, ATYPE_5 arg_5, ATYPE_6 arg_6, ATYPE_7 arg_7, ATYPE_8 arg_8, ATYPE_9 arg_9, ATYPE_10 arg_10, ATYPE_11 arg_11);\
@@ -4873,7 +4876,7 @@ typedef struct _TD_##NAME {                                                     
   union { struct {  ATYPE_1 arg_1; ATYPE_2 arg_2; ATYPE_3 arg_3; ATYPE_4 arg_4; ATYPE_5 arg_5; ATYPE_6 arg_6; ATYPE_7 arg_7; ATYPE_8 arg_8; ATYPE_9 arg_9; ATYPE_10 arg_10; ATYPE_11 arg_11; ATYPE_12 arg_12; } args; RTYPE res; } d;\
 } TD_##NAME;                                                                          \
                                                                                       \
-static_assert(sizeof(TD_##NAME) <= sizeof(Task), "TD_" #NAME " is too large, set LACE_TASKSIZE to a higher value!");\
+static_assert(sizeof(TD_##NAME) <= sizeof(Task), "TD_" #NAME " is too large to fit in the Task struct!");\
                                                                                       \
 void NAME##_WRAP(WorkerP *, Task *, TD_##NAME *);                                     \
 RTYPE NAME##_CALL(WorkerP *, Task * , ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, ATYPE_5 arg_5, ATYPE_6 arg_6, ATYPE_7 arg_7, ATYPE_8 arg_8, ATYPE_9 arg_9, ATYPE_10 arg_10, ATYPE_11 arg_11, ATYPE_12 arg_12);\
@@ -5045,7 +5048,7 @@ typedef struct _TD_##NAME {                                                     
   union { struct {  ATYPE_1 arg_1; ATYPE_2 arg_2; ATYPE_3 arg_3; ATYPE_4 arg_4; ATYPE_5 arg_5; ATYPE_6 arg_6; ATYPE_7 arg_7; ATYPE_8 arg_8; ATYPE_9 arg_9; ATYPE_10 arg_10; ATYPE_11 arg_11; ATYPE_12 arg_12; } args; } d;\
 } TD_##NAME;                                                                          \
                                                                                       \
-static_assert(sizeof(TD_##NAME) <= sizeof(Task), "TD_" #NAME " is too large, set LACE_TASKSIZE to a higher value!");\
+static_assert(sizeof(TD_##NAME) <= sizeof(Task), "TD_" #NAME " is too large to fit in the Task struct!");\
                                                                                       \
 void NAME##_WRAP(WorkerP *, Task *, TD_##NAME *);                                     \
 void NAME##_CALL(WorkerP *, Task * , ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, ATYPE_5 arg_5, ATYPE_6 arg_6, ATYPE_7 arg_7, ATYPE_8 arg_8, ATYPE_9 arg_9, ATYPE_10 arg_10, ATYPE_11 arg_11, ATYPE_12 arg_12);\
@@ -5220,7 +5223,7 @@ typedef struct _TD_##NAME {                                                     
   union { struct {  ATYPE_1 arg_1; ATYPE_2 arg_2; ATYPE_3 arg_3; ATYPE_4 arg_4; ATYPE_5 arg_5; ATYPE_6 arg_6; ATYPE_7 arg_7; ATYPE_8 arg_8; ATYPE_9 arg_9; ATYPE_10 arg_10; ATYPE_11 arg_11; ATYPE_12 arg_12; ATYPE_13 arg_13; } args; RTYPE res; } d;\
 } TD_##NAME;                                                                          \
                                                                                       \
-static_assert(sizeof(TD_##NAME) <= sizeof(Task), "TD_" #NAME " is too large, set LACE_TASKSIZE to a higher value!");\
+static_assert(sizeof(TD_##NAME) <= sizeof(Task), "TD_" #NAME " is too large to fit in the Task struct!");\
                                                                                       \
 void NAME##_WRAP(WorkerP *, Task *, TD_##NAME *);                                     \
 RTYPE NAME##_CALL(WorkerP *, Task * , ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, ATYPE_5 arg_5, ATYPE_6 arg_6, ATYPE_7 arg_7, ATYPE_8 arg_8, ATYPE_9 arg_9, ATYPE_10 arg_10, ATYPE_11 arg_11, ATYPE_12 arg_12, ATYPE_13 arg_13);\
@@ -5392,7 +5395,7 @@ typedef struct _TD_##NAME {                                                     
   union { struct {  ATYPE_1 arg_1; ATYPE_2 arg_2; ATYPE_3 arg_3; ATYPE_4 arg_4; ATYPE_5 arg_5; ATYPE_6 arg_6; ATYPE_7 arg_7; ATYPE_8 arg_8; ATYPE_9 arg_9; ATYPE_10 arg_10; ATYPE_11 arg_11; ATYPE_12 arg_12; ATYPE_13 arg_13; } args; } d;\
 } TD_##NAME;                                                                          \
                                                                                       \
-static_assert(sizeof(TD_##NAME) <= sizeof(Task), "TD_" #NAME " is too large, set LACE_TASKSIZE to a higher value!");\
+static_assert(sizeof(TD_##NAME) <= sizeof(Task), "TD_" #NAME " is too large to fit in the Task struct!");\
                                                                                       \
 void NAME##_WRAP(WorkerP *, Task *, TD_##NAME *);                                     \
 void NAME##_CALL(WorkerP *, Task * , ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, ATYPE_5 arg_5, ATYPE_6 arg_6, ATYPE_7 arg_7, ATYPE_8 arg_8, ATYPE_9 arg_9, ATYPE_10 arg_10, ATYPE_11 arg_11, ATYPE_12 arg_12, ATYPE_13 arg_13);\
@@ -5567,7 +5570,7 @@ typedef struct _TD_##NAME {                                                     
   union { struct {  ATYPE_1 arg_1; ATYPE_2 arg_2; ATYPE_3 arg_3; ATYPE_4 arg_4; ATYPE_5 arg_5; ATYPE_6 arg_6; ATYPE_7 arg_7; ATYPE_8 arg_8; ATYPE_9 arg_9; ATYPE_10 arg_10; ATYPE_11 arg_11; ATYPE_12 arg_12; ATYPE_13 arg_13; ATYPE_14 arg_14; } args; RTYPE res; } d;\
 } TD_##NAME;                                                                          \
                                                                                       \
-static_assert(sizeof(TD_##NAME) <= sizeof(Task), "TD_" #NAME " is too large, set LACE_TASKSIZE to a higher value!");\
+static_assert(sizeof(TD_##NAME) <= sizeof(Task), "TD_" #NAME " is too large to fit in the Task struct!");\
                                                                                       \
 void NAME##_WRAP(WorkerP *, Task *, TD_##NAME *);                                     \
 RTYPE NAME##_CALL(WorkerP *, Task * , ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, ATYPE_5 arg_5, ATYPE_6 arg_6, ATYPE_7 arg_7, ATYPE_8 arg_8, ATYPE_9 arg_9, ATYPE_10 arg_10, ATYPE_11 arg_11, ATYPE_12 arg_12, ATYPE_13 arg_13, ATYPE_14 arg_14);\
@@ -5739,7 +5742,7 @@ typedef struct _TD_##NAME {                                                     
   union { struct {  ATYPE_1 arg_1; ATYPE_2 arg_2; ATYPE_3 arg_3; ATYPE_4 arg_4; ATYPE_5 arg_5; ATYPE_6 arg_6; ATYPE_7 arg_7; ATYPE_8 arg_8; ATYPE_9 arg_9; ATYPE_10 arg_10; ATYPE_11 arg_11; ATYPE_12 arg_12; ATYPE_13 arg_13; ATYPE_14 arg_14; } args; } d;\
 } TD_##NAME;                                                                          \
                                                                                       \
-static_assert(sizeof(TD_##NAME) <= sizeof(Task), "TD_" #NAME " is too large, set LACE_TASKSIZE to a higher value!");\
+static_assert(sizeof(TD_##NAME) <= sizeof(Task), "TD_" #NAME " is too large to fit in the Task struct!");\
                                                                                       \
 void NAME##_WRAP(WorkerP *, Task *, TD_##NAME *);                                     \
 void NAME##_CALL(WorkerP *, Task * , ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, ATYPE_5 arg_5, ATYPE_6 arg_6, ATYPE_7 arg_7, ATYPE_8 arg_8, ATYPE_9 arg_9, ATYPE_10 arg_10, ATYPE_11 arg_11, ATYPE_12 arg_12, ATYPE_13 arg_13, ATYPE_14 arg_14);\
