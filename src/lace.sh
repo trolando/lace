@@ -52,9 +52,17 @@ echo '
     #define WIN32_LEAN_AND_MEAN
     #define NOMINMAX
     #include <windows.h>
+    #include <intrin.h>
 #else
     #include <pthread.h>
     #include <unistd.h>
+#endif
+
+#if defined(__APPLE__)
+  #include <time.h>
+  #include <Availability.h>
+  #include <TargetConditionals.h>
+  #include <mach/mach_time.h>
 #endif
 
 #ifndef __cplusplus
@@ -564,9 +572,9 @@ typedef struct _lace_worker {
     uint16_t worker;                 // what is my worker id?
     uint8_t allstolen;               // my allstolen
 
+    uint64_t time;
 #if LACE_COUNT_EVENTS
     uint64_t ctr[CTR_MAX];      // counters
-    uint64_t time;
     int level;
 #endif
 } lace_worker;
@@ -672,17 +680,56 @@ static inline uint64_t lace_rng(lace_worker* w)
     return result;
 }
 
-/* Some flags that influence Lace behavior */
+static inline uint64_t lace_macos_now_ns(void)
+{
+#if defined(__APPLE__)
+    #if defined(CLOCK_UPTIME_RAW)
+        return (uint64_t)clock_gettime_nsec_np(CLOCK_UPTIME_RAW);
+    #else
+        static mach_timebase_info_data_t tb;
+        if (tb.denom == 0) mach_timebase_info(&tb);
+        uint64_t t = (uint64_t)mach_absolute_time();
+        return (t * (uint64_t)tb.numer) / (uint64_t)tb.denom;
+    #endif
+#else
+    return 0;
+#endif
+}
 
-#if LACE_PIE_TIMES
 /* High resolution timer */
 static inline uint64_t lace_gethrtime(void)
 {
-    uint32_t hi, lo;
-    asm volatile ("rdtsc" : "=a"(lo), "=d"(hi) :: "memory");
-    return (uint64_t)hi<<32 | lo;
-}
+#if (defined(__i386__) || defined(__x86_64__) || defined(_M_IX86) || defined(_M_X64))
+    #if defined(_MSC_VER) && !defined(__clang__)
+        unsigned aux;
+        return (uint64_t)__rdtscp(&aux);   // if supported by CPU; MSVC emits rdtscp
+    #elif defined(__clang__) || defined(__GNUC__)
+        #if defined(__RDTSCP__)
+            unsigned lo, hi, aux;
+            __asm__ __volatile__("rdtscp" : "=a"(lo), "=d"(hi), "=c"(aux) :: "memory");
+            return ((uint64_t)hi << 32) | lo;
+        #else
+            unsigned lo, hi;
+            __asm__ __volatile__("rdtsc" : "=a"(lo), "=d"(hi) :: "memory");
+            return ((uint64_t)hi << 32) | lo;
+        #endif
+    #else
+        /* unknown compiler */
+    #endif
+#elif defined(_WIN32)
+    LARGE_INTEGER t;
+    QueryPerformanceCounter(&t);
+    return (uint64_t)t.QuadPart;
+#elif defined(__APPLE__)
+    return lace_macos_now_ns();
+#else
+    struct timespec ts;
+    clock_gettime(CLOCK_MONOTONIC_RAW, &ts);
+    return (uint64_t)ts.tv_sec * 1000000000ULL + (uint64_t)ts.tv_nsec;
 #endif
+}
+
+/* Some flags that influence Lace behavior */
 
 #if LACE_COUNT_TASKS
 #define PR_COUNTTASK(s) PR_INC(s,CTR_tasks)
