@@ -228,27 +228,43 @@ lace_worker_count()
 /**
  * If we are collecting PIE times, then we need some helper functions.
  */
-#if LACE_PIE_TIMES
 static uint64_t count_at_start, count_at_end;
 static uint64_t us_elapsed_timer;
 
-static void
-us_elapsed_start(void)
+static inline uint64_t lace_now_us(void)
 {
+#if defined(_WIN32)
+    /* Windows: QueryPerformanceCounter -> microseconds */
+    LARGE_INTEGER t, f;
+    QueryPerformanceCounter(&t);
+    QueryPerformanceFrequency(&f);
+    /* avoid overflow: (t * 1e6) / f  */
+    return (uint64_t)((t.QuadPart * 1000000ULL) / (uint64_t)f.QuadPart);
+
+#elif defined(__APPLE__)
+    return lace_macos_now_ns() / 1000ULL;
+
+#else
+    /* POSIX: clock_gettime -> microseconds */
     struct timespec ts_now;
+#if defined(CLOCK_MONOTONIC_RAW)
+    clock_gettime(CLOCK_MONOTONIC_RAW, &ts_now);
+#else
     clock_gettime(CLOCK_MONOTONIC, &ts_now);
-    us_elapsed_timer = ts_now.tv_sec * 1000000LL + ts_now.tv_nsec/1000;
+#endif
+    return (uint64_t)ts_now.tv_sec * 1000000ULL + (uint64_t)ts_now.tv_nsec / 1000ULL;
+#endif
 }
 
-static long long unsigned
-us_elapsed(void)
+static void us_elapsed_start(void)
 {
-    struct timespec ts_now;
-    clock_gettime(CLOCK_MONOTONIC, &ts_now);
-    uint64_t t = ts_now.tv_sec * 1000000LL + ts_now.tv_nsec/1000;
-    return t - us_elapsed_timer;
+    us_elapsed_timer = lace_now_us();
 }
-#endif
+
+static unsigned long long us_elapsed(void)
+{
+    return (unsigned long long)(lace_now_us() - us_elapsed_timer);
+}
 
 /**
  * Lace barrier implementation, that synchronizes on all workers.
@@ -458,8 +474,9 @@ lace_init_worker(unsigned int worker)
     { int k; for (k=0; k<CTR_MAX; k++) w->ctr[k] = 0; }
 #endif
 
-#if LACE_PIE_TIMES
     w->time = lace_gethrtime();
+
+#if LACE_PIE_TIMES
     w->level = 0;
 #endif
 }
@@ -682,9 +699,7 @@ void lace_steal_loop_CALL(lace_worker* lace_worker, atomic_int* quit)
     lace_worker_public ** const self = &workers[worker_id];
     lace_worker_public ** victim = self;
 
-#if LACE_PIE_TIMES
     lace_worker->time = lace_gethrtime();
-#endif
 
     unsigned int n = n_workers;
 #if LACE_BACKOFF
@@ -1019,11 +1034,9 @@ lace_start(unsigned int _n_workers, size_t dequesize, size_t stacksize)
     // Prepare lace_init structure
     atomic_store_explicit(&lace_newframe.t, NULL, memory_order_relaxed);
 
-#if LACE_PIE_TIMES
     // Initialize counters for pie times
     us_elapsed_start();
     count_at_start = lace_gethrtime();
-#endif
 
     /* Report startup if verbose */
     if (verbosity) {
@@ -1168,7 +1181,8 @@ lace_count_report_file(FILE *file)
 #if LACE_PIE_TIMES
     count_at_end = lace_gethrtime();
 
-    uint64_t count_per_ms = (count_at_end - count_at_start) / (us_elapsed() / 1000);
+    double ms = us_elapsed() / 1000.0;
+    double count_per_ms = (double)(count_at_end - count_at_start) / ms;
     double dcpm = (double)count_per_ms;
 
     uint64_t sum_count;
