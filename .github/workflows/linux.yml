@@ -63,3 +63,47 @@ jobs:
       shell: bash
       run: ctest --test-dir build --output-on-failure -VV --timeout 60
 
+  i386-m32:
+    name: 'Linux i386 (-m32) Release'
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    - name: Install 32-bit toolchain
+      shell: bash
+      run: |
+        sudo dpkg --add-architecture i386
+        sudo apt update
+        sudo apt install -y cmake ninja-build gcc-multilib g++-multilib libc6-dev:i386
+    - name: Configure (32-bit)
+      shell: bash
+      run: |
+        cmake -S . -B build32 -G Ninja \
+          -DCMAKE_BUILD_TYPE=Release \
+          -DLACE_BUILD_TESTS=ON \
+          -DLACE_BUILD_BENCHMARKS=OFF \
+          -DCMAKE_C_FLAGS="-m32" \
+          -DCMAKE_CXX_FLAGS="-m32"
+    - name: Build
+      shell: bash
+      run: cmake --build build32
+    - name: Test
+      shell: bash
+      run: ctest --test-dir build32 --output-on-failure -VV --timeout 60 -j 1
+
+  armv7-qemu:
+    name: 'Linux armv7 (QEMU) Release'
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    - uses: uraimo/run-on-arch-action@v3
+      with:
+        arch: armv7
+        distro: ubuntu22.04
+        githubToken: ${{ github.token }}
+        install: |
+          apt-get update
+          apt-get install -y cmake ninja-build gcc g++ pkg-config
+        run: |
+          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DLACE_BUILD_TESTS=ON -DLACE_BUILD_BENCHMARKS=OFF
+          cmake --build build
+          ctest --test-dir build --output-on-failure -VV --timeout 120 -j 1
