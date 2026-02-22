@@ -18,6 +18,8 @@
 #include <string.h>
 #include <math.h>
 
+#include <common.h>
+
 #include "uts.h"
 
 #define GET_NUM_THREADS  1
@@ -110,11 +112,11 @@ int main(int argc, char *argv[]) {
   uts_printParams();
   uts_initRoot(&root, type);
 
-  t1 = uts_wctime();
+  t1 = wctime();
 
   Result r = parTreeSearch(0, &root);
 
-  t2 = uts_wctime();
+  t2 = wctime();
 
   maxTreeDepth = r.maxdepth;
   nNodes  = r.size;

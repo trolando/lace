@@ -7,7 +7,7 @@ tasksize=$2
 echo "/* 
  * Copyright 2013-2016 Formal Methods and Tools, University of Twente
  * Copyright 2016-2018 Tom van Dijk, Johannes Kepler University Linz
- * Copyright 2019-2025 Tom van Dijk, Formal Methods and Tools, University of Twente
+ * Copyright 2019-2026 Tom van Dijk, Formal Methods and Tools, University of Twente
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -27,38 +27,233 @@ echo '
 #ifndef __LACE_H__
 #define __LACE_H__
 
-// Standard includes
-#include <assert.h> // for static_assert
-#include <stdalign.h>
-#include <stdint.h>
-#include <stdio.h>
-#include <pthread.h>
-#include <unistd.h>
-
-#ifndef __cplusplus
-  #include <stdatomic.h>
-#else
-  // Even though we are not really intending to support C++...
-  // Compatibility with C11
-  #include <atomic>
-  #define _Atomic(T) std::atomic<T>
-  using std::memory_order_relaxed;
-  using std::memory_order_acquire;
-  using std::memory_order_release;
-  using std::memory_order_seq_cst;
-#endif
-
-#ifdef __cplusplus
-extern "C" {
-#endif /* __cplusplus */
-
 // Lace version
 #define LACE_VERSION_MAJOR 2
 #define LACE_VERSION_MINOR 0
 #define LACE_VERSION_PATCH 1
 
+#if defined(_MSC_VER) && !defined(__clang__)
+    #define LACE_MSVC 1
+#else
+    #define LACE_MSVC 0
+#endif
+
 // Platform configuration
 #include <lace_config.h>
+
+// Standard includes
+#include <assert.h> // for static_assert
+#include <errno.h>
+#include <stdalign.h>
+#include <stdint.h>
+#include <stdio.h>
+
+#if LACE_MSVC
+    #define WIN32_LEAN_AND_MEAN
+    #define NOMINMAX
+    #include <windows.h>
+#else
+    #include <pthread.h>
+    #include <unistd.h>
+#endif
+
+#ifndef __cplusplus
+    #include <stdatomic.h>
+#else
+    // Even though we are not really intending to support C++...
+    // Compatibility with C11
+    #include <atomic>
+    #define _Atomic(T) std::atomic<T>
+    using std::memory_order_relaxed;
+    using std::memory_order_acquire;
+    using std::memory_order_release;
+    using std::memory_order_seq_cst;
+#endif
+
+// Portable macros
+
+#if LACE_MSVC
+    #define LACE_UNUSED
+    #define LACE_NOINLINE __declspec(noinline)
+    #define LACE_NORETURN __declspec(noreturn)
+    #define LACE_ALIGN(N) __declspec(align(N))
+    #define LACE_LIKELY(x)   (x)
+    #define LACE_UNLIKELY(x) (x)
+
+#elif defined(__GNUC__) || defined(__clang__)
+    #define LACE_UNUSED __attribute__((unused))
+    #define LACE_NOINLINE __attribute__((noinline))
+    #if defined(__STDC_VERSION__) && (__STDC_VERSION__ >= 201112L)
+        #define LACE_NORETURN _Noreturn
+        #define LACE_ALIGN(N) _Alignas(N)
+    #else
+        #define LACE_NORETURN __attribute__((noreturn))
+        #define LACE_ALIGN(N) __attribute__((aligned(N)))
+    #endif
+    #define LACE_LIKELY(x)   __builtin_expect(!!(x), 1)
+    #define LACE_UNLIKELY(x) __builtin_expect(!!(x), 0)
+
+#elif defined(__STDC_VERSION__) && (__STDC_VERSION__ >= 201112L)
+    #define LACE_UNUSED
+    #define LACE_NOINLINE
+    #define LACE_NORETURN _Noreturn
+    #define LACE_ALIGN(N) _Alignas(N)
+    #define LACE_LIKELY(x)   (x)
+    #define LACE_UNLIKELY(x) (x)
+
+#else
+    #define LACE_UNUSED
+    #define LACE_NOINLINE
+    #define LACE_NORETURN
+    #define LACE_ALIGN(N)
+    #define LACE_LIKELY(x)   (x)
+    #define LACE_UNLIKELY(x) (x)
+#endif
+
+#if LACE_MSVC
+    #define LACE_TLS __declspec(thread)
+#elif defined(__STDC_VERSION__) && (__STDC_VERSION__ >= 201112L)
+    #define LACE_TLS _Thread_local
+#elif defined(__GNUC__) || defined(__clang__)
+    #define LACE_TLS __thread
+#else
+    #error "No thread-local storage qualifier available"
+#endif
+
+#if LACE_MSVC
+    #include <malloc.h>
+    #define LACE_ALLOCA(sz) _alloca(sz)
+#else
+    #if defined(__has_include)
+        #if __has_include(<alloca.h>)
+            #include <alloca.h>
+        #endif
+    #else
+        #include <alloca.h>
+    #endif
+    #define LACE_ALLOCA(sz) alloca(sz)
+#endif
+
+#if LACE_MSVC
+    #include <limits.h>
+
+    typedef HANDLE lace_sem_t;
+
+    static inline int lace_sem_init(lace_sem_t* sem, unsigned value)
+    {
+        *sem = CreateSemaphoreA(NULL, (LONG)value, LONG_MAX, NULL);
+        return (*sem == NULL) ? -1 : 0;
+    }
+
+    static inline int lace_sem_destroy(lace_sem_t* sem)
+    {
+        int ok = CloseHandle(*sem) ? 0 : -1;
+        *sem = NULL;
+        return ok;
+    }
+
+    static inline int lace_sem_post(lace_sem_t* sem)
+    {
+        return ReleaseSemaphore(*sem, 1, NULL) ? 0 : -1;
+    }
+
+    static inline int lace_sem_wait(lace_sem_t* sem)
+    {
+        DWORD r = WaitForSingleObject(*sem, INFINITE);
+        return (r == WAIT_OBJECT_0) ? 0 : -1;
+    }
+
+    static inline int lace_sem_trywait(lace_sem_t* sem)
+    {
+        DWORD r = WaitForSingleObject(*sem, 0);
+        if (r == WAIT_OBJECT_0) return 0;
+        if (r == WAIT_TIMEOUT) { errno = EAGAIN; return -1; }
+        return -1;
+    }
+
+#elif defined(__APPLE__)
+    #include <dispatch/dispatch.h>
+
+    typedef dispatch_semaphore_t lace_sem_t;
+
+    static inline int lace_sem_init(lace_sem_t* s, unsigned value)
+    {
+        *s = dispatch_semaphore_create((long)value);
+        return (*s == NULL) ? -1 : 0;
+    }
+
+    static inline int lace_sem_wait(lace_sem_t* s)
+    {
+        dispatch_semaphore_wait(*s, DISPATCH_TIME_FOREVER);
+        return 0;
+    }
+
+    static inline int lace_sem_trywait(lace_sem_t* s)
+    {
+        long r = dispatch_semaphore_wait(*s, DISPATCH_TIME_NOW);
+        if (r == 0) return 0;
+        errno = EAGAIN;
+        return -1;
+    }
+
+    static inline int lace_sem_post(lace_sem_t* s)
+    {
+        dispatch_semaphore_signal(*s);
+        return 0;
+    }
+
+    static inline int lace_sem_destroy(lace_sem_t* s)
+    {
+        /* See note: usually fine to leak until process exit for runtime globals. */
+        *s = NULL;
+        return 0;
+    }
+
+#else
+    #include <semaphore.h>
+
+    typedef sem_t lace_sem_t;
+
+    static inline int lace_sem_init(lace_sem_t* sem, unsigned value) { return sem_init(sem, 0, value); }
+    static inline int lace_sem_wait(lace_sem_t* sem) { return sem_wait(sem); }
+    static inline int lace_sem_trywait(lace_sem_t* sem) { return sem_trywait(sem); }
+    static inline int lace_sem_post(lace_sem_t* sem) { return sem_post(sem); }
+    static inline int lace_sem_destroy(lace_sem_t* sem) { return sem_destroy(sem); }
+#endif
+
+#if LACE_MSVC
+
+    typedef CRITICAL_SECTION lace_mutex_t;
+    typedef CONDITION_VARIABLE lace_cond_t;
+
+    static inline void lace_mutex_init(lace_mutex_t* m) { InitializeCriticalSection(m); }
+    static inline void lace_mutex_destroy(lace_mutex_t* m) { DeleteCriticalSection(m); }
+    static inline void lace_mutex_lock(lace_mutex_t* m) { EnterCriticalSection(m); }
+    static inline void lace_mutex_unlock(lace_mutex_t* m) { LeaveCriticalSection(m); }
+
+    static inline void lace_cond_init(lace_cond_t* c) { InitializeConditionVariable(c); }
+    static inline void lace_cond_destroy(lace_cond_t* c) { (void)c; } // no-op on Windows
+    static inline void lace_cond_signal(lace_cond_t* c) { WakeConditionVariable(c); }
+    static inline void lace_cond_broadcast(lace_cond_t* c) { WakeAllConditionVariable(c); }
+    static inline void lace_cond_wait(lace_cond_t* c, lace_mutex_t* m) { SleepConditionVariableCS(c, m, INFINITE); }
+
+#else
+
+    typedef pthread_mutex_t lace_mutex_t;
+    typedef pthread_cond_t lace_cond_t;
+
+    static inline void lace_mutex_init(lace_mutex_t* m) { pthread_mutex_init(m, NULL); }
+    static inline void lace_mutex_destroy(lace_mutex_t* m) { pthread_mutex_destroy(m); }
+    static inline void lace_mutex_lock(lace_mutex_t* m) { pthread_mutex_lock(m); }
+    static inline void lace_mutex_unlock(lace_mutex_t* m) { pthread_mutex_unlock(m); }
+
+    static inline void lace_cond_init(lace_cond_t* c) { pthread_cond_init(c, NULL); }
+    static inline void lace_cond_destroy(lace_cond_t* c) { pthread_cond_destroy(c); }
+    static inline void lace_cond_signal(lace_cond_t* c) { pthread_cond_signal(c); }
+    static inline void lace_cond_broadcast(lace_cond_t* c) { pthread_cond_broadcast(c); }
+    static inline void lace_cond_wait(lace_cond_t* c, lace_mutex_t* m) { pthread_cond_wait(c, m); }
+
+#endif
 
 // Architecture configuration
 
@@ -78,6 +273,10 @@ extern "C" {
 #ifndef LACE_TASKSIZE
 #define LACE_TASKSIZE ('$tasksize')
 #endif
+
+#ifdef __cplusplus
+extern "C" {
+#endif /* __cplusplus */
 
 // Forward declarations
 typedef struct _lace_worker lace_worker;
@@ -143,22 +342,22 @@ unsigned int lace_worker_count(void);
 /**
  * Retrieve whether we are running in a Lace worker. Returns 1 if this is the case, 0 otherwise.
  */
-static inline int lace_is_worker(void) __attribute__((unused));
+static inline int lace_is_worker(void) LACE_UNUSED;
 
 /**
  * Retrieve the current worker data.
  */
-static inline lace_worker* lace_get_worker(void) __attribute__((unused));
+static inline lace_worker* lace_get_worker(void) LACE_UNUSED;
 
 /**
  * Get the current worker id. Returns -1 if not inside a Lace thread.
  */
-static inline int lace_worker_id(void) __attribute__((unused));
+static inline int lace_worker_id(void) LACE_UNUSED;
 
 /**
  * Thread-local pseudo-random number generator for Lace workers.
  */
-static inline uint64_t lace_rng(lace_worker *lace_worker) __attribute__((unused));
+static inline uint64_t lace_rng(lace_worker *lace_worker) LACE_UNUSED;
 
 /**************************************
  * lace_task operations
@@ -187,12 +386,12 @@ void lace_drop(lace_worker *lace_worker);
 /**
  * Returns 1 if the given task is stolen, 0 otherwise.
  */
-static inline int lace_is_stolen_task(lace_task* t) __attribute__((unused));
+static inline int lace_is_stolen_task(lace_task* t) LACE_UNUSED;
 
 /**
  * Returns 1 if the given task is completed, 0 otherwise.
  */
-static inline int lace_is_completed_task(lace_task* t) __attribute__((unused));
+static inline int lace_is_completed_task(lace_task* t) LACE_UNUSED;
 
 /**
  * Try to steal and execute a random task from a random worker.
@@ -203,17 +402,17 @@ void lace_steal_random(lace_worker*);
 /**
  * Check if current tasks must be interrupted, and if so, interrupt.
  */
-static inline void lace_check_yield(lace_worker*) __attribute__((unused));
+static inline void lace_check_yield(lace_worker*) LACE_UNUSED;
 
 /**
  * Make all tasks of the current worker shared.
  */
-static inline void lace_make_all_shared(void) __attribute__((unused));
+static inline void lace_make_all_shared(void) LACE_UNUSED;
 
 /**
  * Retrieve the current head of the deque of the worker.
  */
-static inline lace_task *lace_get_head(void) __attribute__((unused));
+static inline lace_task *lace_get_head(void) LACE_UNUSED;
 
 /**************************************
  * Statistics
@@ -235,7 +434,7 @@ void lace_count_report_file(FILE *file);
 /**
  * Report Lace stats to stdout.
  */
-static inline __attribute__((unused)) void lace_count_report(void)
+static inline LACE_UNUSED void lace_count_report(void)
 {
     lace_count_report_file(stdout);
 }
@@ -246,17 +445,18 @@ static inline __attribute__((unused)) void lace_count_report(void)
  **************************************/
 
 #if defined(_WIN32)
-// not inline, because we do not want to pull in windows.h here
-// also Windows sleep has a ms resolution, so it is not very practical anyway...
-void lace_sleep_us(int microseconds);
+    // not inline, because we do not want to pull in windows.h here
+    // also Windows sleep has a ms resolution, so it is not very practical anyway...
+    void lace_sleep_us(int64_t microseconds);
 #else
-#include <time.h>
-static inline void lace_sleep_us(int microseconds) {
-    struct timespec ts;
-    ts.tv_sec = microseconds / 1000000;
-    ts.tv_nsec = (microseconds % 1000000) * 1000;
-    nanosleep(&ts, NULL);
-}
+    #include <time.h>
+    static inline void lace_sleep_us(int64_t microseconds) {
+        if (microseconds <= 0) return;
+        struct timespec ts;
+        ts.tv_sec = microseconds / 1000000;
+        ts.tv_nsec = (microseconds % 1000000) * 1000;
+        nanosleep(&ts, NULL);
+    }
 #endif
 
 /**************************************
@@ -302,6 +502,8 @@ typedef enum {
     CTR_MAX
 } CTR_index;
 
+typedef struct _lace_worker_public lace_worker_public;
+
 #define TASK_COMMON_FIELDS(type)                   \
     void (*f)(lace_worker *, struct type *);        \
     _Atomic(struct _lace_worker_public*) thief;
@@ -333,13 +535,24 @@ typedef union {
 static_assert(sizeof(TailSplit) == 8, "TailSplit size should be 8 bytes");
 static_assert(sizeof(TailSplitNA) == 8, "TailSplit size should be 8 bytes");
 
+#if LACE_MSVC
+#pragma warning(push)
+#pragma warning(disable: 4324)
+#endif
+
 typedef struct _lace_worker_public {
     lace_task *dq;
     TailSplit ts;
     uint8_t allstolen;
 
-    alignas(LACE_PADDING_TARGET) uint8_t movesplit;
+    LACE_ALIGN(LACE_PADDING_TARGET) uint8_t movesplit;
 } lace_worker_public;
+
+#if LACE_MSVC
+#pragma warning(pop)
+#endif
+
+typedef struct { uint64_t s0, s1; } lace_rng_state;
 
 typedef struct _lace_worker {
     lace_task *head;                 // my head
@@ -347,9 +560,9 @@ typedef struct _lace_worker {
     lace_task *end;                  // dq+dq_size
     lace_task *dq;                   // my queue
     lace_worker_public *_public;     // pointer to public lace_worker_public struct
-    __uint128_t rng;            // my random seed (for lace_rng)
-    uint16_t worker;            // what is my worker id?
-    uint8_t allstolen;          // my allstolen
+    lace_rng_state rng;              // my random seed (for lace_rng)
+    uint16_t worker;                 // what is my worker id?
+    uint8_t allstolen;               // my allstolen
 
 #if LACE_COUNT_EVENTS
     uint64_t ctr[CTR_MAX];      // counters
@@ -358,21 +571,12 @@ typedef struct _lace_worker {
 #endif
 } lace_worker;
 
-#ifdef __linux__
-extern __thread lace_worker *lace_thread_worker;
+extern LACE_TLS lace_worker *lace_thread_worker;
 
 static inline lace_worker* lace_get_worker(void)
 {
     return lace_thread_worker;
 }
-#else
-extern pthread_key_t lace_thread_worker_key;
-
-static inline lace_worker* lace_get_worker(void)
-{
-    return (lace_worker*)pthread_getspecific(lace_thread_worker_key);
-}
-#endif
 
 /**
  * Retrieve whether we are running in a Lace worker. Returns 1 if this is the case, 0 otherwise.
@@ -444,13 +648,28 @@ static inline int lace_is_completed_task(lace_task* t)
  */
 #define lace_task_result(t) (&t->d[0])
 
+static inline uint64_t lace_rotl64(uint64_t x, int k)
+{
+    return (x << k) | (x >> (64 - k));
+}
+
 /**
  * Compute a random number, thread-local (so scalable)
  */
-static inline uint64_t lace_rng(lace_worker *worker)
+static inline uint64_t lace_rng(lace_worker* w)
 {
-    worker->rng *= 0xda942042e4dd58b5;
-    return worker->rng >> 64;
+    // Xoroshiro128**
+    uint64_t s0 = w->rng.s0;
+    uint64_t s1 = w->rng.s1;
+
+    // Scrambled output (good low bits)
+    uint64_t result = lace_rotl64(s0 * 5ULL, 7) * 9ULL;
+
+    s1 ^= s0;
+    w->rng.s0 = lace_rotl64(s0, 24) ^ s1 ^ (s1 << 16);
+    w->rng.s1 = lace_rotl64(s1, 37);
+
+    return result;
 }
 
 /* Some flags that influence Lace behavior */
@@ -499,7 +718,7 @@ static inline uint64_t lace_gethrtime(void)
 #define LACE_NOWORK   ((lace_worker_public*)2)
 
 #if LACE_PIE_TIMES
-static __attribute__((unused)) void lace_time_event( lace_worker *w, int event )
+static LACE_UNUSED void lace_time_event( lace_worker *w, int event )
 {
     uint64_t now = lace_gethrtime(),
              prev = w->time;
@@ -592,7 +811,7 @@ static __attribute__((unused)) void lace_time_event( lace_worker *w, int event )
 /**
  * Helper function when a lace_task stack overflow is detected.
  */
-void lace_abort_stack_overflow(void) __attribute__((noreturn));
+LACE_NORETURN void lace_abort_stack_overflow(void);
 
 /**
  * Support for interrupting Lace workers
@@ -616,7 +835,7 @@ void lace_yield(lace_worker*);
  */
 static inline void lace_check_yield(lace_worker *w)
 {
-    if (__builtin_expect(atomic_load_explicit(&lace_newframe.t, memory_order_relaxed) != NULL, 0)) {
+    if (LACE_UNLIKELY(atomic_load_explicit(&lace_newframe.t, memory_order_relaxed) != NULL)) {
         lace_yield(w);
     }
 }
@@ -629,7 +848,7 @@ static inline void lace_make_all_shared(void)
     lace_worker* w = lace_get_worker();
     if (w->split != w->head) {
         w->split = w->head;
-        w->_public->ts.ts.split = w->head - w->dq;
+        w->_public->ts.ts.split = (uint32_t)(w->head - w->dq);
     }
 }
 
@@ -712,12 +931,12 @@ static_assert(sizeof(TD_##NAME) <= sizeof(lace_task), \"TD_\" #NAME \" is too la
 
 $RTYPE NAME##_CALL(lace_worker*$DECL_ARGS);
 
-static void NAME##_WRAP(lace_worker* lace_worker, TD_##NAME *t __attribute__((unused)))
+static void NAME##_WRAP(lace_worker* lace_worker, TD_##NAME *t LACE_UNUSED)
 {
     $SAVE_RVAL NAME##_CALL(lace_worker$TASK_GET_FROM_t);
 }
 
-static inline __attribute__((unused))
+static inline LACE_UNUSED
 lace_task* NAME##_SPAWN(lace_worker* _lace_worker$FUN_ARGS)
 {
     PR_COUNTTASK(_lace_worker);
@@ -736,17 +955,18 @@ lace_task* NAME##_SPAWN(lace_worker* _lace_worker$FUN_ARGS)
     atomic_thread_fence(memory_order_acquire);
 
     lace_worker_public *wt = _lace_worker->_public;
-    if (__builtin_expect(_lace_worker->allstolen, 0)) {
+    if (LACE_UNLIKELY(_lace_worker->allstolen)) {
         if (wt->movesplit) wt->movesplit = 0;
-        head = lace_head - _lace_worker->dq;
-        ts = (TailSplitNA){{head,head+1}};
+        head = (uint32_t)(lace_head - _lace_worker->dq);
+        ts.ts.tail = head;
+        ts.ts.split = head+1;
         wt->ts.v = ts.v;
         wt->allstolen = 0;
         _lace_worker->split = lace_head+1;
         _lace_worker->allstolen = 0;
-    } else if (__builtin_expect(wt->movesplit, 0)) {
-        head = lace_head - _lace_worker->dq;
-        split = _lace_worker->split - _lace_worker->dq;
+    } else if (LACE_UNLIKELY(wt->movesplit)) {
+        head = (uint32_t)(lace_head - _lace_worker->dq);
+        split = (uint32_t)(_lace_worker->split - _lace_worker->dq);
         newsplit = (split + head + 2)/2;
         wt->ts.ts.split = newsplit;
         _lace_worker->split = _lace_worker->dq + newsplit;
@@ -758,7 +978,7 @@ lace_task* NAME##_SPAWN(lace_worker* _lace_worker$FUN_ARGS)
     return lace_head;
 }
 
-static inline __attribute__((unused))
+static inline LACE_UNUSED
 $RTYPE NAME##_NEWFRAME($RUN_ARGS)
 {
     lace_task _t;
@@ -770,7 +990,7 @@ $RTYPE NAME##_NEWFRAME($RUN_ARGS)
     return $RETURN_RES;
 }
 
-static inline __attribute__((unused))
+static inline LACE_UNUSED
 void NAME##_TOGETHER($RUN_ARGS)
 {
     lace_task _t;
@@ -781,7 +1001,7 @@ void NAME##_TOGETHER($RUN_ARGS)
     lace_run_together(&_t);
 }
 
-static inline __attribute__((unused))
+static inline LACE_UNUSED
 $RTYPE NAME($RUN_ARGS)
 {
     lace_worker *worker = lace_get_worker();
@@ -798,7 +1018,7 @@ $RTYPE NAME($RUN_ARGS)
     }
 }
 
-static inline __attribute__((unused))
+static inline LACE_UNUSED
 $RTYPE NAME##_RUNEX($RUN_ARGS)
 {
     lace_task _t;
@@ -810,7 +1030,7 @@ $RTYPE NAME##_RUNEX($RUN_ARGS)
     return $RETURN_RES;
 }
 
-static inline __attribute__((unused))
+static inline LACE_UNUSED
 $RTYPE NAME##_SYNC(lace_worker* _lace_worker)
 {
     lace_task* head = _lace_worker->head - 1;
@@ -819,8 +1039,8 @@ $RTYPE NAME##_SYNC(lace_worker* _lace_worker)
     /* assert (__dq_head > 0); */  /* Commented out because we assume contract */
     TD_##NAME *t = (TD_##NAME *)head;
 
-    if (__builtin_expect(0 == _lace_worker->_public->movesplit, 1)) {
-        if (__builtin_expect(_lace_worker->split <= head, 1)) {
+    if (LACE_LIKELY(0 == _lace_worker->_public->movesplit)) {
+        if (LACE_LIKELY(_lace_worker->split <= head)) {
             atomic_store_explicit(&t->thief, THIEF_EMPTY, memory_order_relaxed);
             ${SS_RETURN}NAME##_CALL(_lace_worker$TASK_GET_FROM_t);
             ${SS_RETURN2}

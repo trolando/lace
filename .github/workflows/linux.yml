@@ -12,25 +12,29 @@ jobs:
         build_type: [Release, Debug]
         version: [9, 12]
     steps:
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@v4
     - name: Install dependencies
       shell: bash
       run: |
         sudo apt update
-        sudo apt install -y cmake cmake-data build-essential gcc-${{matrix.version}} g++-${{matrix.version}}
-    - name: Build
+        sudo apt install -y cmake ninja-build gcc-${{matrix.version}} g++-${{matrix.version}}
+    - name: Configure
       shell: bash
       run: |
         export CC=gcc-${{matrix.version}} CXX=g++-${{matrix.version}}
-        cmake -S . -B build -DCMAKE_BUILD_TYPE=${{matrix.build_type}} -DLACE_BUILD_BENCHMARKS=ON
-        cmake --build build --config ${{matrix.build_type}}
+        cmake -S . -B build -G Ninja \
+          -DCMAKE_BUILD_TYPE=${{matrix.build_type}} \
+          -DLACE_BUILD_TESTS=ON \
+          -DLACE_BUILD_BENCHMARKS=ON
+    - name: Build
+      shell: bash
+      run: cmake --build build
     - name: Test
       shell: bash
-      working-directory: build
-      run: ctest --output-on-failure -C ${{ matrix.build_type }} -VV --timeout 30
+      run: ctest --test-dir build --output-on-failure -VV --timeout 60
 
   clang-build:
-    name: 'Linux CLang-${{matrix.version}} ${{matrix.build_type}}'
+    name: 'Linux Clang-${{matrix.version}} ${{matrix.build_type}}'
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -38,20 +42,24 @@ jobs:
         build_type: [Release, Debug]
         version: [15, 19]
     steps:
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@v4
     - name: Install dependencies
       shell: bash
       run: |
         sudo apt update
-        sudo apt install -y cmake cmake-data build-essential clang-${{matrix.version}}
-    - name: Build
+        sudo apt install -y cmake ninja-build clang-${{matrix.version}}
+    - name: Configure
       shell: bash
       run: |
         export CC=clang-${{matrix.version}} CXX=clang++-${{matrix.version}}
-        cmake -S . -B build -DCMAKE_BUILD_TYPE=${{matrix.build_type}} -DLACE_BUILD_BENCHMARKS=ON
-        cmake --build build --config ${{matrix.build_type}}
+        cmake -S . -B build -G Ninja \
+          -DCMAKE_BUILD_TYPE=${{matrix.build_type}} \
+          -DLACE_BUILD_TESTS=ON \
+          -DLACE_BUILD_BENCHMARKS=ON
+    - name: Build
+      shell: bash
+      run: cmake --build build
     - name: Test
       shell: bash
-      working-directory: build
-      run: ctest --output-on-failure -C ${{ matrix.build_type }} -VV --timeout 30
+      run: ctest --test-dir build --output-on-failure -VV --timeout 60
 

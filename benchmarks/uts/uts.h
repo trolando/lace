@@ -51,8 +51,8 @@ typedef struct node_t Node;
  *   generated with geometric distributions near the
  *   root and binomial distributions towards the leaves.
  */
-enum   uts_trees_e    { BIN = 0, GEO, HYBRID, BALANCED };
-enum   uts_geoshape_e { LINEAR = 0, EXPDEC, CYCLIC, FIXED };
+enum   uts_trees_e    { UTS_BIN = 0, UTS_GEO, UTS_HYBRID, UTS_BALANCED };
+enum   uts_geoshape_e { UTS_LINEAR = 0, UTS_EXPDEC, UTS_CYCLIC, UTS_FIXED };
 
 typedef enum uts_trees_e    tree_t;
 typedef enum uts_geoshape_e geoshape_t;

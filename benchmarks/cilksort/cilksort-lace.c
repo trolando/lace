@@ -54,11 +54,12 @@
  * log factor in the critical path (left as homework).
  */
 
-#include <lace.h>
-#include <time.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+
+#include <lace.h>
+#include <common.h>
 
 typedef long ELM;
 
@@ -67,13 +68,6 @@ typedef long ELM;
 #define MERGESIZE (2*KILO)
 #define QUICKSIZE (2*KILO)
 #define INSERTIONSIZE 20
-
-double wctime() 
-{
-    struct timespec tv;
-    clock_gettime(CLOCK_MONOTONIC, &tv);
-    return (tv.tv_sec + 1E-9 * tv.tv_nsec);
-}
 
 static unsigned long rand_nxt = 0;
 
@@ -474,7 +468,10 @@ int main(int argc, char *argv[])
     FILE *f = fopen(filename, "r");
     if (f != NULL) {
         printf("Reading data from file...\n");
-        if (fread(array, sizeof(ELM), size, f) != (unsigned)size) exit(1);
+        if (fread(array, sizeof(ELM), size, f) != (unsigned)size) {
+            printf("ERROR reading data from file!");
+            exit(1);
+        }
         fclose(f);
     } else {
         printf("Generating data...\n");

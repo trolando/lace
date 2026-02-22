@@ -1,6 +1,7 @@
 #include <stdio.h>
 #include <stdlib.h>
-#include <time.h>
+
+#include <common.h>
 
 static const double epsilon = 1.0e-9;
 
@@ -28,13 +29,6 @@ integrate(double x1, double y1, double x2, double y2, double area)
     area_x0x2 = integrate(x0, y0, x2, y2, area_x0x2);
 
     return area_x1x0 + area_x0x2;
-}
-
-static double wctime() 
-{
-    struct timespec tv;
-    clock_gettime(CLOCK_MONOTONIC, &tv);
-    return (tv.tv_sec + 1E-9 * tv.tv_nsec);
 }
 
 int main( int argc, char **argv )

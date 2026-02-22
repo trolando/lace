@@ -4,6 +4,26 @@
 
 #include <lace.h>
 
+#if LACE_MSVC
+    #define WIN32_LEAN_AND_MEAN
+    #define NOMINMAX
+    #include <windows.h>
+#endif
+
+double wctime(void)
+{
+#if LACE_MSVC
+    LARGE_INTEGER now, freq;
+    QueryPerformanceCounter(&now);
+    QueryPerformanceFrequency(&freq);
+    return (double)now.QuadPart / (double)freq.QuadPart;
+#else
+    struct timespec tv;
+    clock_gettime(CLOCK_MONOTONIC, &tv);
+    return (double)tv.tv_sec + 1e-9 * (double)tv.tv_nsec;
+#endif
+}
+
 VOID_TASK_1(sleeptask, long, us)
 void sleeptask_CALL(lace_worker *lace, long us)
 {
@@ -21,13 +41,6 @@ long pfib_CALL(lace_worker* worker, int n)
     return m+k;
 }
 
-double wctime() 
-{
-    struct timespec tv;
-    clock_gettime(CLOCK_MONOTONIC, &tv);
-    return (tv.tv_sec + 1E-9 * tv.tv_nsec);
-}
-
 int
 main (int argc, char *argv[])
 {
@@ -41,26 +54,35 @@ main (int argc, char *argv[])
     lace_start(n_workers, 0, 0);
     double time0 = wctime();
     long res = pfib(35);
+    printf("1 bla: %ld\n", res);
     double time1 = wctime();
     res = pfib(35);
+    printf("2 bla: %ld\n", res);
     double time2 = wctime();
     res = pfib(35);
+    printf("3 bla: %ld\n", res);
     double time3 = wctime();
     sleeptask(1000000);
     double time4 = wctime();
     res = pfib(35);
+    printf("4 bla: %ld\n", res);
     double time5 = wctime();
     res = pfib(35);
+    printf("5 bla: %ld\n", res);
     double time6 = wctime();
     res = pfib(35);
+    printf("6 bla: %ld\n", res);
     double time7 = wctime();
     sleeptask(1000000);
     double time8 = wctime();
     res = pfib(35);
+    printf("7 bla: %ld\n", res);
     double time9 = wctime();
     res = pfib(35);
+    printf("8 bla: %ld\n", res);
     double time10 = wctime();
     res = pfib(35);
+    printf("9 bla: %ld\n", res);
     double time11 = wctime();
     lace_stop();
 

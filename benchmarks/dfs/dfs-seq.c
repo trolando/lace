@@ -1,10 +1,19 @@
 #include <stdio.h>
 #include <stdlib.h>
-#include <time.h>
+
+#include <common.h>
 
 static int w, n;
 
-int __attribute__((noinline)) loop()
+#if defined(__GNUC__) || defined(__clang__)
+#define LACE_NOINLINE __attribute__((noinline))
+#elif defined(_MSC_VER)
+#define LACE_NOINLINE __declspec(noinline)
+#else
+#define LACE_NOINLINE
+#endif
+
+LACE_NOINLINE int loop()
 {
     int i, s=0;
 
@@ -23,13 +32,6 @@ void tree(int d)
     } else {
         loop();
     }
-}
-
-double wctime() 
-{
-    struct timespec tv;
-    clock_gettime(CLOCK_MONOTONIC, &tv);
-    return (tv.tv_sec + 1E-9 * tv.tv_nsec);
 }
 
 void usage(char *s)

@@ -1,12 +1,13 @@
+#define _USE_MATH_DEFINES
 #include <math.h>
 #include <stdio.h> // for printf, fprintf
 #include <stdlib.h> // for exit, atol
-#include <time.h>
-#include <getopt.h>
 
 #include <lace32.h>
+#include <common.h>
 
-static __thread unsigned int seed = 0;
+
+static LACE_TLS unsigned int seed = 0;
 
 /**
  * Simple random number generated (like rand) using the given seed.
@@ -39,13 +40,6 @@ uint64_t pi_mc_CALL(lace_worker* worker, long start, long cnt)
     uint64_t res = pi_mc_CALL(worker, start+cnt/2, (cnt+1)/2);
     res += pi_mc_SYNC(worker);
     return res;    
-}
-
-double wctime() 
-{
-    struct timespec tv;
-    clock_gettime(CLOCK_MONOTONIC, &tv);
-    return (tv.tv_sec + 1E-9 * tv.tv_nsec);
 }
 
 void usage(char *s)

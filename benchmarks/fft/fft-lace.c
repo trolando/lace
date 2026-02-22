@@ -17,13 +17,13 @@
  * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
  */
 
-#include <getopt.h>
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <time.h>
+
 #include <lace.h>
+#include <common.h>
 
 #include "fft-lace.h"
 
@@ -257,9 +257,9 @@ void fft_CALL(lace_worker* worker, int n, COMPLEX* in, COMPLEX* out)
 void init()
 {
     size = (1 << n);
-    out = malloc(sizeof(COMPLEX [size]));
-    in  = malloc(sizeof(COMPLEX [size]));
-    W   = malloc(sizeof(COMPLEX [size + 1]));
+    out = malloc((size_t)size * sizeof *out);
+    in = malloc((size_t)size * sizeof *in);
+    W = malloc((size_t)(size + 1) * sizeof *W);
 
     for (int i = 0; i < size; ++i) {
         c_re(in[i]) = rand() / ((double)RAND_MAX + 1);
@@ -270,16 +270,9 @@ void init()
 void prep()
 {
     if (cp == NULL)
-        cp = malloc(sizeof(COMPLEX [size]));
+        cp = malloc((size_t)size * sizeof *cp);
 
-    memcpy(cp, in, sizeof(COMPLEX [size]));
-}
-
-static double wctime()
-{
-    struct timespec tv;
-    clock_gettime(CLOCK_MONOTONIC, &tv);
-    return (tv.tv_sec + 1E-9 * tv.tv_nsec);
+    memcpy(cp, in, (size_t)size * sizeof *cp);
 }
 
 void usage(char *s)

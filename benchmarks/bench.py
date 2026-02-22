@@ -311,6 +311,8 @@ def discover_experiments(W):
         def lace(name, exe, *args):
             if os.path.isfile(exe):
                 experiments.append((name, [f"./{exe}", "-w", str(w), *args], w))
+            if os.path.isfile(exe+".exe"):
+                experiments.append((name, [f"./{exe}.exe", "-w", str(w), *args], w))
 
         lace("fib", "fib-lace", "46")
         lace("uts-t2l", "uts-lace", *globals().get("T2L", "").split())
@@ -332,6 +334,8 @@ def discover_experiments(W):
     def seq(name, exe, *args):
         if os.path.isfile(exe):
             experiments.append((f"{name}-seq", [f"./{exe}", *args], 1))
+        if os.path.isfile(exe+".exe"):
+            experiments.append((f"{name}-seq", [f"./{exe}.exe", *args], 1))
 
     seq("fib", "fib-seq", "46")
     seq("uts-t2l", "uts-seq", *globals().get("T2L", "").split())

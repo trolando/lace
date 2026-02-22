@@ -17,10 +17,11 @@
 #include <stdio.h>
 #include <string.h>
 #include <math.h>
-#include <time.h> /* for nanosleep */
+
+#include <lace.h>
+#include <common.h>
 
 #include "uts.h"
-#include "lace.h"
 
 #define GET_NUM_THREADS  1
 #define GET_THREAD_NUM   0
@@ -85,7 +86,7 @@ Result parTreeSearch_CALL(lace_worker* worker, int depth, Node * parent) {
   if (numChildren > 0) {
     int i, j;
     for (i = 0; i < numChildren; i++) {
-      Node *child = (Node*)alloca(sizeof(Node));
+      Node *child = (Node*)LACE_ALLOCA(sizeof(Node));
       child->type = childType;
       child->height = parentHeight + 1;
       child->numChildren = -1;    // not yet determined
@@ -96,8 +97,7 @@ Result parTreeSearch_CALL(lace_worker* worker, int depth, Node * parent) {
     }
 
     /* Wait a bit */
-    struct timespec tim = (struct timespec){0, 100L*numChildren};
-    nanosleep(&tim, NULL);
+    lace_sleep_us(numChildren);
 
     for (i = 0; i < numChildren; i++) {
       Result c = parTreeSearch_SYNC(worker);
@@ -158,9 +158,9 @@ int main(int argc, char *argv[]) {
 
   printf("Initialized Lace with %d workers, dqsize=%d\n", _lace_workers, _lace_dqsize);
 
-  t1 = uts_wctime();
+  t1 = wctime();
   Result r = parTreeSearch(0, &root);
-  t2 = uts_wctime();
+  t2 = wctime();
 
   maxTreeDepth = r.maxdepth;
   nNodes  = r.size;

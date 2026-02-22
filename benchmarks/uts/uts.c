@@ -17,7 +17,8 @@
 #include <string.h>
 #include <stdio.h>
 #include <math.h>
-#include <time.h>
+
+#include <common.h>
 
 #include "uts.h"
 
@@ -43,7 +44,7 @@ char * uts_geoshapes_str[] = { "Linear decrease", "Exponential decrease", "Cycli
  *   generated with geometric distributions near the
  *   root and binomial distributions towards the leaves.
  */
-tree_t type  = GEO; // Default tree type
+tree_t type  = UTS_GEO; // Default tree type
 double b_0   = 4.0; // default branching factor at the root
 int   rootId = 0;   // default seed for RNG state at root
 
@@ -74,7 +75,7 @@ double nonLeafProb = 15.0 / 64.0;  // q
  *  Default parameter values
  */
 int        gen_mx   = 6;      // default depth of tree
-geoshape_t shape_fn = LINEAR; // default shape function (b_i decr linearly)
+geoshape_t shape_fn = UTS_LINEAR; // default shape function (b_i decr linearly)
 
 /*  In type HYBRID trees, each node is either type BIN or type
  *  GEO, with the generation strategy changing from GEO to BIN 
@@ -100,18 +101,6 @@ int verbose  = 1;
 void uts_error(char *str) {
   printf("*** Error: %s\n", str);
   impl_abort(1);
-}
-
-/*
- * wall clock time
- *   for detailed accounting of work, this needs
- *   high resolution
- */
-double uts_wctime() 
-{
-    struct timespec tv;
-    clock_gettime(CLOCK_MONOTONIC, &tv);
-    return (tv.tv_sec + 1E-9 * tv.tv_nsec);
 }
 
 
@@ -155,12 +144,12 @@ int uts_numChildren_geo(Node * parent) {
     switch (shape_fn) {
       
       // expected size polynomial in depth
-    case EXPDEC:
+    case UTS_EXPDEC:
       b_i = b_0 * pow((double) depth, -log(b_0)/log((double) gen_mx));
       break;
       
       // cyclic tree size
-    case CYCLIC:
+    case UTS_CYCLIC:
       if (depth > 5 * gen_mx){
         b_i = 0.0;
         break;
@@ -170,12 +159,12 @@ int uts_numChildren_geo(Node * parent) {
       break;
 
       // identical distribution at all nodes up to max depth
-    case FIXED:
+    case UTS_FIXED:
       b_i = (depth < gen_mx)? b_0 : 0;
       break;
       
       // linear decrease in b_i
-    case LINEAR:
+    case UTS_LINEAR:
     default:
       b_i =  b_0 * (1.0 - (double)depth / (double) gen_mx);
       break;
@@ -203,24 +192,24 @@ int uts_numChildren(Node *parent) {
 
   /* Determine the number of children */
   switch (type) {
-    case BIN:
+    case UTS_BIN:
       if (parent->height == 0)
         numChildren = (int) floor(b_0);
       else 
         numChildren = uts_numChildren_bin(parent);
       break;
   
-    case GEO:
+    case UTS_GEO:
       numChildren = uts_numChildren_geo(parent);
       break;
     
-    case HYBRID:
+    case UTS_HYBRID:
       if (parent->height < shiftDepth * gen_mx)
         numChildren = uts_numChildren_geo(parent);
       else
         numChildren = uts_numChildren_bin(parent);
       break;
-    case BALANCED:
+    case UTS_BALANCED:
       if (parent->height < gen_mx)
         numChildren = (int) b_0;
       break;
@@ -230,7 +219,7 @@ int uts_numChildren(Node *parent) {
   
   // limit number of children
   // only a BIN root can have more than MAXNUMCHILDREN
-  if (parent->height == 0 && parent->type == BIN) {
+  if (parent->height == 0 && parent->type == UTS_BIN) {
     int rootBF = (int) ceil(b_0);
     if (numChildren > rootBF) {
       printf("*** Number of children of root truncated from %d to %d\n",
@@ -238,7 +227,7 @@ int uts_numChildren(Node *parent) {
       numChildren = rootBF;
     }
   }
-  else if (type != BALANCED) {
+  else if (type != UTS_BALANCED) {
     if (numChildren > MAXNUMCHILDREN) {
       printf("*** Number of children truncated from %d to %d\n", 
              numChildren, MAXNUMCHILDREN);
@@ -252,17 +241,17 @@ int uts_numChildren(Node *parent) {
 
 int uts_childType(Node *parent) {
   switch (type) {
-    case BIN:
-      return BIN;
-    case GEO:
-      return GEO;
-    case HYBRID:
+    case UTS_BIN:
+      return UTS_BIN;
+    case UTS_GEO:
+      return UTS_GEO;
+    case UTS_HYBRID:
       if (parent->height < shiftDepth * gen_mx)
-        return GEO;
+        return UTS_GEO;
       else 
-        return BIN;
-    case BALANCED:
-      return BALANCED;
+        return UTS_BIN;
+    case UTS_BALANCED:
+      return UTS_BALANCED;
     default:
       uts_error("uts_get_childtype(): Unknown tree type");
       return -1;
@@ -282,12 +271,12 @@ int uts_paramsToStr(char *strBuf, int ind) {
   ind += sprintf(strBuf+ind, "Tree shape parameters:\n");
   ind += sprintf(strBuf+ind, "  root branching factor b_0 = %.1f, root seed = %d\n", b_0, rootId);
 	
-  if (type == GEO || type == HYBRID) {
+  if (type == UTS_GEO || type == UTS_HYBRID) {
     ind += sprintf(strBuf+ind, "  GEO parameters: gen_mx = %d, shape function = %d (%s)\n", 
             gen_mx, shape_fn, uts_geoshapes_str[shape_fn]);
   }
 
-  if (type == BIN || type == HYBRID) {
+  if (type == UTS_BIN || type == UTS_HYBRID) {
     double q = nonLeafProb;
     int    m = nonLeafBF;
     double es  = (1.0 / (1.0 - q * m));
@@ -295,12 +284,12 @@ int uts_paramsToStr(char *strBuf, int ind) {
             q, m, q * m, es);
   }
 
-  if (type == HYBRID) {
+  if (type == UTS_HYBRID) {
     ind += sprintf(strBuf+ind, "  HYBRID:  GEO from root to depth %d, then BIN\n", 
             (int) ceil(shiftDepth * gen_mx));
   }
 	
-  if (type == BALANCED) {
+  if (type == UTS_BALANCED) {
     ind += sprintf(strBuf+ind, "  BALANCED parameters: gen_mx = %d\n", gen_mx);
     ind += sprintf(strBuf+ind, "        Expected size: %llu nodes, %llu leaves\n",
         (counter_t) ((pow(b_0, gen_mx+1) - 1.0)/(b_0 - 1.0)) /* geometric series */,
@@ -359,12 +348,12 @@ void uts_parseParams(int argc, char *argv[]){
         verbose = atoi(argv[i+1]); break;
       case 't':
         type = (tree_t) atoi(argv[i+1]); 
-        if (type != BIN && type != GEO && type!= HYBRID && type != BALANCED) 
+        if (type != UTS_BIN && type != UTS_GEO && type!= UTS_HYBRID && type != UTS_BALANCED)
 	  err = i;
         break;
       case 'a':
         shape_fn = (geoshape_t) atoi(argv[i+1]);
-        if (shape_fn > FIXED) err = i;
+        if (shape_fn > UTS_FIXED) err = i;
         break;
       case 'b':
         b_0 = atof(argv[i+1]); break;
