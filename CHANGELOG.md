@@ -2,6 +2,18 @@
 
 All notable changes to Lace will be documented in this file.
 
+## [2.1.0] - 2026-02-22
+
+### Added
+
+- Full support for Windows with the MSVC compiler, i.e., without MSYS2 or POSIX.
+- Option `LACE_BACKOFF` (default `ON`) to let idle threads sleep if there is no work.
+- Method `lace_is_running` returns `1` if Lace is running, or `0` if not.
+
+### Changed
+
+- Rewrote the `lace_rng` so it can be used on 32-bit systems.
+
 ## [2.0.3] - 2025-08-05
 
 In addition to the API-breaking change in 2.0.2, since we're still barely into
