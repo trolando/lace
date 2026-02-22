@@ -17,12 +17,20 @@ option(LACE_BACKOFF "Let idle threads sleep if there is no work" ON)
 option(LACE_USE_HWLOC "Let Lace pin threads/memory using libhwloc" OFF)
 option(LACE_USE_MMAP "Let Lace use mmap to allocate memory" ON)
 
-if(LACE_USE_MMAP)
+include(CheckSymbolExists)
+check_symbol_exists(sched_getaffinity "sched.h" HAVE_SCHED_GETAFFINITY)
+if(HAVE_SCHED_GETAFFINITY)
+    target_compile_definitions(lace PRIVATE HAVE_SCHED_GETAFFINITY=1)
+    target_compile_definitions(lace32 PRIVATE HAVE_SCHED_GETAFFINITY=1)
+    target_compile_definitions(lace128 PRIVATE HAVE_SCHED_GETAFFINITY=1)
+endif()
+
+if(LACE_USE_MMAP AND NOT MSVC)
     include(CheckSymbolExists)
     check_symbol_exists(mmap "sys/mman.h" HAVE_MMAP)
     if(NOT HAVE_MMAP)
         message(WARNING " mmap not found: disabling mmap support")
-	set(LACE_USE_MMAP OFF)
+	    set(LACE_USE_MMAP OFF)
     endif()
 endif()
 
@@ -77,50 +85,49 @@ set_target_properties(lace128 PROPERTIES POSITION_INDEPENDENT_CODE ${LACE_ENABLE
 
 if(CMAKE_C_COMPILER_ID MATCHES "Clang|GNU")
     target_compile_options(lace PRIVATE
+        -pipe
         $<$<CONFIG:Debug>:-O0 -Wall -Wextra -Wpedantic>
-        $<$<CONFIG:Release>:-pipe>
         $<$<BOOL:${LACE_NATIVE_OPT}>:-march=native>
     )
 
     target_compile_options(lace32 PRIVATE
+        -pipe
         $<$<CONFIG:Debug>:-O0 -Wall -Wextra -Wpedantic>
-        $<$<CONFIG:Release>:-pipe>
         $<$<BOOL:${LACE_NATIVE_OPT}>:-march=native>
     )
 
     target_compile_options(lace128 PRIVATE
+        -pipe
         $<$<CONFIG:Debug>:-O0 -Wall -Wextra -Wpedantic>
-        $<$<CONFIG:Release>:-pipe>
         $<$<BOOL:${LACE_NATIVE_OPT}>:-march=native>
     )
 elseif(MSVC)
-    target_compile_options(lace PRIVATE
-        $<$<CONFIG:Debug>:/Od /Wall /Zi>
+    target_compile_options(lace PUBLIC
+        /Zc:__STDC__
+        /experimental:c11atomics
     )
-
-    target_compile_options(lace32 PRIVATE
-        $<$<CONFIG:Debug>:/Od /Wall /Zi>
+    target_compile_options(lace32 PUBLIC
+        /Zc:__STDC__
+        /experimental:c11atomics
     )
-
-    target_compile_options(lace128 PRIVATE
-        $<$<CONFIG:Debug>:/Od /Wall /Zi>
+    target_compile_options(lace128 PUBLIC
+        /Zc:__STDC__
+        /experimental:c11atomics
     )
 endif()
 
-find_package(Threads REQUIRED)
-target_link_libraries(lace PUBLIC Threads::Threads)
-target_link_libraries(lace32 PUBLIC Threads::Threads)
-target_link_libraries(lace128 PUBLIC Threads::Threads)
+if(NOT MSVC)
+    find_package(Threads REQUIRED)
+    target_link_libraries(lace PUBLIC Threads::Threads)
+    target_link_libraries(lace32 PUBLIC Threads::Threads)
+    target_link_libraries(lace128 PUBLIC Threads::Threads)
+endif()
 
 if(LACE_USE_HWLOC)
     find_package(HWLOC REQUIRED)
-    target_include_directories(lace PUBLIC ${HWLOC_INCLUDE_DIR})
-    target_include_directories(lace32 PUBLIC ${HWLOC_INCLUDE_DIR})
-    target_include_directories(lace128 PUBLIC ${HWLOC_INCLUDE_DIR})
-
-    target_link_libraries(lace PUBLIC ${HWLOC_LIBRARIES})
-    target_link_libraries(lace32 PUBLIC ${HWLOC_LIBRARIES})
-    target_link_libraries(lace128 PUBLIC ${HWLOC_LIBRARIES})
+    target_link_libraries(lace PUBLIC HWLOC::hwloc)
+    target_link_libraries(lace32 PUBLIC HWLOC::hwloc)
+    target_link_libraries(lace128 PUBLIC HWLOC::hwloc)
 endif()
 
 set_target_properties(lace PROPERTIES
@@ -199,7 +206,9 @@ set(_PC_EXTRA_CFLAGS "")
 set(_PC_EXTRA_LIBS "")
 
 if(LACE_USE_HWLOC)
-    list(APPEND _PC_EXTRA_CFLAGS "-I${HWLOC_INCLUDE_DIR}")
+    foreach(inc ${HWLOC_INCLUDE_DIRS})
+        list(APPEND _PC_EXTRA_CFLAGS "-I${inc}")
+    endforeach()
     foreach(lib ${HWLOC_LIBRARIES})
         get_filename_component(libdir ${lib} DIRECTORY)
         get_filename_component(libname ${lib} NAME_WE)
@@ -212,12 +221,6 @@ endif()
 string(JOIN " " PC_EXTRA_CFLAGS ${_PC_EXTRA_CFLAGS})
 string(JOIN " " PC_EXTRA_LIBS ${_PC_EXTRA_LIBS})
 
-message(STATUS "Generated EXTRA_LIBS for .pc = ${PC_EXTRA_LIBS}")
-
-configure_file("${CMAKE_CURRENT_SOURCE_DIR}/src/lace.pc.in" "${CMAKE_CURRENT_BINARY_DIR}/lace.pc" @ONLY)
-configure_file("${CMAKE_CURRENT_SOURCE_DIR}/src/lace32.pc.in" "${CMAKE_CURRENT_BINARY_DIR}/lace32.pc" @ONLY)
-configure_file("${CMAKE_CURRENT_SOURCE_DIR}/src/lace128.pc.in" "${CMAKE_CURRENT_BINARY_DIR}/lace128.pc" @ONLY)
-
 install(
     FILES
         ${CMAKE_CURRENT_BINARY_DIR}/cmake/lace-config.cmake
@@ -225,13 +228,21 @@ install(
     DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/lace
 )
 
-install(
-    FILES
+if(NOT MSVC)
+    configure_file("${CMAKE_CURRENT_SOURCE_DIR}/src/lace.pc.in" "${CMAKE_CURRENT_BINARY_DIR}/lace.pc" @ONLY)
+    configure_file("${CMAKE_CURRENT_SOURCE_DIR}/src/lace32.pc.in" "${CMAKE_CURRENT_BINARY_DIR}/lace32.pc" @ONLY)
+    configure_file("${CMAKE_CURRENT_SOURCE_DIR}/src/lace128.pc.in" "${CMAKE_CURRENT_BINARY_DIR}/lace128.pc" @ONLY)
+
+    message(STATUS "Generated EXTRA_LIBS for .pc = \"${PC_EXTRA_LIBS}\"")
+
+    install(
+        FILES
         ${CMAKE_CURRENT_BINARY_DIR}/lace.pc
         ${CMAKE_CURRENT_BINARY_DIR}/lace32.pc
         ${CMAKE_CURRENT_BINARY_DIR}/lace128.pc
-    DESTINATION ${CMAKE_INSTALL_LIBDIR}/pkgconfig
-)   
+        DESTINATION ${CMAKE_INSTALL_LIBDIR}/pkgconfig
+    )   
+endif()
 
 export(EXPORT lace-targets
     FILE ${CMAKE_CURRENT_BINARY_DIR}/cmake/lace-targets.cmake

@@ -18,8 +18,10 @@
 #include <string.h>
 #include <math.h>
 
+#include <lace.h>
+#include <common.h>
+
 #include "uts.h"
-#include "lace.h"
 
 #define GET_NUM_THREADS  1
 #define GET_THREAD_NUM   0
@@ -84,7 +86,7 @@ Result parTreeSearch_CALL(lace_worker* worker, int depth, Node *parent) {
     if (numChildren > 0) {
         int i, j;
         for (i = 0; i < numChildren; i++) {
-            Node *child = (Node*)alloca(sizeof(Node));
+            Node *child = (Node*)LACE_ALLOCA(sizeof(Node));
             child->type = childType;
             child->height = parentHeight + 1;
             child->numChildren = -1;    // not yet determined
@@ -152,9 +154,9 @@ int main(int argc, char *argv[]) {
 
     printf("Running uts with %u worker(s)...\n", lace_worker_count());
 
-    t1 = uts_wctime();
+    t1 = wctime();
     Result r = parTreeSearch(0, &root);
-    t2 = uts_wctime();
+    t2 = wctime();
 
     maxTreeDepth = r.maxdepth;
     nNodes  = r.size;

@@ -22,9 +22,9 @@
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <time.h>
-#include <getopt.h>
-#include "lace.h"
+
+#include <lace.h>
+#include <common.h>
 
 
 #define f(x,y)     (sin(x)*sin(y))
@@ -134,13 +134,13 @@ void init(int n)
     dtdxsq = dt / (dx * dx);
     dtdysq = dt / (dy * dy);
 
-    even = malloc(sizeof(double * [nx]));
-    odd  = malloc(sizeof(double * [nx]));
+    even = malloc((size_t)nx * sizeof *even);
+    odd = malloc((size_t)nx * sizeof *odd);
 
     int i;
     for (i = 0; i < nx; ++i) {
-        even[i] = malloc(sizeof(double [ny]));
-        odd [i] = malloc(sizeof(double [ny]));
+        even[i] = malloc((size_t)ny * sizeof *even[i]);
+        odd [i] = malloc((size_t)ny * sizeof *odd[i]);
     }
 }
 
@@ -200,13 +200,6 @@ int verify()
     }
 
     return 0;
-}
-
-static double wctime() 
-{
-    struct timespec tv;
-    clock_gettime(CLOCK_MONOTONIC, &tv);
-    return (tv.tv_sec + 1E-9 * tv.tv_nsec);
 }
 
 static void usage(char *s)

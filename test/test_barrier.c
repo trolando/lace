@@ -3,6 +3,31 @@
 
 #include <lace.h>
 
+#if LACE_MSVC
+#define WIN32_LEAN_AND_MEAN
+#define NOMINMAX
+#include <windows.h>
+static inline void lace_test_yield(void) { SwitchToThread(); }
+static inline void lace_test_sleep_ns(long ns)
+{
+    /* Windows Sleep is ms-granularity; for 2000ns this becomes ~0ms.
+       That’s fine for a “give others a chance” hint. */
+    (void)ns;
+    Sleep(0);
+}
+#else
+#include <sched.h>
+#include <time.h>
+static inline void lace_test_yield(void) { sched_yield(); }
+static inline void lace_test_sleep_ns(long ns)
+{
+    struct timespec ts;
+    ts.tv_sec = 0;
+    ts.tv_nsec = ns;
+    nanosleep(&ts, NULL);
+}
+#endif
+
 int *worker_counter;
 
 VOID_TASK_0(test_barrier)
@@ -13,8 +38,8 @@ void test_barrier_CALL(lace_worker* worker)
 
     for (int i=0; i<1000; i++) {
         if (i % count == 0) {
-            sched_yield();
-            nanosleep(&(struct timespec){.tv_nsec = 2000}, NULL);
+            lace_test_yield();
+            lace_sleep_us(1);
         }
 
         worker_counter[id]++;

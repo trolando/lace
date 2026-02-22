@@ -23,9 +23,9 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <time.h>
-#include <getopt.h>
+
 #include <lace.h>
+#include <common.h>
 
 /* Define the size of a block. */
 #ifndef BLOCK_SIZE
@@ -356,13 +356,6 @@ void init()
     nBlocks = n / BLOCK_SIZE;
     M = (Matrix) malloc(n * n * sizeof(double));
     init_matrix(M, nBlocks);
-}
-
-static double wctime()
-{
-    struct timespec tv;
-    clock_gettime(CLOCK_MONOTONIC, &tv);
-    return (tv.tv_sec + 1E-9 * tv.tv_nsec);
 }
 
 static void usage(char *s)

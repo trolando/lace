@@ -1,8 +1,10 @@
+#define _USE_MATH_DEFINES
 #include <math.h>
 #include <stdint.h>
 #include <stdio.h> // for printf, fprintf
 #include <stdlib.h> // for exit, atol
-#include <time.h>
+
+#include <common.h>
 
 static unsigned int seed = 1234321;
 
@@ -31,13 +33,6 @@ uint64_t pi_mc(long start, long cnt)
         return sqrt(x*x+y*y) < 1.0 ? 1 : 0;
     }
     return pi_mc(start, cnt/2) + pi_mc(start+cnt/2, (cnt+1)/2);
-}
-
-double wctime() 
-{
-    struct timespec tv;
-    clock_gettime(CLOCK_MONOTONIC, &tv);
-    return (tv.tv_sec + 1E-9 * tv.tv_nsec);
 }
 
 void usage(char *s)

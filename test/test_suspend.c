@@ -4,6 +4,26 @@
 
 #include <lace.h>
 
+#if LACE_MSVC
+#define WIN32_LEAN_AND_MEAN
+#define NOMINMAX
+#include <windows.h>
+#endif
+
+double wctime(void)
+{
+#if LACE_MSVC
+    LARGE_INTEGER now, freq;
+    QueryPerformanceCounter(&now);
+    QueryPerformanceFrequency(&freq);
+    return (double)now.QuadPart / (double)freq.QuadPart;
+#else
+    struct timespec tv;
+    clock_gettime(CLOCK_MONOTONIC, &tv);
+    return (double)tv.tv_sec + 1e-9 * (double)tv.tv_nsec;
+#endif
+}
+
 // simple workload
 
 long sfib(int n)
@@ -21,13 +41,6 @@ int pfib_CALL(lace_worker* worker, int n)
     k = pfib_CALL(worker, n-2);
     m = pfib_SYNC(worker);
     return m+k;
-}
-
-double wctime() 
-{
-    struct timespec tv;
-    clock_gettime(CLOCK_MONOTONIC, &tv);
-    return (tv.tv_sec + 1E-9 * tv.tv_nsec);
 }
 
 void

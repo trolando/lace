@@ -54,10 +54,11 @@
  * log factor in the critical path (left as homework).
  */
 
-#include <time.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+
+#include <common.h>
 
 typedef long ELM;
 
@@ -66,13 +67,6 @@ typedef long ELM;
 #define MERGESIZE (2*KILO)
 #define QUICKSIZE (2*KILO)
 #define INSERTIONSIZE 20
-
-double wctime() 
-{
-    struct timespec tv;
-    clock_gettime(CLOCK_MONOTONIC, &tv);
-    return (tv.tv_sec + 1E-9 * tv.tv_nsec);
-}
 
 static unsigned long rand_nxt = 0;
 

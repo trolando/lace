@@ -1,7 +1,7 @@
 #include <stdlib.h>
 #include <stdio.h>
-#include <time.h>
-#include <getopt.h>
+
+#include <common.h>
 
 /**
  * N Queens problem
@@ -10,7 +10,11 @@
 int nqueens(const int* a, int n, int d, int i)
 {
     // copy queens from a to new array aa and check if ok
+#if defined(_MSC_VER) && !defined(__clang__)
+    int* aa = (int*)_alloca((d+1) * sizeof(*aa));
+#else
     int aa[d + 1];
+#endif
 
     for (int j = 0; j < d; ++j) {
         aa[j] = a[j];
@@ -34,13 +38,6 @@ int nqueens(const int* a, int n, int d, int i)
         sum += nqueens(aa, n, d, k);
     }
     return sum;
-}
-
-static double wctime() 
-{
-    struct timespec tv;
-    clock_gettime(CLOCK_MONOTONIC, &tv);
-    return (tv.tv_sec + 1E-9 * tv.tv_nsec);
 }
 
 static void usage(char *s)

@@ -31,19 +31,12 @@
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <time.h>
-#include <getopt.h>
+
+#include <common.h>
 
 #define SizeAtWhichDivideAndConquerIsMoreEfficient 16
 #define SizeAtWhichNaiveAlgorithmIsMoreEfficient 8
 #define CacheBlockSizeInBytes 32
-
-double wctime() 
-{
-    struct timespec tv;
-    clock_gettime(CLOCK_MONOTONIC, &tv);
-    return (tv.tv_sec + 1E-9 * tv.tv_nsec);
-}
 
 /* The real numbers we are using --- either double or float */
 typedef double REAL;

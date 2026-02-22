@@ -1,9 +1,8 @@
 #include <stdio.h> // for printf, fprintf
 #include <stdlib.h> // for exit, atoi
-#include <time.h>
-#include <getopt.h>
 
 #include <lace32.h>
+#include <common.h>
 
 TASK_1(int, pfib, int, n)
 
@@ -17,13 +16,6 @@ int pfib_CALL(lace_worker *worker, int n)
         int m = pfib_SYNC(worker);
         return m+k;
     }
-}
-
-double wctime() 
-{
-    struct timespec tv;
-    clock_gettime(CLOCK_MONOTONIC, &tv);
-    return (tv.tv_sec + 1E-9 * tv.tv_nsec);
 }
 
 void usage(char *s)

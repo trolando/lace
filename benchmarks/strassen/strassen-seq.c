@@ -30,8 +30,8 @@
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <time.h>
-#include <getopt.h>
+
+#include <common.h>
 
 #define SizeAtWhichDivideAndConquerIsMoreEfficient 16
 #define SizeAtWhichNaiveAlgorithmIsMoreEfficient 8
@@ -677,13 +677,6 @@ REAL *alloc_matrix(int n)
  free(A);
  }
  */
-
-static double wctime() 
-{
-    struct timespec tv;
-    clock_gettime(CLOCK_MONOTONIC, &tv);
-    return (tv.tv_sec + 1E-9 * tv.tv_nsec);
-}
 
 void usage(char *s)
 {

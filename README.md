@@ -65,7 +65,8 @@ Lace requires a C11-compatible compiler (tested with GCC and Clang) and optional
 
 Lace works on:
 - 🐧 Linux
-- 🪟 Windows (via MSYS2)
+- 🪟 Windows (with MSYS2)
+- 🪟 Windows (with MSVC)
 - 🍎 macOS
 
 You can install Lace via `make install`, or integrate it into your project via CMake:

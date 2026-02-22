@@ -1,12 +1,12 @@
 #include <stdio.h>
 #include <stdlib.h>
-#include <time.h>
-#include <getopt.h>
+
 #include <lace.h>
+#include <common.h>
 
 static int w, n;
 
-int __attribute__((noinline)) loop()
+LACE_NOINLINE int loop()
 {
     int i, s=0;
 
@@ -33,13 +33,6 @@ int tree_CALL(lace_worker* worker, int d)
     } else {
         return loop();
     }
-}
-
-double wctime() 
-{
-    struct timespec tv;
-    clock_gettime(CLOCK_MONOTONIC, &tv);
-    return (tv.tv_sec + 1E-9 * tv.tv_nsec);
 }
 
 void usage(char *s)
