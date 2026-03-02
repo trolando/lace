@@ -125,6 +125,11 @@ size_t get_cache_line_size(void)
 static size_t cache_line_size;
 
 /**
+ * Thread handles
+ */
+pthread_t *handles = NULL;
+
+/**
  * (public) Worker data
  */
 static Worker **workers = NULL;
@@ -1013,9 +1018,9 @@ lace_start(unsigned int _n_workers, size_t dqsize)
     }
 
     /* Spawn all workers */
+    handles = (pthread_t*)malloc(n_workers * sizeof(*handles));
     for (unsigned int i=0; i<n_workers; i++) {
-        pthread_t res;
-        pthread_create(&res, &worker_attr, lace_worker_thread, (void*)(size_t)i);
+        pthread_create(&handles[i], &worker_attr, lace_worker_thread, (void*)(size_t)i);
     }
 
     /* Make sure we start resumed */
@@ -1175,7 +1180,11 @@ void lace_stop()
 
     lace_quits = 1;
 
-    while (workers_running != 0) {}
+    for (unsigned int i=0; i<n_workers; i++) {
+        pthread_join(handles[i], NULL);
+    }
+
+    free(handles);
 
 #if LACE_COUNT_EVENTS
     lace_count_report_file(stdout);
