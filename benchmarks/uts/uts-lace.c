@@ -147,6 +147,7 @@ int main(int argc, char *argv[]) {
     uts_printParams();
     uts_initRoot(&root, type);
 
+    lace_set_stacksize(64*1024*1024);
     lace_start(_lace_workers, _lace_dqsize);
 
     printf("Running uts with %u worker(s)...\n", lace_workers());

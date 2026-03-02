@@ -669,14 +669,12 @@ REAL *alloc_matrix(int n)
 }
 
 /*
- * free a matrix (Never used because Matteo expects
- *                the OS to clean up his garbage. Tsk. Tsk.)
- *
- void free_matrix(REAL *A) 
- {
- free(A);
- }
+ * Free a matrix
  */
+void free_matrix(REAL *A) 
+{
+    free(A);
+}
 
 static double wctime() 
 {
@@ -741,6 +739,11 @@ int main(int argc, char *argv[])
     double t1=wctime();
     OptimizedStrassenMultiply(C2, A, B, n, n, n, n);
     double t2=wctime();
+
+    free_matrix(A);
+    free_matrix(B);
+    free_matrix(C1);
+    free_matrix(C2);
 
     if (verify) {
         matrixmul(n, A, n, B, n, C1, n);
