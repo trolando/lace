@@ -400,7 +400,7 @@ typedef enum {
 #define THIEF_COMPLETED ((struct _Worker*)0x2)
 
 #define TASK_COMMON_FIELDS(type)                               \
-    void (*f)(struct _WorkerP *, struct _Task *, struct type *);  \
+    void (*f)(struct _WorkerP *, struct _Task *, struct _Task *);  \
     _Atomic(struct _Worker*) thief;
 
 struct __lace_common_fields_only { TASK_COMMON_FIELDS(_Task) };
@@ -772,7 +772,7 @@ typedef struct _TD_##NAME {
 
 static_assert(sizeof(TD_##NAME) <= sizeof(Task), \"TD_\" #NAME \" is too large to fit in the Task struct!\");
 
-void NAME##_WRAP(WorkerP *, Task *, TD_##NAME *);
+void NAME##_WRAP(WorkerP *, Task *, Task *);
 $RTYPE NAME##_CALL(WorkerP *, Task * $FUN_ARGS);
 static inline $RTYPE NAME##_SYNC(WorkerP *, Task *);
 static $RTYPE NAME##_SYNC_SLOW(WorkerP *, Task *);
@@ -920,8 +920,9 @@ echo ""
 
 (\
 echo "$IMPL_MACRO
-void NAME##_WRAP(WorkerP *w, Task *__dq_head, TD_##NAME *t __attribute__((unused)))
+void NAME##_WRAP(WorkerP *w, Task *__dq_head, Task *task)
 {
+    TD_##NAME *t = (TD_##NAME*)task;
     $SAVE_RVAL NAME##_CALL(w, __dq_head $TASK_GET_FROM_t);
 }
 

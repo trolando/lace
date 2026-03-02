@@ -393,7 +393,7 @@ typedef enum {
 #define THIEF_COMPLETED ((struct _Worker*)0x2)
 
 #define TASK_COMMON_FIELDS(type)                               \
-    void (*f)(struct _WorkerP *, struct _Task *, struct type *);  \
+    void (*f)(struct _WorkerP *, struct _Task *, struct _Task *);  \
     _Atomic(struct _Worker*) thief;
 
 struct __lace_common_fields_only { TASK_COMMON_FIELDS(_Task) };
@@ -714,7 +714,7 @@ typedef struct _TD_##NAME {                                                     
                                                                                       \
 static_assert(sizeof(TD_##NAME) <= sizeof(Task), "TD_" #NAME " is too large to fit in the Task struct!");\
                                                                                       \
-void NAME##_WRAP(WorkerP *, Task *, TD_##NAME *);                                     \
+void NAME##_WRAP(WorkerP *, Task *, Task *);                                          \
 RTYPE NAME##_CALL(WorkerP *, Task * );                                                \
 static inline RTYPE NAME##_SYNC(WorkerP *, Task *);                                   \
 static RTYPE NAME##_SYNC_SLOW(WorkerP *, Task *);                                     \
@@ -858,8 +858,9 @@ RTYPE NAME##_SYNC(WorkerP *w, Task *__dq_head)                                  
                                                                                       \
 
 #define TASK_IMPL_0(RTYPE, NAME)                                                      \
-void NAME##_WRAP(WorkerP *w, Task *__dq_head, TD_##NAME *t __attribute__((unused)))   \
+void NAME##_WRAP(WorkerP *w, Task *__dq_head, Task *task)                             \
 {                                                                                     \
+    TD_##NAME *t = (TD_##NAME*)task;                                                  \
     t->d.res = NAME##_CALL(w, __dq_head );                                            \
 }                                                                                     \
                                                                                       \
@@ -886,7 +887,7 @@ typedef struct _TD_##NAME {                                                     
                                                                                       \
 static_assert(sizeof(TD_##NAME) <= sizeof(Task), "TD_" #NAME " is too large to fit in the Task struct!");\
                                                                                       \
-void NAME##_WRAP(WorkerP *, Task *, TD_##NAME *);                                     \
+void NAME##_WRAP(WorkerP *, Task *, Task *);                                          \
 void NAME##_CALL(WorkerP *, Task * );                                                 \
 static inline void NAME##_SYNC(WorkerP *, Task *);                                    \
 static void NAME##_SYNC_SLOW(WorkerP *, Task *);                                      \
@@ -1030,8 +1031,9 @@ void NAME##_SYNC(WorkerP *w, Task *__dq_head)                                   
                                                                                       \
 
 #define VOID_TASK_IMPL_0(NAME)                                                        \
-void NAME##_WRAP(WorkerP *w, Task *__dq_head, TD_##NAME *t __attribute__((unused)))   \
+void NAME##_WRAP(WorkerP *w, Task *__dq_head, Task *task)                             \
 {                                                                                     \
+    TD_##NAME *t = (TD_##NAME*)task;                                                  \
      NAME##_CALL(w, __dq_head );                                                      \
 }                                                                                     \
                                                                                       \
@@ -1061,7 +1063,7 @@ typedef struct _TD_##NAME {                                                     
                                                                                       \
 static_assert(sizeof(TD_##NAME) <= sizeof(Task), "TD_" #NAME " is too large to fit in the Task struct!");\
                                                                                       \
-void NAME##_WRAP(WorkerP *, Task *, TD_##NAME *);                                     \
+void NAME##_WRAP(WorkerP *, Task *, Task *);                                          \
 RTYPE NAME##_CALL(WorkerP *, Task * , ATYPE_1 arg_1);                                 \
 static inline RTYPE NAME##_SYNC(WorkerP *, Task *);                                   \
 static RTYPE NAME##_SYNC_SLOW(WorkerP *, Task *);                                     \
@@ -1205,8 +1207,9 @@ RTYPE NAME##_SYNC(WorkerP *w, Task *__dq_head)                                  
                                                                                       \
 
 #define TASK_IMPL_1(RTYPE, NAME, ATYPE_1, ARG_1)                                      \
-void NAME##_WRAP(WorkerP *w, Task *__dq_head, TD_##NAME *t __attribute__((unused)))   \
+void NAME##_WRAP(WorkerP *w, Task *__dq_head, Task *task)                             \
 {                                                                                     \
+    TD_##NAME *t = (TD_##NAME*)task;                                                  \
     t->d.res = NAME##_CALL(w, __dq_head , t->d.args.arg_1);                           \
 }                                                                                     \
                                                                                       \
@@ -1233,7 +1236,7 @@ typedef struct _TD_##NAME {                                                     
                                                                                       \
 static_assert(sizeof(TD_##NAME) <= sizeof(Task), "TD_" #NAME " is too large to fit in the Task struct!");\
                                                                                       \
-void NAME##_WRAP(WorkerP *, Task *, TD_##NAME *);                                     \
+void NAME##_WRAP(WorkerP *, Task *, Task *);                                          \
 void NAME##_CALL(WorkerP *, Task * , ATYPE_1 arg_1);                                  \
 static inline void NAME##_SYNC(WorkerP *, Task *);                                    \
 static void NAME##_SYNC_SLOW(WorkerP *, Task *);                                      \
@@ -1377,8 +1380,9 @@ void NAME##_SYNC(WorkerP *w, Task *__dq_head)                                   
                                                                                       \
 
 #define VOID_TASK_IMPL_1(NAME, ATYPE_1, ARG_1)                                        \
-void NAME##_WRAP(WorkerP *w, Task *__dq_head, TD_##NAME *t __attribute__((unused)))   \
+void NAME##_WRAP(WorkerP *w, Task *__dq_head, Task *task)                             \
 {                                                                                     \
+    TD_##NAME *t = (TD_##NAME*)task;                                                  \
      NAME##_CALL(w, __dq_head , t->d.args.arg_1);                                     \
 }                                                                                     \
                                                                                       \
@@ -1408,7 +1412,7 @@ typedef struct _TD_##NAME {                                                     
                                                                                       \
 static_assert(sizeof(TD_##NAME) <= sizeof(Task), "TD_" #NAME " is too large to fit in the Task struct!");\
                                                                                       \
-void NAME##_WRAP(WorkerP *, Task *, TD_##NAME *);                                     \
+void NAME##_WRAP(WorkerP *, Task *, Task *);                                          \
 RTYPE NAME##_CALL(WorkerP *, Task * , ATYPE_1 arg_1, ATYPE_2 arg_2);                  \
 static inline RTYPE NAME##_SYNC(WorkerP *, Task *);                                   \
 static RTYPE NAME##_SYNC_SLOW(WorkerP *, Task *);                                     \
@@ -1552,8 +1556,9 @@ RTYPE NAME##_SYNC(WorkerP *w, Task *__dq_head)                                  
                                                                                       \
 
 #define TASK_IMPL_2(RTYPE, NAME, ATYPE_1, ARG_1, ATYPE_2, ARG_2)                      \
-void NAME##_WRAP(WorkerP *w, Task *__dq_head, TD_##NAME *t __attribute__((unused)))   \
+void NAME##_WRAP(WorkerP *w, Task *__dq_head, Task *task)                             \
 {                                                                                     \
+    TD_##NAME *t = (TD_##NAME*)task;                                                  \
     t->d.res = NAME##_CALL(w, __dq_head , t->d.args.arg_1, t->d.args.arg_2);          \
 }                                                                                     \
                                                                                       \
@@ -1580,7 +1585,7 @@ typedef struct _TD_##NAME {                                                     
                                                                                       \
 static_assert(sizeof(TD_##NAME) <= sizeof(Task), "TD_" #NAME " is too large to fit in the Task struct!");\
                                                                                       \
-void NAME##_WRAP(WorkerP *, Task *, TD_##NAME *);                                     \
+void NAME##_WRAP(WorkerP *, Task *, Task *);                                          \
 void NAME##_CALL(WorkerP *, Task * , ATYPE_1 arg_1, ATYPE_2 arg_2);                   \
 static inline void NAME##_SYNC(WorkerP *, Task *);                                    \
 static void NAME##_SYNC_SLOW(WorkerP *, Task *);                                      \
@@ -1724,8 +1729,9 @@ void NAME##_SYNC(WorkerP *w, Task *__dq_head)                                   
                                                                                       \
 
 #define VOID_TASK_IMPL_2(NAME, ATYPE_1, ARG_1, ATYPE_2, ARG_2)                        \
-void NAME##_WRAP(WorkerP *w, Task *__dq_head, TD_##NAME *t __attribute__((unused)))   \
+void NAME##_WRAP(WorkerP *w, Task *__dq_head, Task *task)                             \
 {                                                                                     \
+    TD_##NAME *t = (TD_##NAME*)task;                                                  \
      NAME##_CALL(w, __dq_head , t->d.args.arg_1, t->d.args.arg_2);                    \
 }                                                                                     \
                                                                                       \
@@ -1755,7 +1761,7 @@ typedef struct _TD_##NAME {                                                     
                                                                                       \
 static_assert(sizeof(TD_##NAME) <= sizeof(Task), "TD_" #NAME " is too large to fit in the Task struct!");\
                                                                                       \
-void NAME##_WRAP(WorkerP *, Task *, TD_##NAME *);                                     \
+void NAME##_WRAP(WorkerP *, Task *, Task *);                                          \
 RTYPE NAME##_CALL(WorkerP *, Task * , ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3);   \
 static inline RTYPE NAME##_SYNC(WorkerP *, Task *);                                   \
 static RTYPE NAME##_SYNC_SLOW(WorkerP *, Task *);                                     \
@@ -1899,8 +1905,9 @@ RTYPE NAME##_SYNC(WorkerP *w, Task *__dq_head)                                  
                                                                                       \
 
 #define TASK_IMPL_3(RTYPE, NAME, ATYPE_1, ARG_1, ATYPE_2, ARG_2, ATYPE_3, ARG_3)      \
-void NAME##_WRAP(WorkerP *w, Task *__dq_head, TD_##NAME *t __attribute__((unused)))   \
+void NAME##_WRAP(WorkerP *w, Task *__dq_head, Task *task)                             \
 {                                                                                     \
+    TD_##NAME *t = (TD_##NAME*)task;                                                  \
     t->d.res = NAME##_CALL(w, __dq_head , t->d.args.arg_1, t->d.args.arg_2, t->d.args.arg_3);\
 }                                                                                     \
                                                                                       \
@@ -1927,7 +1934,7 @@ typedef struct _TD_##NAME {                                                     
                                                                                       \
 static_assert(sizeof(TD_##NAME) <= sizeof(Task), "TD_" #NAME " is too large to fit in the Task struct!");\
                                                                                       \
-void NAME##_WRAP(WorkerP *, Task *, TD_##NAME *);                                     \
+void NAME##_WRAP(WorkerP *, Task *, Task *);                                          \
 void NAME##_CALL(WorkerP *, Task * , ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3);    \
 static inline void NAME##_SYNC(WorkerP *, Task *);                                    \
 static void NAME##_SYNC_SLOW(WorkerP *, Task *);                                      \
@@ -2071,8 +2078,9 @@ void NAME##_SYNC(WorkerP *w, Task *__dq_head)                                   
                                                                                       \
 
 #define VOID_TASK_IMPL_3(NAME, ATYPE_1, ARG_1, ATYPE_2, ARG_2, ATYPE_3, ARG_3)        \
-void NAME##_WRAP(WorkerP *w, Task *__dq_head, TD_##NAME *t __attribute__((unused)))   \
+void NAME##_WRAP(WorkerP *w, Task *__dq_head, Task *task)                             \
 {                                                                                     \
+    TD_##NAME *t = (TD_##NAME*)task;                                                  \
      NAME##_CALL(w, __dq_head , t->d.args.arg_1, t->d.args.arg_2, t->d.args.arg_3);   \
 }                                                                                     \
                                                                                       \
@@ -2102,7 +2110,7 @@ typedef struct _TD_##NAME {                                                     
                                                                                       \
 static_assert(sizeof(TD_##NAME) <= sizeof(Task), "TD_" #NAME " is too large to fit in the Task struct!");\
                                                                                       \
-void NAME##_WRAP(WorkerP *, Task *, TD_##NAME *);                                     \
+void NAME##_WRAP(WorkerP *, Task *, Task *);                                          \
 RTYPE NAME##_CALL(WorkerP *, Task * , ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4);\
 static inline RTYPE NAME##_SYNC(WorkerP *, Task *);                                   \
 static RTYPE NAME##_SYNC_SLOW(WorkerP *, Task *);                                     \
@@ -2246,8 +2254,9 @@ RTYPE NAME##_SYNC(WorkerP *w, Task *__dq_head)                                  
                                                                                       \
 
 #define TASK_IMPL_4(RTYPE, NAME, ATYPE_1, ARG_1, ATYPE_2, ARG_2, ATYPE_3, ARG_3, ATYPE_4, ARG_4)\
-void NAME##_WRAP(WorkerP *w, Task *__dq_head, TD_##NAME *t __attribute__((unused)))   \
+void NAME##_WRAP(WorkerP *w, Task *__dq_head, Task *task)                             \
 {                                                                                     \
+    TD_##NAME *t = (TD_##NAME*)task;                                                  \
     t->d.res = NAME##_CALL(w, __dq_head , t->d.args.arg_1, t->d.args.arg_2, t->d.args.arg_3, t->d.args.arg_4);\
 }                                                                                     \
                                                                                       \
@@ -2274,7 +2283,7 @@ typedef struct _TD_##NAME {                                                     
                                                                                       \
 static_assert(sizeof(TD_##NAME) <= sizeof(Task), "TD_" #NAME " is too large to fit in the Task struct!");\
                                                                                       \
-void NAME##_WRAP(WorkerP *, Task *, TD_##NAME *);                                     \
+void NAME##_WRAP(WorkerP *, Task *, Task *);                                          \
 void NAME##_CALL(WorkerP *, Task * , ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4);\
 static inline void NAME##_SYNC(WorkerP *, Task *);                                    \
 static void NAME##_SYNC_SLOW(WorkerP *, Task *);                                      \
@@ -2418,8 +2427,9 @@ void NAME##_SYNC(WorkerP *w, Task *__dq_head)                                   
                                                                                       \
 
 #define VOID_TASK_IMPL_4(NAME, ATYPE_1, ARG_1, ATYPE_2, ARG_2, ATYPE_3, ARG_3, ATYPE_4, ARG_4)\
-void NAME##_WRAP(WorkerP *w, Task *__dq_head, TD_##NAME *t __attribute__((unused)))   \
+void NAME##_WRAP(WorkerP *w, Task *__dq_head, Task *task)                             \
 {                                                                                     \
+    TD_##NAME *t = (TD_##NAME*)task;                                                  \
      NAME##_CALL(w, __dq_head , t->d.args.arg_1, t->d.args.arg_2, t->d.args.arg_3, t->d.args.arg_4);\
 }                                                                                     \
                                                                                       \
@@ -2449,7 +2459,7 @@ typedef struct _TD_##NAME {                                                     
                                                                                       \
 static_assert(sizeof(TD_##NAME) <= sizeof(Task), "TD_" #NAME " is too large to fit in the Task struct!");\
                                                                                       \
-void NAME##_WRAP(WorkerP *, Task *, TD_##NAME *);                                     \
+void NAME##_WRAP(WorkerP *, Task *, Task *);                                          \
 RTYPE NAME##_CALL(WorkerP *, Task * , ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, ATYPE_5 arg_5);\
 static inline RTYPE NAME##_SYNC(WorkerP *, Task *);                                   \
 static RTYPE NAME##_SYNC_SLOW(WorkerP *, Task *);                                     \
@@ -2593,8 +2603,9 @@ RTYPE NAME##_SYNC(WorkerP *w, Task *__dq_head)                                  
                                                                                       \
 
 #define TASK_IMPL_5(RTYPE, NAME, ATYPE_1, ARG_1, ATYPE_2, ARG_2, ATYPE_3, ARG_3, ATYPE_4, ARG_4, ATYPE_5, ARG_5)\
-void NAME##_WRAP(WorkerP *w, Task *__dq_head, TD_##NAME *t __attribute__((unused)))   \
+void NAME##_WRAP(WorkerP *w, Task *__dq_head, Task *task)                             \
 {                                                                                     \
+    TD_##NAME *t = (TD_##NAME*)task;                                                  \
     t->d.res = NAME##_CALL(w, __dq_head , t->d.args.arg_1, t->d.args.arg_2, t->d.args.arg_3, t->d.args.arg_4, t->d.args.arg_5);\
 }                                                                                     \
                                                                                       \
@@ -2621,7 +2632,7 @@ typedef struct _TD_##NAME {                                                     
                                                                                       \
 static_assert(sizeof(TD_##NAME) <= sizeof(Task), "TD_" #NAME " is too large to fit in the Task struct!");\
                                                                                       \
-void NAME##_WRAP(WorkerP *, Task *, TD_##NAME *);                                     \
+void NAME##_WRAP(WorkerP *, Task *, Task *);                                          \
 void NAME##_CALL(WorkerP *, Task * , ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, ATYPE_5 arg_5);\
 static inline void NAME##_SYNC(WorkerP *, Task *);                                    \
 static void NAME##_SYNC_SLOW(WorkerP *, Task *);                                      \
@@ -2765,8 +2776,9 @@ void NAME##_SYNC(WorkerP *w, Task *__dq_head)                                   
                                                                                       \
 
 #define VOID_TASK_IMPL_5(NAME, ATYPE_1, ARG_1, ATYPE_2, ARG_2, ATYPE_3, ARG_3, ATYPE_4, ARG_4, ATYPE_5, ARG_5)\
-void NAME##_WRAP(WorkerP *w, Task *__dq_head, TD_##NAME *t __attribute__((unused)))   \
+void NAME##_WRAP(WorkerP *w, Task *__dq_head, Task *task)                             \
 {                                                                                     \
+    TD_##NAME *t = (TD_##NAME*)task;                                                  \
      NAME##_CALL(w, __dq_head , t->d.args.arg_1, t->d.args.arg_2, t->d.args.arg_3, t->d.args.arg_4, t->d.args.arg_5);\
 }                                                                                     \
                                                                                       \
@@ -2796,7 +2808,7 @@ typedef struct _TD_##NAME {                                                     
                                                                                       \
 static_assert(sizeof(TD_##NAME) <= sizeof(Task), "TD_" #NAME " is too large to fit in the Task struct!");\
                                                                                       \
-void NAME##_WRAP(WorkerP *, Task *, TD_##NAME *);                                     \
+void NAME##_WRAP(WorkerP *, Task *, Task *);                                          \
 RTYPE NAME##_CALL(WorkerP *, Task * , ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, ATYPE_5 arg_5, ATYPE_6 arg_6);\
 static inline RTYPE NAME##_SYNC(WorkerP *, Task *);                                   \
 static RTYPE NAME##_SYNC_SLOW(WorkerP *, Task *);                                     \
@@ -2940,8 +2952,9 @@ RTYPE NAME##_SYNC(WorkerP *w, Task *__dq_head)                                  
                                                                                       \
 
 #define TASK_IMPL_6(RTYPE, NAME, ATYPE_1, ARG_1, ATYPE_2, ARG_2, ATYPE_3, ARG_3, ATYPE_4, ARG_4, ATYPE_5, ARG_5, ATYPE_6, ARG_6)\
-void NAME##_WRAP(WorkerP *w, Task *__dq_head, TD_##NAME *t __attribute__((unused)))   \
+void NAME##_WRAP(WorkerP *w, Task *__dq_head, Task *task)                             \
 {                                                                                     \
+    TD_##NAME *t = (TD_##NAME*)task;                                                  \
     t->d.res = NAME##_CALL(w, __dq_head , t->d.args.arg_1, t->d.args.arg_2, t->d.args.arg_3, t->d.args.arg_4, t->d.args.arg_5, t->d.args.arg_6);\
 }                                                                                     \
                                                                                       \
@@ -2968,7 +2981,7 @@ typedef struct _TD_##NAME {                                                     
                                                                                       \
 static_assert(sizeof(TD_##NAME) <= sizeof(Task), "TD_" #NAME " is too large to fit in the Task struct!");\
                                                                                       \
-void NAME##_WRAP(WorkerP *, Task *, TD_##NAME *);                                     \
+void NAME##_WRAP(WorkerP *, Task *, Task *);                                          \
 void NAME##_CALL(WorkerP *, Task * , ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, ATYPE_5 arg_5, ATYPE_6 arg_6);\
 static inline void NAME##_SYNC(WorkerP *, Task *);                                    \
 static void NAME##_SYNC_SLOW(WorkerP *, Task *);                                      \
@@ -3112,8 +3125,9 @@ void NAME##_SYNC(WorkerP *w, Task *__dq_head)                                   
                                                                                       \
 
 #define VOID_TASK_IMPL_6(NAME, ATYPE_1, ARG_1, ATYPE_2, ARG_2, ATYPE_3, ARG_3, ATYPE_4, ARG_4, ATYPE_5, ARG_5, ATYPE_6, ARG_6)\
-void NAME##_WRAP(WorkerP *w, Task *__dq_head, TD_##NAME *t __attribute__((unused)))   \
+void NAME##_WRAP(WorkerP *w, Task *__dq_head, Task *task)                             \
 {                                                                                     \
+    TD_##NAME *t = (TD_##NAME*)task;                                                  \
      NAME##_CALL(w, __dq_head , t->d.args.arg_1, t->d.args.arg_2, t->d.args.arg_3, t->d.args.arg_4, t->d.args.arg_5, t->d.args.arg_6);\
 }                                                                                     \
                                                                                       \
@@ -3143,7 +3157,7 @@ typedef struct _TD_##NAME {                                                     
                                                                                       \
 static_assert(sizeof(TD_##NAME) <= sizeof(Task), "TD_" #NAME " is too large to fit in the Task struct!");\
                                                                                       \
-void NAME##_WRAP(WorkerP *, Task *, TD_##NAME *);                                     \
+void NAME##_WRAP(WorkerP *, Task *, Task *);                                          \
 RTYPE NAME##_CALL(WorkerP *, Task * , ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, ATYPE_5 arg_5, ATYPE_6 arg_6, ATYPE_7 arg_7);\
 static inline RTYPE NAME##_SYNC(WorkerP *, Task *);                                   \
 static RTYPE NAME##_SYNC_SLOW(WorkerP *, Task *);                                     \
@@ -3287,8 +3301,9 @@ RTYPE NAME##_SYNC(WorkerP *w, Task *__dq_head)                                  
                                                                                       \
 
 #define TASK_IMPL_7(RTYPE, NAME, ATYPE_1, ARG_1, ATYPE_2, ARG_2, ATYPE_3, ARG_3, ATYPE_4, ARG_4, ATYPE_5, ARG_5, ATYPE_6, ARG_6, ATYPE_7, ARG_7)\
-void NAME##_WRAP(WorkerP *w, Task *__dq_head, TD_##NAME *t __attribute__((unused)))   \
+void NAME##_WRAP(WorkerP *w, Task *__dq_head, Task *task)                             \
 {                                                                                     \
+    TD_##NAME *t = (TD_##NAME*)task;                                                  \
     t->d.res = NAME##_CALL(w, __dq_head , t->d.args.arg_1, t->d.args.arg_2, t->d.args.arg_3, t->d.args.arg_4, t->d.args.arg_5, t->d.args.arg_6, t->d.args.arg_7);\
 }                                                                                     \
                                                                                       \
@@ -3315,7 +3330,7 @@ typedef struct _TD_##NAME {                                                     
                                                                                       \
 static_assert(sizeof(TD_##NAME) <= sizeof(Task), "TD_" #NAME " is too large to fit in the Task struct!");\
                                                                                       \
-void NAME##_WRAP(WorkerP *, Task *, TD_##NAME *);                                     \
+void NAME##_WRAP(WorkerP *, Task *, Task *);                                          \
 void NAME##_CALL(WorkerP *, Task * , ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, ATYPE_5 arg_5, ATYPE_6 arg_6, ATYPE_7 arg_7);\
 static inline void NAME##_SYNC(WorkerP *, Task *);                                    \
 static void NAME##_SYNC_SLOW(WorkerP *, Task *);                                      \
@@ -3459,8 +3474,9 @@ void NAME##_SYNC(WorkerP *w, Task *__dq_head)                                   
                                                                                       \
 
 #define VOID_TASK_IMPL_7(NAME, ATYPE_1, ARG_1, ATYPE_2, ARG_2, ATYPE_3, ARG_3, ATYPE_4, ARG_4, ATYPE_5, ARG_5, ATYPE_6, ARG_6, ATYPE_7, ARG_7)\
-void NAME##_WRAP(WorkerP *w, Task *__dq_head, TD_##NAME *t __attribute__((unused)))   \
+void NAME##_WRAP(WorkerP *w, Task *__dq_head, Task *task)                             \
 {                                                                                     \
+    TD_##NAME *t = (TD_##NAME*)task;                                                  \
      NAME##_CALL(w, __dq_head , t->d.args.arg_1, t->d.args.arg_2, t->d.args.arg_3, t->d.args.arg_4, t->d.args.arg_5, t->d.args.arg_6, t->d.args.arg_7);\
 }                                                                                     \
                                                                                       \
@@ -3490,7 +3506,7 @@ typedef struct _TD_##NAME {                                                     
                                                                                       \
 static_assert(sizeof(TD_##NAME) <= sizeof(Task), "TD_" #NAME " is too large to fit in the Task struct!");\
                                                                                       \
-void NAME##_WRAP(WorkerP *, Task *, TD_##NAME *);                                     \
+void NAME##_WRAP(WorkerP *, Task *, Task *);                                          \
 RTYPE NAME##_CALL(WorkerP *, Task * , ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, ATYPE_5 arg_5, ATYPE_6 arg_6, ATYPE_7 arg_7, ATYPE_8 arg_8);\
 static inline RTYPE NAME##_SYNC(WorkerP *, Task *);                                   \
 static RTYPE NAME##_SYNC_SLOW(WorkerP *, Task *);                                     \
@@ -3634,8 +3650,9 @@ RTYPE NAME##_SYNC(WorkerP *w, Task *__dq_head)                                  
                                                                                       \
 
 #define TASK_IMPL_8(RTYPE, NAME, ATYPE_1, ARG_1, ATYPE_2, ARG_2, ATYPE_3, ARG_3, ATYPE_4, ARG_4, ATYPE_5, ARG_5, ATYPE_6, ARG_6, ATYPE_7, ARG_7, ATYPE_8, ARG_8)\
-void NAME##_WRAP(WorkerP *w, Task *__dq_head, TD_##NAME *t __attribute__((unused)))   \
+void NAME##_WRAP(WorkerP *w, Task *__dq_head, Task *task)                             \
 {                                                                                     \
+    TD_##NAME *t = (TD_##NAME*)task;                                                  \
     t->d.res = NAME##_CALL(w, __dq_head , t->d.args.arg_1, t->d.args.arg_2, t->d.args.arg_3, t->d.args.arg_4, t->d.args.arg_5, t->d.args.arg_6, t->d.args.arg_7, t->d.args.arg_8);\
 }                                                                                     \
                                                                                       \
@@ -3662,7 +3679,7 @@ typedef struct _TD_##NAME {                                                     
                                                                                       \
 static_assert(sizeof(TD_##NAME) <= sizeof(Task), "TD_" #NAME " is too large to fit in the Task struct!");\
                                                                                       \
-void NAME##_WRAP(WorkerP *, Task *, TD_##NAME *);                                     \
+void NAME##_WRAP(WorkerP *, Task *, Task *);                                          \
 void NAME##_CALL(WorkerP *, Task * , ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, ATYPE_5 arg_5, ATYPE_6 arg_6, ATYPE_7 arg_7, ATYPE_8 arg_8);\
 static inline void NAME##_SYNC(WorkerP *, Task *);                                    \
 static void NAME##_SYNC_SLOW(WorkerP *, Task *);                                      \
@@ -3806,8 +3823,9 @@ void NAME##_SYNC(WorkerP *w, Task *__dq_head)                                   
                                                                                       \
 
 #define VOID_TASK_IMPL_8(NAME, ATYPE_1, ARG_1, ATYPE_2, ARG_2, ATYPE_3, ARG_3, ATYPE_4, ARG_4, ATYPE_5, ARG_5, ATYPE_6, ARG_6, ATYPE_7, ARG_7, ATYPE_8, ARG_8)\
-void NAME##_WRAP(WorkerP *w, Task *__dq_head, TD_##NAME *t __attribute__((unused)))   \
+void NAME##_WRAP(WorkerP *w, Task *__dq_head, Task *task)                             \
 {                                                                                     \
+    TD_##NAME *t = (TD_##NAME*)task;                                                  \
      NAME##_CALL(w, __dq_head , t->d.args.arg_1, t->d.args.arg_2, t->d.args.arg_3, t->d.args.arg_4, t->d.args.arg_5, t->d.args.arg_6, t->d.args.arg_7, t->d.args.arg_8);\
 }                                                                                     \
                                                                                       \
@@ -3837,7 +3855,7 @@ typedef struct _TD_##NAME {                                                     
                                                                                       \
 static_assert(sizeof(TD_##NAME) <= sizeof(Task), "TD_" #NAME " is too large to fit in the Task struct!");\
                                                                                       \
-void NAME##_WRAP(WorkerP *, Task *, TD_##NAME *);                                     \
+void NAME##_WRAP(WorkerP *, Task *, Task *);                                          \
 RTYPE NAME##_CALL(WorkerP *, Task * , ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, ATYPE_5 arg_5, ATYPE_6 arg_6, ATYPE_7 arg_7, ATYPE_8 arg_8, ATYPE_9 arg_9);\
 static inline RTYPE NAME##_SYNC(WorkerP *, Task *);                                   \
 static RTYPE NAME##_SYNC_SLOW(WorkerP *, Task *);                                     \
@@ -3981,8 +3999,9 @@ RTYPE NAME##_SYNC(WorkerP *w, Task *__dq_head)                                  
                                                                                       \
 
 #define TASK_IMPL_9(RTYPE, NAME, ATYPE_1, ARG_1, ATYPE_2, ARG_2, ATYPE_3, ARG_3, ATYPE_4, ARG_4, ATYPE_5, ARG_5, ATYPE_6, ARG_6, ATYPE_7, ARG_7, ATYPE_8, ARG_8, ATYPE_9, ARG_9)\
-void NAME##_WRAP(WorkerP *w, Task *__dq_head, TD_##NAME *t __attribute__((unused)))   \
+void NAME##_WRAP(WorkerP *w, Task *__dq_head, Task *task)                             \
 {                                                                                     \
+    TD_##NAME *t = (TD_##NAME*)task;                                                  \
     t->d.res = NAME##_CALL(w, __dq_head , t->d.args.arg_1, t->d.args.arg_2, t->d.args.arg_3, t->d.args.arg_4, t->d.args.arg_5, t->d.args.arg_6, t->d.args.arg_7, t->d.args.arg_8, t->d.args.arg_9);\
 }                                                                                     \
                                                                                       \
@@ -4009,7 +4028,7 @@ typedef struct _TD_##NAME {                                                     
                                                                                       \
 static_assert(sizeof(TD_##NAME) <= sizeof(Task), "TD_" #NAME " is too large to fit in the Task struct!");\
                                                                                       \
-void NAME##_WRAP(WorkerP *, Task *, TD_##NAME *);                                     \
+void NAME##_WRAP(WorkerP *, Task *, Task *);                                          \
 void NAME##_CALL(WorkerP *, Task * , ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, ATYPE_5 arg_5, ATYPE_6 arg_6, ATYPE_7 arg_7, ATYPE_8 arg_8, ATYPE_9 arg_9);\
 static inline void NAME##_SYNC(WorkerP *, Task *);                                    \
 static void NAME##_SYNC_SLOW(WorkerP *, Task *);                                      \
@@ -4153,8 +4172,9 @@ void NAME##_SYNC(WorkerP *w, Task *__dq_head)                                   
                                                                                       \
 
 #define VOID_TASK_IMPL_9(NAME, ATYPE_1, ARG_1, ATYPE_2, ARG_2, ATYPE_3, ARG_3, ATYPE_4, ARG_4, ATYPE_5, ARG_5, ATYPE_6, ARG_6, ATYPE_7, ARG_7, ATYPE_8, ARG_8, ATYPE_9, ARG_9)\
-void NAME##_WRAP(WorkerP *w, Task *__dq_head, TD_##NAME *t __attribute__((unused)))   \
+void NAME##_WRAP(WorkerP *w, Task *__dq_head, Task *task)                             \
 {                                                                                     \
+    TD_##NAME *t = (TD_##NAME*)task;                                                  \
      NAME##_CALL(w, __dq_head , t->d.args.arg_1, t->d.args.arg_2, t->d.args.arg_3, t->d.args.arg_4, t->d.args.arg_5, t->d.args.arg_6, t->d.args.arg_7, t->d.args.arg_8, t->d.args.arg_9);\
 }                                                                                     \
                                                                                       \
@@ -4184,7 +4204,7 @@ typedef struct _TD_##NAME {                                                     
                                                                                       \
 static_assert(sizeof(TD_##NAME) <= sizeof(Task), "TD_" #NAME " is too large to fit in the Task struct!");\
                                                                                       \
-void NAME##_WRAP(WorkerP *, Task *, TD_##NAME *);                                     \
+void NAME##_WRAP(WorkerP *, Task *, Task *);                                          \
 RTYPE NAME##_CALL(WorkerP *, Task * , ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, ATYPE_5 arg_5, ATYPE_6 arg_6, ATYPE_7 arg_7, ATYPE_8 arg_8, ATYPE_9 arg_9, ATYPE_10 arg_10);\
 static inline RTYPE NAME##_SYNC(WorkerP *, Task *);                                   \
 static RTYPE NAME##_SYNC_SLOW(WorkerP *, Task *);                                     \
@@ -4328,8 +4348,9 @@ RTYPE NAME##_SYNC(WorkerP *w, Task *__dq_head)                                  
                                                                                       \
 
 #define TASK_IMPL_10(RTYPE, NAME, ATYPE_1, ARG_1, ATYPE_2, ARG_2, ATYPE_3, ARG_3, ATYPE_4, ARG_4, ATYPE_5, ARG_5, ATYPE_6, ARG_6, ATYPE_7, ARG_7, ATYPE_8, ARG_8, ATYPE_9, ARG_9, ATYPE_10, ARG_10)\
-void NAME##_WRAP(WorkerP *w, Task *__dq_head, TD_##NAME *t __attribute__((unused)))   \
+void NAME##_WRAP(WorkerP *w, Task *__dq_head, Task *task)                             \
 {                                                                                     \
+    TD_##NAME *t = (TD_##NAME*)task;                                                  \
     t->d.res = NAME##_CALL(w, __dq_head , t->d.args.arg_1, t->d.args.arg_2, t->d.args.arg_3, t->d.args.arg_4, t->d.args.arg_5, t->d.args.arg_6, t->d.args.arg_7, t->d.args.arg_8, t->d.args.arg_9, t->d.args.arg_10);\
 }                                                                                     \
                                                                                       \
@@ -4356,7 +4377,7 @@ typedef struct _TD_##NAME {                                                     
                                                                                       \
 static_assert(sizeof(TD_##NAME) <= sizeof(Task), "TD_" #NAME " is too large to fit in the Task struct!");\
                                                                                       \
-void NAME##_WRAP(WorkerP *, Task *, TD_##NAME *);                                     \
+void NAME##_WRAP(WorkerP *, Task *, Task *);                                          \
 void NAME##_CALL(WorkerP *, Task * , ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, ATYPE_5 arg_5, ATYPE_6 arg_6, ATYPE_7 arg_7, ATYPE_8 arg_8, ATYPE_9 arg_9, ATYPE_10 arg_10);\
 static inline void NAME##_SYNC(WorkerP *, Task *);                                    \
 static void NAME##_SYNC_SLOW(WorkerP *, Task *);                                      \
@@ -4500,8 +4521,9 @@ void NAME##_SYNC(WorkerP *w, Task *__dq_head)                                   
                                                                                       \
 
 #define VOID_TASK_IMPL_10(NAME, ATYPE_1, ARG_1, ATYPE_2, ARG_2, ATYPE_3, ARG_3, ATYPE_4, ARG_4, ATYPE_5, ARG_5, ATYPE_6, ARG_6, ATYPE_7, ARG_7, ATYPE_8, ARG_8, ATYPE_9, ARG_9, ATYPE_10, ARG_10)\
-void NAME##_WRAP(WorkerP *w, Task *__dq_head, TD_##NAME *t __attribute__((unused)))   \
+void NAME##_WRAP(WorkerP *w, Task *__dq_head, Task *task)                             \
 {                                                                                     \
+    TD_##NAME *t = (TD_##NAME*)task;                                                  \
      NAME##_CALL(w, __dq_head , t->d.args.arg_1, t->d.args.arg_2, t->d.args.arg_3, t->d.args.arg_4, t->d.args.arg_5, t->d.args.arg_6, t->d.args.arg_7, t->d.args.arg_8, t->d.args.arg_9, t->d.args.arg_10);\
 }                                                                                     \
                                                                                       \
