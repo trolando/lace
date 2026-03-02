@@ -245,6 +245,16 @@ void lace_run_together(Task *task);
  */
 #define LACE_WORKER_ID    ( __lace_worker->worker )
 
+#if defined(__has_feature)
+    #if __has_feature(thread_sanitizer)
+        #define LACE_NO_SANITIZE_THREAD __attribute__((no_sanitize("thread")))
+    #else
+        #define LACE_NO_SANITIZE_THREAD
+    #endif
+#else
+    #define LACE_NO_SANITIZE_THREAD
+#endif
+
 /**
  * Initialize local variables __lace_worker and __lace_dq_head which are required for most Lace functionality.
  * This only works inside a Lace thread.
@@ -577,12 +587,13 @@ static void lace_time_event( WorkerP *w, int event )
 #define lace_time_event( w, e ) /* Empty */
 #endif
 
+LACE_NO_SANITIZE_THREAD
 static Worker* __attribute__((noinline))
 lace_steal(WorkerP *self, Task *__dq_head, Worker *victim)
 {
     if (victim != NULL && !victim->allstolen) {
         TailSplitNA ts;
-        ts.v = victim->ts.v;
+        ts.v = *(uint64_t*)&victim->ts.v;
         if (ts.ts.tail < ts.ts.split) {
             TailSplitNA ts_new;
             ts_new.v = ts.v;
@@ -777,7 +788,7 @@ $RTYPE NAME##_CALL(WorkerP *, Task * $FUN_ARGS);
 static inline $RTYPE NAME##_SYNC(WorkerP *, Task *);
 static $RTYPE NAME##_SYNC_SLOW(WorkerP *, Task *);
 
-static inline __attribute__((unused))
+static inline __attribute__((unused)) LACE_NO_SANITIZE_THREAD
 void NAME##_SPAWN(WorkerP *w, Task *__dq_head $FUN_ARGS)
 {
     PR_COUNTTASK(w);
@@ -817,7 +828,7 @@ void NAME##_SPAWN(WorkerP *w, Task *__dq_head $FUN_ARGS)
     }
 }
 
-static inline __attribute__((unused))
+static inline __attribute__((unused)) LACE_NO_SANITIZE_THREAD
 $RTYPE NAME##_NEWFRAME($FUN_ARGS_NC)
 {
     Task _t;
@@ -829,7 +840,7 @@ $RTYPE NAME##_NEWFRAME($FUN_ARGS_NC)
     return $RETURN_RES;
 }
 
-static inline __attribute__((unused))
+static inline __attribute__((unused)) LACE_NO_SANITIZE_THREAD
 void NAME##_TOGETHER($FUN_ARGS_NC)
 {
     Task _t;
@@ -840,7 +851,7 @@ void NAME##_TOGETHER($FUN_ARGS_NC)
     lace_run_together(&_t);
 }
 
-static inline __attribute__((unused))
+static inline __attribute__((unused)) LACE_NO_SANITIZE_THREAD
 $RTYPE NAME##_RUN($FUN_ARGS_NC)
 {
     Task _t;
@@ -852,7 +863,7 @@ $RTYPE NAME##_RUN($FUN_ARGS_NC)
     return $RETURN_RES;
 }
 
-static inline __attribute__((unused))
+static inline __attribute__((unused)) LACE_NO_SANITIZE_THREAD
 $RTYPE NAME##_RUNEX($FUN_ARGS_NC)
 {
     Task _t;
@@ -864,7 +875,7 @@ $RTYPE NAME##_RUNEX($FUN_ARGS_NC)
     return $RETURN_RES;
 }
 
-static __attribute__((noinline))
+static __attribute__((noinline)) LACE_NO_SANITIZE_THREAD
 $RTYPE NAME##_SYNC_SLOW(WorkerP *w, Task *__dq_head)
 {
     TD_##NAME *t;
@@ -896,7 +907,7 @@ $RTYPE NAME##_SYNC_SLOW(WorkerP *w, Task *__dq_head)
     ${SS_RETURN}NAME##_CALL(w, __dq_head $TASK_GET_FROM_t);
 }
 
-static inline __attribute__((unused))
+static inline __attribute__((unused)) LACE_NO_SANITIZE_THREAD
 $RTYPE NAME##_SYNC(WorkerP *w, Task *__dq_head)
 {
     /* assert (__dq_head > 0); */  /* Commented out because we assume contract */
@@ -920,6 +931,7 @@ echo ""
 
 (\
 echo "$IMPL_MACRO
+LACE_NO_SANITIZE_THREAD
 void NAME##_WRAP(WorkerP *w, Task *__dq_head, Task *task)
 {
     TD_##NAME *t = (TD_##NAME*)task;
@@ -930,6 +942,7 @@ static inline __attribute__((always_inline))
 $RTYPE NAME##_WORK(WorkerP *__lace_worker, Task *__lace_dq_head $DECL_ARGS);
 
 /* NAME##_WORK is inlined in NAME##_CALL and the parameter __lace_in_task will disappear */
+LACE_NO_SANITIZE_THREAD
 $RTYPE NAME##_CALL(WorkerP *w, Task *__dq_head $FUN_ARGS)
 {
     ${SS_RETURN}NAME##_WORK(w, __dq_head $CALL_ARGS);

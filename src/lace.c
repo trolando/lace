@@ -427,6 +427,7 @@ lace_pin_worker(void)
 #endif
 }
 
+LACE_NO_SANITIZE_THREAD
 void
 lace_init_worker(unsigned int worker)
 {
