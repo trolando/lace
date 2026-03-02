@@ -930,6 +930,8 @@ if ((r)); then
     CALL_ARGS="$CALL_ARGS, arg_$r"
   fi
   ARGS_STRUCT="struct { $TASK_FIELDS } args;"
+else
+  RUN_ARGS="void"
 fi
 
 echo

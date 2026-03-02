@@ -6,7 +6,7 @@
 
 static int w, n;
 
-LACE_NOINLINE int loop()
+LACE_NOINLINE int loop(void)
 {
     int i, s=0;
 

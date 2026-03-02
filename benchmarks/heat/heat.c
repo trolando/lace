@@ -137,12 +137,12 @@ void init(int n)
     }
 }
 
-void prep()
+void prep(void)
 {
     heat(even, 0, nx);
 }
 
-void test()
+void test(void)
 {
     double t = tu;
     int i;
@@ -157,7 +157,7 @@ void test()
     }
 }
 
-int verify()
+int verify(void)
 {
     double **mat;
     double mae = 0.0;

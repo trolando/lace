@@ -315,7 +315,7 @@ static void multiply_matrix(block * A, long oa, block * B, long ob,
     }
 }
 
-void init() {
+void init(void) {
     x = n / BLOCK_EDGE;
     y = n / BLOCK_EDGE;
     z = n / BLOCK_EDGE;

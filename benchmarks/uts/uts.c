@@ -305,7 +305,7 @@ int uts_paramsToStr(char *strBuf, int ind) {
 }
 
 // show parameter settings
-void uts_printParams() {
+void uts_printParams(void) {
   char strBuf[5000] = "";
   int  ind = 0;
 
@@ -379,7 +379,7 @@ void uts_parseParams(int argc, char *argv[]){
   }
 }
 
-void uts_helpMessage() {
+void uts_helpMessage(void) {
   printf("  UTS - Unbalanced Tree Search %s (%s)\n\n", UTS_VERSION, impl_getName());
   printf("    usage:  uts-bin [parameter value] ...\n\n");
   printf("  parm type  description\n");    

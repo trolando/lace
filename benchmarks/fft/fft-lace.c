@@ -254,7 +254,7 @@ void fft_CALL(lace_worker* worker, int n, COMPLEX* in, COMPLEX* out)
  *                     END OF FFT ALGORITHM
  ****************************************************************/
 
-void init()
+void init(void)
 {
     size = (1 << n);
     out = malloc((size_t)size * sizeof *out);
@@ -267,7 +267,7 @@ void init()
     }
 }
 
-void prep()
+void prep(void)
 {
     if (cp == NULL)
         cp = malloc((size_t)size * sizeof *cp);

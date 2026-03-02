@@ -959,7 +959,7 @@ lace_task* NAME##_SPAWN(lace_worker* _lace_worker)                              
 }                                                                                     \
                                                                                       \
 static inline LACE_UNUSED                                                             \
-RTYPE NAME##_NEWFRAME()                                                               \
+RTYPE NAME##_NEWFRAME(void)                                                           \
 {                                                                                     \
     lace_task _t;                                                                     \
     TD_##NAME *t = (TD_##NAME *)&_t;                                                  \
@@ -971,7 +971,7 @@ RTYPE NAME##_NEWFRAME()                                                         
 }                                                                                     \
                                                                                       \
 static inline LACE_UNUSED                                                             \
-void NAME##_TOGETHER()                                                                \
+void NAME##_TOGETHER(void)                                                            \
 {                                                                                     \
     lace_task _t;                                                                     \
     TD_##NAME *t = (TD_##NAME *)&_t;                                                  \
@@ -982,7 +982,7 @@ void NAME##_TOGETHER()                                                          
 }                                                                                     \
                                                                                       \
 static inline LACE_UNUSED                                                             \
-RTYPE NAME()                                                                          \
+RTYPE NAME(void)                                                                      \
 {                                                                                     \
     lace_worker *worker = lace_get_worker();                                          \
     if (worker != NULL) {                                                             \
@@ -999,7 +999,7 @@ RTYPE NAME()                                                                    
 }                                                                                     \
                                                                                       \
 static inline LACE_UNUSED                                                             \
-RTYPE NAME##_RUNEX()                                                                  \
+RTYPE NAME##_RUNEX(void)                                                              \
 {                                                                                     \
     lace_task _t;                                                                     \
     TD_##NAME *t = (TD_##NAME *)&_t;                                                  \
@@ -1096,7 +1096,7 @@ lace_task* NAME##_SPAWN(lace_worker* _lace_worker)                              
 }                                                                                     \
                                                                                       \
 static inline LACE_UNUSED                                                             \
-void NAME##_NEWFRAME()                                                                \
+void NAME##_NEWFRAME(void)                                                            \
 {                                                                                     \
     lace_task _t;                                                                     \
     TD_##NAME *t = (TD_##NAME *)&_t;                                                  \
@@ -1108,7 +1108,7 @@ void NAME##_NEWFRAME()                                                          
 }                                                                                     \
                                                                                       \
 static inline LACE_UNUSED                                                             \
-void NAME##_TOGETHER()                                                                \
+void NAME##_TOGETHER(void)                                                            \
 {                                                                                     \
     lace_task _t;                                                                     \
     TD_##NAME *t = (TD_##NAME *)&_t;                                                  \
@@ -1119,7 +1119,7 @@ void NAME##_TOGETHER()                                                          
 }                                                                                     \
                                                                                       \
 static inline LACE_UNUSED                                                             \
-void NAME()                                                                           \
+void NAME(void)                                                                       \
 {                                                                                     \
     lace_worker *worker = lace_get_worker();                                          \
     if (worker != NULL) {                                                             \
@@ -1136,7 +1136,7 @@ void NAME()                                                                     
 }                                                                                     \
                                                                                       \
 static inline LACE_UNUSED                                                             \
-void NAME##_RUNEX()                                                                   \
+void NAME##_RUNEX(void)                                                               \
 {                                                                                     \
     lace_task _t;                                                                     \
     TD_##NAME *t = (TD_##NAME *)&_t;                                                  \

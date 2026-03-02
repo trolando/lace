@@ -162,14 +162,14 @@ int knapsack_CALL(lace_worker* worker, struct item *e, int c, int n, int v)
     return best;
 }
 
-void init()
+void init(void)
 {
     /* sort the items on decreasing order of value/weight */
     qsort(items, n, sizeof(struct item),
             (int (*)(const void *, const void *)) compare);
 }
 
-void prep()
+void prep(void)
 {
 #ifdef __SYNC
     atomic_store_explicit(&best_so_far, INT_MIN, memory_order_release);

@@ -539,7 +539,7 @@ static int logarithm(int size)
     return k;
 }
 
-void init()
+void init(void)
 {
     /* generate random matrix */
     depth = logarithm(n);

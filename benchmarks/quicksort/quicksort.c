@@ -35,7 +35,7 @@ void quicksort(int * a, size_t n)
     quicksort(left, a + n - left);
 }
 
-int verify()
+int verify(void)
 {
     if (size < 2) return 0;
 
@@ -48,7 +48,7 @@ int verify()
     return 0;
 }
 
-void init()
+void init(void)
 {
     size = 1;
 

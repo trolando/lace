@@ -87,11 +87,11 @@ typedef unsigned long long counter_t;
 void   uts_error(char *str);
 void   uts_parseParams(int argc, char **argv);
 int    uts_paramsToStr(char *strBuf, int ind);
-void   uts_printParams();
-void   uts_helpMessage();
+void   uts_printParams(void);
+void   uts_helpMessage(void);
 
 void   uts_showStats(int nPes, int chunkSize, double walltime, counter_t nNodes, counter_t nLeaves, counter_t maxDepth);
-double uts_wctime();
+double uts_wctime(void);
 
 double rng_toProb(int n);
 
@@ -103,10 +103,10 @@ int    uts_numChildren_geo(Node * parent);
 int    uts_childType(Node *parent);
 
 /* Implementation Specific Functions */
-char * impl_getName();
+char * impl_getName(void);
 int    impl_paramsToStr(char *strBuf, int ind);
 int    impl_parseParam(char *param, char *value);
-void   impl_helpMessage();
+void   impl_helpMessage(void);
 void   impl_abort(int err);
 
 

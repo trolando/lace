@@ -322,7 +322,7 @@ void multiply_matrix_CALL(lace_worker* worker, block* A, long oa, block* B, long
     }
 }
 
-void init() {
+void init(void) {
     x = n / BLOCK_EDGE;
     y = n / BLOCK_EDGE;
     z = n / BLOCK_EDGE;

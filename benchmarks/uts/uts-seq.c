@@ -39,7 +39,7 @@ counter_t maxTreeDepth = 0;
  ***********************************************************/
 
 // The name of this implementation
-char * impl_getName() {
+char * impl_getName(void) {
   return "Sequential Recursive Search";
 }
 
@@ -51,7 +51,7 @@ int  impl_paramsToStr(char *strBuf, int ind) {
 // Not using UTS command line params, return non-success
 int  impl_parseParam(char *param, char *value) { return 1; (void)param; (void)value; }
 
-void impl_helpMessage() {
+void impl_helpMessage(void) {
   printf("   none.\n");
 }
 

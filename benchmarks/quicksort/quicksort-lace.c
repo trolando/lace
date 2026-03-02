@@ -38,7 +38,7 @@ void quicksort_CALL(lace_worker* worker, int* a, size_t n)
     quicksort_SYNC(worker);
 }
 
-int verify()
+int verify(void)
 {
     if (size < 2) return 0;
 
@@ -51,7 +51,7 @@ int verify()
     return 0;
 }
 
-void init()
+void init(void)
 {
     size = 1;
 
@@ -67,7 +67,7 @@ void init()
     }
 }
 
-void prep()
+void prep(void)
 {
     for (unsigned int i = 0; i < size; ++i) {
         a[i] = b[i];

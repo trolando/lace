@@ -13,7 +13,7 @@ static int w, n;
 #define LACE_NOINLINE
 #endif
 
-LACE_NOINLINE int loop()
+LACE_NOINLINE int loop(void)
 {
     int i, s=0;
 

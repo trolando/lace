@@ -144,7 +144,7 @@ void init(int n)
     }
 }
 
-void prep()
+void prep(void)
 {
     heat(even, 0, nx);
 }
@@ -164,7 +164,7 @@ void test_CALL(lace_worker* worker)
     }
 }
 
-int verify()
+int verify(void)
 {
     double **mat;
     double mae = 0.0;

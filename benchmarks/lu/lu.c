@@ -337,7 +337,7 @@ void lu(Matrix M, int nb)
     return;
 }
 
-void init()
+void init(void)
 {
     nBlocks = n / BLOCK_SIZE;
     M = (Matrix) malloc(n * n * sizeof(double));
