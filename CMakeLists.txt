@@ -4,162 +4,145 @@ project(lace
     VERSION 2.1.0
     DESCRIPTION "Lace, a work-stealing framework for multi-core fork-join parallelism"
     HOMEPAGE_URL "https://github.com/trolando/lace"
-    LANGUAGES C CXX
+    LANGUAGES C
 )
+
+# if we ever go to 3.21, use PROJECT_IS_TOP_LEVEL
+string(COMPARE EQUAL "${CMAKE_SOURCE_DIR}" "${CMAKE_CURRENT_SOURCE_DIR}" lace_is_top_level)
+
+if(lace_is_top_level AND NOT CMAKE_CONFIGURATION_TYPES)
+    # Default to Release when building as top project
+    if(NOT CMAKE_BUILD_TYPE)
+        set(CMAKE_BUILD_TYPE "Release" CACHE STRING "Build type" FORCE)
+    endif()
+    set_property(CACHE CMAKE_BUILD_TYPE PROPERTY STRINGS "Debug" "Release" "RelWithDebInfo" "MinSizeRel")
+endif()
 
 list(INSERT CMAKE_MODULE_PATH 0 "${CMAKE_CURRENT_LIST_DIR}/cmake")
 
-option(LACE_PIE_TIMES "Let Lace record Pie times" OFF)
-option(LACE_COUNT_TASKS "Let Lace record the number of tasks" OFF)
-option(LACE_COUNT_STEALS "Let Lace count #steals and #leaps" OFF)
-option(LACE_COUNT_SPLITS "Let Lace count #splits" OFF)
-option(LACE_BACKOFF "Let idle threads sleep if there is no work" ON)
-option(LACE_USE_HWLOC "Let Lace pin threads/memory using libhwloc" OFF)
-option(LACE_USE_MMAP "Let Lace use mmap to allocate memory" ON)
+option(LACE_PIE_TIMES    "Let Lace record Pie times"                                 OFF)
+option(LACE_COUNT_TASKS  "Let Lace record the number of tasks"                       OFF)
+option(LACE_COUNT_STEALS "Let Lace count #steals and #leaps"                         OFF)
+option(LACE_COUNT_SPLITS "Let Lace count #splits"                                    OFF)
+option(LACE_USE_HWLOC    "Let Lace pin threads/memory using libhwloc"                OFF)
+option(LACE_USE_MMAP     "Let Lace use mmap to allocate virtual memory"              ON)
+option(LACE_BACKOFF      "Let idle threads sleep if there is no work"                ON)
+option(LACE_NATIVE_OPT   "Enable -march=native for compiler optimizations"           ON)
+option(LACE_ENABLE_PIC   "Build Lace with -fPIC (e.g. for linking into shared libs)" OFF)
+
+if(lace_is_top_level)
+    option(LACE_BUILD_TESTS      "Build and run Lace tests"                          ON)
+    option(LACE_BUILD_BENCHMARKS "Build Lace benchmark programs"                     ON)
+    option(LACE_SANITIZE_ADDRESS "Enable AddressSanitizer"                           OFF)
+    option(LACE_SANITIZE_THREAD  "Enable ThreadSanitizer"                            OFF)
+    option(LACE_SANITIZE_UB      "Enable UndefinedBehaviorSanitizer"                 OFF)
+endif()
 
 include(CheckSymbolExists)
 check_symbol_exists(sched_getaffinity "sched.h" HAVE_SCHED_GETAFFINITY)
-if(HAVE_SCHED_GETAFFINITY)
-    target_compile_definitions(lace PRIVATE HAVE_SCHED_GETAFFINITY=1)
-    target_compile_definitions(lace32 PRIVATE HAVE_SCHED_GETAFFINITY=1)
-    target_compile_definitions(lace128 PRIVATE HAVE_SCHED_GETAFFINITY=1)
+check_symbol_exists(mmap "sys/mman.h" HAVE_MMAP)
+
+if(LACE_USE_MMAP AND NOT WIN32 AND NOT HAVE_MMAP)
+    # Note: in WIN32, we can always use VirtualAlloc so we do not check then
+    message(WARNING " mmap not found: disabling mmap support")
+    set(LACE_USE_MMAP OFF)
 endif()
 
-if(LACE_USE_MMAP AND NOT MSVC)
-    include(CheckSymbolExists)
-    check_symbol_exists(mmap "sys/mman.h" HAVE_MMAP)
-    if(NOT HAVE_MMAP)
-        message(WARNING " mmap not found: disabling mmap support")
-	    set(LACE_USE_MMAP OFF)
+if(LACE_SANITIZE_ADDRESS AND LACE_SANITIZE_THREAD)
+   message(FATAL_ERROR "AddressSanitizer and ThreadSanitizer cannot be used together")
+endif()
+
+set(lace_sanitizer_flags "")
+if(lace_is_top_level)
+    if(LACE_SANITIZE_ADDRESS)
+        list(APPEND lace_sanitizer_flags -fsanitize=address -fno-omit-frame-pointer)
+    endif()
+    if(LACE_SANITIZE_THREAD)
+        list(APPEND lace_sanitizer_flags -fsanitize=thread)
+    endif()
+    if(LACE_SANITIZE_UB)
+        list(APPEND lace_sanitizer_flags -fsanitize=undefined)
     endif()
 endif()
 
-add_library(lace STATIC
-    ${CMAKE_CURRENT_SOURCE_DIR}/src/lace.c
-    ${CMAKE_CURRENT_SOURCE_DIR}/src/lace.h
-)
-add_library(lace32 STATIC
-    ${CMAKE_CURRENT_SOURCE_DIR}/src/lace32.c
-    ${CMAKE_CURRENT_SOURCE_DIR}/src/lace32.h
-)
-add_library(lace128 STATIC
-    ${CMAKE_CURRENT_SOURCE_DIR}/src/lace128.c
-    ${CMAKE_CURRENT_SOURCE_DIR}/src/lace128.h
-)
-
-add_library(lace::lace ALIAS lace)
-add_library(lace::lace32 ALIAS lace32)
-add_library(lace::lace128 ALIAS lace128)
-
-target_compile_features(lace PUBLIC c_std_11)
-target_compile_features(lace32 PUBLIC c_std_11)
-target_compile_features(lace128 PUBLIC c_std_11)
-
-target_include_directories(lace
-    PUBLIC
-        $<BUILD_INTERFACE:${CMAKE_CURRENT_LIST_DIR}/src>
-        $<BUILD_INTERFACE:${CMAKE_CURRENT_BINARY_DIR}>
-        $<INSTALL_INTERFACE:include>
-)
-
-target_include_directories(lace32
-    PUBLIC
-        $<BUILD_INTERFACE:${CMAKE_CURRENT_LIST_DIR}/src>
-        $<BUILD_INTERFACE:${CMAKE_CURRENT_BINARY_DIR}>
-        $<INSTALL_INTERFACE:include>
-)
-
-target_include_directories(lace128
-    PUBLIC
-        $<BUILD_INTERFACE:${CMAKE_CURRENT_LIST_DIR}/src>
-        $<BUILD_INTERFACE:${CMAKE_CURRENT_BINARY_DIR}>
-        $<INSTALL_INTERFACE:include>
-)
-
-option(LACE_NATIVE_OPT "Enable -march=native for compiler optimizations" ON)
-
-option(LACE_ENABLE_PIC "Build Lace with -fPIC (e.g. for linking into shared libs)" OFF)
-set_target_properties(lace PROPERTIES POSITION_INDEPENDENT_CODE ${LACE_ENABLE_PIC})
-set_target_properties(lace32 PROPERTIES POSITION_INDEPENDENT_CODE ${LACE_ENABLE_PIC})
-set_target_properties(lace128 PROPERTIES POSITION_INDEPENDENT_CODE ${LACE_ENABLE_PIC})
-
-if(CMAKE_C_COMPILER_ID MATCHES "Clang|GNU")
-    target_compile_options(lace PRIVATE
-        -pipe
-        $<$<CONFIG:Debug>:-O0 -Wall -Wextra -Wpedantic>
-        $<$<BOOL:${LACE_NATIVE_OPT}>:-march=native>
-    )
-
-    target_compile_options(lace32 PRIVATE
-        -pipe
-        $<$<CONFIG:Debug>:-O0 -Wall -Wextra -Wpedantic>
-        $<$<BOOL:${LACE_NATIVE_OPT}>:-march=native>
-    )
-
-    target_compile_options(lace128 PRIVATE
-        -pipe
-        $<$<CONFIG:Debug>:-O0 -Wall -Wextra -Wpedantic>
-        $<$<BOOL:${LACE_NATIVE_OPT}>:-march=native>
-    )
-elseif(MSVC)
-    target_compile_options(lace PUBLIC
-        /Zc:__STDC__
-        /experimental:c11atomics
-    )
-    target_compile_options(lace32 PUBLIC
-        /Zc:__STDC__
-        /experimental:c11atomics
-    )
-    target_compile_options(lace128 PUBLIC
-        /Zc:__STDC__
-        /experimental:c11atomics
-    )
+if(lace_sanitizer_flags)
+    if(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
+        add_compile_options(${lace_sanitizer_flags})
+        add_link_options(${lace_sanitizer_flags})
+    else()
+        message(WARNING "Sanitizers requested but not supported by compiler '${CMAKE_C_COMPILER_ID}' -- ignoring")
+    endif()
 endif()
 
 if(NOT MSVC)
     find_package(Threads REQUIRED)
-    target_link_libraries(lace PUBLIC Threads::Threads)
-    target_link_libraries(lace32 PUBLIC Threads::Threads)
-    target_link_libraries(lace128 PUBLIC Threads::Threads)
 endif()
 
 if(LACE_USE_HWLOC)
     find_package(HWLOC REQUIRED)
-    target_link_libraries(lace PUBLIC HWLOC::hwloc)
-    target_link_libraries(lace32 PUBLIC HWLOC::hwloc)
-    target_link_libraries(lace128 PUBLIC HWLOC::hwloc)
 endif()
 
-set_target_properties(lace PROPERTIES
-    ARCHIVE_OUTPUT_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/lib
-    LIBRARY_OUTPUT_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/lib
-    RUNTIME_OUTPUT_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/bin
-)
+foreach(_target lace lace32 lace128)
+    if(_target STREQUAL "lace")
+        set(_src ${CMAKE_CURRENT_SOURCE_DIR}/src/lace.c ${CMAKE_CURRENT_SOURCE_DIR}/src/lace.h)
+    elseif(_target STREQUAL "lace32")
+        set(_src ${CMAKE_CURRENT_SOURCE_DIR}/src/lace32.c ${CMAKE_CURRENT_SOURCE_DIR}/src/lace32.h)
+    else()
+        set(_src ${CMAKE_CURRENT_SOURCE_DIR}/src/lace128.c ${CMAKE_CURRENT_SOURCE_DIR}/src/lace128.h)
+    endif()
 
-set_target_properties(lace32 PROPERTIES
-    ARCHIVE_OUTPUT_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/lib
-    LIBRARY_OUTPUT_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/lib
-    RUNTIME_OUTPUT_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/bin
-)
+    add_library(${_target} STATIC ${_src})
+    add_library(lace::${_target} ALIAS ${_target})
 
-set_target_properties(lace128 PROPERTIES
-    ARCHIVE_OUTPUT_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/lib
-    LIBRARY_OUTPUT_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/lib
-    RUNTIME_OUTPUT_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/bin
-)
+    target_compile_features(${_target} PUBLIC c_std_11)
+
+    target_include_directories(${_target}
+        PUBLIC
+            $<BUILD_INTERFACE:${CMAKE_CURRENT_LIST_DIR}/src>
+            $<BUILD_INTERFACE:${CMAKE_CURRENT_BINARY_DIR}>
+            $<INSTALL_INTERFACE:include>
+    )
+
+    set_target_properties(${_target} PROPERTIES POSITION_INDEPENDENT_CODE ${LACE_ENABLE_PIC})
+
+    if(CMAKE_C_COMPILER_ID MATCHES "Clang|GNU")
+        target_compile_options(${_target} PRIVATE
+            -pipe
+            $<$<CONFIG:Debug>:-O0 -Wall -Wextra -Wpedantic>
+            $<$<BOOL:${LACE_NATIVE_OPT}>:-march=native>
+        )
+    elseif(MSVC)
+        target_compile_options(${_target} PUBLIC
+            /Zc:__STDC__
+            /experimental:c11atomics
+        )
+    endif()
+
+    if(NOT MSVC)
+        target_link_libraries(${_target} PUBLIC Threads::Threads)
+    endif()
+
+    if(LACE_USE_HWLOC)
+        target_link_libraries(${_target} PUBLIC HWLOC::hwloc)
+    endif()
+
+    set_target_properties(${_target} PROPERTIES
+        ARCHIVE_OUTPUT_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/lib
+        LIBRARY_OUTPUT_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/lib
+        RUNTIME_OUTPUT_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/bin
+    )
+endforeach()
 
 configure_file(src/lace_config.h.in ${CMAKE_CURRENT_BINARY_DIR}/lace_config.h @ONLY)
 
-if(CMAKE_CURRENT_SOURCE_DIR STREQUAL CMAKE_SOURCE_DIR)
-    option(LACE_BUILD_TESTS "Build and run Lace tests" ON)
-    option(LACE_BUILD_BENCHMARKS "Build Lace benchmark programs" ON)
+if(lace_is_top_level)
+    enable_language(CXX)
 
     if(LACE_BUILD_BENCHMARKS)
         add_subdirectory(benchmarks)
     endif()
 
     if(LACE_BUILD_TESTS)
-        # Add test directory and tests
         include(CTest)
         enable_testing()
         add_subdirectory(test)
@@ -198,7 +181,7 @@ configure_package_config_file(
 
 write_basic_package_version_file(
     ${CMAKE_CURRENT_BINARY_DIR}/cmake/lace-config-version.cmake
-    VERSION ${LACE_VERSION}
+    VERSION ${PROJECT_VERSION}
     COMPATIBILITY SameMinorVersion
 )
 
@@ -244,7 +227,25 @@ if(NOT MSVC)
     )   
 endif()
 
-export(EXPORT lace-targets
-    FILE ${CMAKE_CURRENT_BINARY_DIR}/cmake/lace-targets.cmake
-    NAMESPACE lace::
-)
+# Summary
+message(STATUS "")
+message(STATUS "Lace ${PROJECT_VERSION} configuration summary:")
+message(STATUS "  Build type        : ${CMAKE_BUILD_TYPE}")
+message(STATUS "  Top-level project : ${lace_is_top_level}")
+message(STATUS "  Use mmap          : ${LACE_USE_MMAP}")
+message(STATUS "  Use HWLOC         : ${LACE_USE_HWLOC}")
+message(STATUS "  Use -march=native : ${LACE_NATIVE_OPT}")
+message(STATUS "  Use -fPIC         : ${LACE_ENABLE_PIC}")
+message(STATUS "  Backoff when idle : ${LACE_BACKOFF}")
+message(STATUS "  Count tasks       : ${LACE_COUNT_TASKS}")
+message(STATUS "  Count steals      : ${LACE_COUNT_STEALS}")
+message(STATUS "  Count splits      : ${LACE_COUNT_SPLITS}")
+message(STATUS "  Record PIE times  : ${LACE_PIE_TIMES}")
+if(lace_is_top_level)
+    message(STATUS "  Build tests       : ${LACE_BUILD_TESTS}")
+    message(STATUS "  Build benchmarks  : ${LACE_BUILD_BENCHMARKS}")
+    message(STATUS "  Sanitize address  : ${LACE_SANITIZE_ADDRESS}")
+    message(STATUS "  Sanitize thread   : ${LACE_SANITIZE_THREAD}")
+    message(STATUS "  Sanitize UB       : ${LACE_SANITIZE_UB}")
+endif()
+message(STATUS "")

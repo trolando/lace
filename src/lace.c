@@ -854,7 +854,7 @@ lace_start(unsigned int _n_workers, size_t dequesize, size_t stacksize)
         n_pus = (unsigned)sysinfo.dwNumberOfProcessors;
     }
 
-#elif defined(HAVE_SCHED_GETAFFINITY)
+#elif defined(HAVE_SCHED_GETAFFINITY) && HAVE_SCHED_GETAFFINITY
     cpu_set_t cs;
     CPU_ZERO(&cs);
     if (sched_getaffinity(0, sizeof(cs), &cs) == 0) {
