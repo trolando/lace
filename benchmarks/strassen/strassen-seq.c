@@ -669,14 +669,12 @@ REAL *alloc_matrix(int n)
 }
 
 /*
- * free a matrix (Never used because Matteo expects
- *                the OS to clean up his garbage. Tsk. Tsk.)
- *
- void free_matrix(REAL *A) 
- {
- free(A);
- }
+ * Free a matrix
  */
+void free_matrix(REAL *A)
+{
+    free(A);
+}
 
 void usage(char *s)
 {
@@ -745,6 +743,11 @@ int main(int argc, char *argv[])
     else {	
         printf("Time: %f\n", t2-t1);
     }
+
+    free_matrix(A);
+    free_matrix(B);
+    free_matrix(C1);
+    free_matrix(C2);
 
     return 0;
 }
