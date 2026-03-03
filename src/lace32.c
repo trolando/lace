@@ -490,56 +490,57 @@ lace_init_worker(unsigned int worker)
 #endif
 }
 
-static atomic_int must_suspend = 0;
+static atomic_int suspend_level;
+static atomic_int suspend_tickets;
 static lace_sem_t suspend_semaphore;
-static atomic_int lace_awaken_count = 0;
+
+static void
+lace_suspend_init(void)
+{
+    atomic_store_explicit(&suspend_level, 0, memory_order_relaxed);
+    atomic_store_explicit(&suspend_tickets, 0, memory_order_relaxed);
+
+    memset(&suspend_semaphore, 0, sizeof(lace_sem_t));
+    lace_sem_init(&suspend_semaphore, 0);
+}
+    
+static void
+lace_suspend_destroy(void)
+{
+    lace_sem_destroy(&suspend_semaphore);
+}
 
 void
-lace_suspend()
+lace_suspend(void)
 {
-    while (1) {
-        int state = atomic_load_explicit(&lace_awaken_count, memory_order_consume);
-        // state "should" be >= 1 !!
-        if (state <= 0) {
-            continue; // ???
-        } else if (state == 1) {
-            int next = -1; // intermediate state
-            if (atomic_compare_exchange_weak(&lace_awaken_count, &state, next) == 1) {
-                while (workers_running != n_workers) {} // they must first run, to avoid rare condition
-                atomic_thread_fence(memory_order_seq_cst);
-                atomic_store_explicit(&must_suspend, 1, memory_order_relaxed);
-                while (workers_running != 0) {}
-                atomic_thread_fence(memory_order_seq_cst);
-                atomic_store_explicit(&must_suspend, 0, memory_order_relaxed);
-                atomic_store_explicit(&lace_awaken_count, 0, memory_order_release);
-                break;
-            }
-        } else {
-            int next = state - 1;
-            if (atomic_compare_exchange_weak(&lace_awaken_count, &state, next) == 1) break;
-        }
+    int old = atomic_fetch_sub_explicit(&suspend_level, 1, memory_order_relaxed);
+    if (old == 1) {
+        atomic_fetch_add_explicit(&suspend_tickets, n_workers, memory_order_relaxed);
     }
 }
 
 void
-lace_resume()
+lace_resume(void)
 {
-    while (1) {
-        int state = atomic_load_explicit(&lace_awaken_count, memory_order_consume);
-        if (state < 0) {
-            continue; // wait until suspending is done
-        } else if (state == 0) {
-            int next = -1; // intermediate state
-            if (atomic_compare_exchange_weak(&lace_awaken_count, &state, next) == 1) {
-                for (unsigned int i=0; i<n_workers; i++) lace_sem_post(&suspend_semaphore);
-                atomic_store_explicit(&lace_awaken_count, 1, memory_order_release);
-                break;
-            }
-        } else {
-            int next = state + 1;
-            if (atomic_compare_exchange_weak(&lace_awaken_count, &state, next) == 1) break;
-        }
+    int old = atomic_fetch_add_explicit(&suspend_level, 1, memory_order_relaxed);
+    if (old == 0) {
+        for (unsigned int i=0; i<n_workers; i++) lace_sem_post(&suspend_semaphore);
     }
+}
+
+static inline int
+worker_check_suspend(void)
+{
+    int tickets = atomic_load_explicit(&suspend_tickets, memory_order_relaxed);
+    if (LACE_LIKELY(tickets <= 0)) return 0;
+    atomic_fetch_sub_explicit(&suspend_tickets, 1, memory_order_relaxed);
+    atomic_fetch_sub_explicit(&workers_running, 1, memory_order_relaxed);
+    while (atomic_load_explicit(&workers_running, memory_order_relaxed) != 0) {}
+    lace_barrier(); // need a barrier in case the lace_sem_wait is a noop and a thread increases workers_running
+    lace_sem_wait(&suspend_semaphore);
+    atomic_fetch_add_explicit(&workers_running, 1, memory_order_relaxed);
+    lace_barrier(); // need a barrier in case another thread immediately suspends again, lowering the workers_running
+    return 1;
 }
 
 /**
@@ -715,7 +716,7 @@ void lace_steal_loop_CALL(lace_worker* lace_worker, atomic_int* quit)
     unsigned int backoff=0;
 #endif
 
-    while(*quit == 0) {
+    while(1) {
 #if LACE_BACKOFF
         backoff++;
 #endif
@@ -740,21 +741,19 @@ void lace_steal_loop_CALL(lace_worker* lace_worker, atomic_int* quit)
 
         lace_check_yield(lace_worker);
 
+        if (worker_check_suspend()) {
+#if LACE_BACKOFF
+            backoff = 0;
+#endif
+            continue;
+        }
+
         if (LACE_UNLIKELY(atomic_load_explicit(&external_task, memory_order_acquire) != 0)) {
             lace_steal_external(lace_get_worker());
 #if LACE_BACKOFF
             backoff = 0;
 #endif
-        }
-
-        if (LACE_UNLIKELY(atomic_load_explicit(&must_suspend, memory_order_acquire))) {
-            workers_running -= 1;
-            lace_sem_wait(&suspend_semaphore);
-            lace_barrier(); // ensure we're all back before continuing
-            workers_running += 1;
-#if LACE_BACKOFF
-            backoff = 0;
-#endif
+            continue;
         }
 
 #if LACE_BACKOFF
@@ -766,10 +765,12 @@ void lace_steal_loop_CALL(lace_worker* lace_worker, atomic_int* quit)
 #endif
             lace_sleep_us(delay_us);
 #if LACE_PIE_TIMES
-            PR_ADD(lace_worker,CTR_backoff, lace_gethrtime()-prev);
+            PR_ADD(lace_worker, CTR_backoff, lace_gethrtime()-prev);
 #endif
         }
 #endif
+
+        if (*quit) break;
     }
 }
 
@@ -792,7 +793,10 @@ lace_worker_thread(void* arg)
     lace_sem_wait(&suspend_semaphore);
 
     // Signal that we are running
-    workers_running += 1;
+    atomic_fetch_add_explicit(&workers_running, 1, memory_order_relaxed);
+
+    // Barrier to make sure we've all increased workers_running
+    lace_barrier();
 
     // Run the steal loop
     lace_steal_loop_CALL(lace_get_worker(), &lace_quits);
@@ -801,7 +805,7 @@ lace_worker_thread(void* arg)
     lace_time_event(lace_get_worker(), 9);
 
     // Signal that we stopped
-    workers_running -= 1;
+    atomic_fetch_sub_explicit(&workers_running, 1, memory_order_relaxed);
 
     return NULL;
 }
@@ -948,12 +952,8 @@ lace_start(unsigned int _n_workers, size_t dequesize, size_t stacksize)
     // Initialize Lace barrier
     lace_barrier_init();
 
-    // Create suspend semaphore
-    memset(&suspend_semaphore, 0, sizeof(lace_sem_t));
-    lace_sem_init(&suspend_semaphore, 0);
-
-    must_suspend = 0;
-    lace_awaken_count = 0;
+    // Initialize suspend/resume system
+    lace_suspend_init();
 
     lace_mutex_init(&external_task_lock);
     lace_cond_init(&external_task_cond);
@@ -1244,7 +1244,7 @@ void lace_stop()
     lace_resume();
 
     // Do not stop if not all workers are running yet
-    while (workers_running != n_workers) {}
+    while (workers_running != n_workers || suspend_tickets > 0) {}
 
     lace_quits = 1;
 
@@ -1265,7 +1265,7 @@ void lace_stop()
 
     // finally, destroy the barriers
     lace_barrier_destroy();
-    lace_sem_destroy(&suspend_semaphore);
+    lace_suspend_destroy();
 
     for (unsigned int i=0; i<n_workers; i++) {
 #if LACE_USE_MMAP

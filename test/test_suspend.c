@@ -49,26 +49,24 @@ runtests(int n_workers)
     // first run sfib a few times
     for (int i=0; i<10; i++) sfib(35);
 
-    // Initialize the Lace framework for <n_workers> workers.
-    lace_start(n_workers, 0, 0);
-
     double time = 0;
 
     for (int i=0; i<10; i++) {
-        pfib(35);
-        double before = wctime();
+        // Initialize the Lace framework for <n_workers> workers.
+        lace_start(n_workers, 0, 0);
         lace_suspend();
-        time += wctime() - before;
-        for (int i=0; i<10; i++) sfib(30);
-        before = wctime();
+
+        pfib(30);
+        sfib(30);
+        pfib(30);
+        sfib(30);
+        pfib(30);
+        sfib(30);
+        pfib(30);
+
         lace_resume();
-        time += wctime() - before;
-        pfib(35);
+        lace_stop();
     }
-
-    printf("Time suspend + resume avg: %f sec\n", time/10);
-
-    lace_stop();
 }
 
 int
@@ -80,7 +78,30 @@ main (int argc, char *argv[])
         n_workers = atoi(argv[1]);
     }
 
-    lace_set_verbosity(1);
+    double part1 = 0;
+    double part2 = 0;
+
+    printf("Test 1: 40 iterations of 40 suspend-resume cycles\n");
+
+    for (int i=0; i<40; i++) {
+        lace_start(n_workers, 0, 0);
+        double before = wctime();
+        for (int j=0; j<40; j++) {
+            lace_suspend();
+            lace_resume();
+        }
+        double mid = wctime();
+        lace_stop();
+        double end = wctime();
+        part1 += (mid-before);
+        part2 += (end-mid);
+    }
+
+    printf("Time suspend + resume: %f sec\n", part1);
+    printf("Time to lace_stop():   %f sec\n", part2);
+    printf("Time per cycle:        %f sec\n", (part1+part2)/1600.0);
+
+    printf("Test 2: 10 iterations of suspend/resume mixed with a small load\n");
 
     for (int i=0; i<=n_workers; i++) {
         runtests(i);
