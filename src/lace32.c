@@ -77,7 +77,7 @@
     static unsigned int n_pus;
 #endif
 
-#if LACE_USE_MMAP && !LACE_MSVC    
+#if LACE_USE_MMAP && !defined(_WIN32)
     #include <sys/mman.h>
 #endif
 
@@ -426,7 +426,7 @@ lace_init_worker(unsigned int worker)
 {
     // Allocate our memory
 #if LACE_USE_MMAP
-#if LACE_MSVC
+#if defined(_WIN32)
     workers_memory[worker] = (worker_data*)VirtualAlloc(NULL, workers_memory_size, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE);
     if (workers_memory[worker] == NULL) {
         fprintf(stderr, "Lace error: Unable to allocate VirtualAlloc memory for the Lace worker!\n");
@@ -759,7 +759,7 @@ void lace_steal_loop_CALL(lace_worker* lace_worker, atomic_int* quit)
 
 #if LACE_BACKOFF
         if (backoff > 1000) { // only back off after 1000 attempts
-            uint64_t delay_us = (1 << ((backoff-1000)/5)); // exponential backoff
+            uint64_t delay_us = (1ULL << ((backoff-1000)/5)); // exponential backoff
             if (delay_us > 5000) delay_us = 5000; // cap at 5ms
 #if LACE_PIE_TIMES
             uint64_t prev = lace_gethrtime();
@@ -1072,7 +1072,7 @@ lace_start(unsigned int _n_workers, size_t dequesize, size_t stacksize)
             0,                          // flags
             &thread_id
         );
-        if (h == 0) {
+        if (handles[i] == 0) {
             fprintf(stderr, "Lace error: failed to create worker thread %u\n", i);
             exit(1);
         }
@@ -1248,7 +1248,7 @@ void lace_stop()
 
     lace_quits = 1;
 
-    for (int i = 0; i < n_workers; i++) {
+    for (unsigned int i = 0; i < n_workers; i++) {
 #if !LACE_MSVC
         pthread_join(handles[i], NULL);
 #else
@@ -1269,7 +1269,7 @@ void lace_stop()
 
     for (unsigned int i=0; i<n_workers; i++) {
 #if LACE_USE_MMAP
-#if LACE_MSVC
+#if defined(_WIN32)
         VirtualFree(workers_memory[i], 0, MEM_RELEASE);
 #else
         munmap(workers_memory[i], workers_memory_size);
