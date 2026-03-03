@@ -917,14 +917,14 @@ if ((r)); then
   if (( r == 1)); then
     MACRO_ARGS="ATYPE_$r, ARG_$r"
     DECL_ARGS=", ATYPE_1"
-    TASK_GET_FROM_t=", t->d.args.arg_1"
+    TASK_GET_FROM_t=", ((TD_##NAME*)t)->d.args.arg_1"
     FUN_ARGS=", ATYPE_1 arg_1"
     RUN_ARGS="ATYPE_1 arg_1"
     CALL_ARGS=", arg_1"
   else
     MACRO_ARGS="$MACRO_ARGS, ATYPE_$r, ARG_$r"
     DECL_ARGS="$DECL_ARGS, ATYPE_$r"
-    TASK_GET_FROM_t="$TASK_GET_FROM_t, t->d.args.arg_$r"
+    TASK_GET_FROM_t="$TASK_GET_FROM_t, ((TD_##NAME*)t)->d.args.arg_$r"
     FUN_ARGS="$FUN_ARGS, ATYPE_$r arg_$r"
     RUN_ARGS="$RUN_ARGS, ATYPE_$r arg_$r"
     CALL_ARGS="$CALL_ARGS, arg_$r"
@@ -948,7 +948,7 @@ if (( isvoid==0 )); then
   fi
   RTYPE="RTYPE"
   RES_FIELD="$RTYPE res;"
-  SAVE_RVAL="t->d.res ="
+  SAVE_RVAL="((TD_##NAME*)t)->d.res ="
   RETURN_RES="((TD_##NAME *)t)->d.res"
   UNION="union { $ARGS_STRUCT $RTYPE res; } d;"
   SS_RETURN="return "
@@ -980,9 +980,8 @@ static_assert(sizeof(TD_##NAME) <= sizeof(lace_task), \"TD_\" #NAME \" is too la
 
 $RTYPE NAME##_CALL(lace_worker*$DECL_ARGS);
 
-static void NAME##_WRAP(lace_worker* lace_worker, lace_task* task)
+static void NAME##_WRAP(lace_worker* lace_worker, lace_task* t LACE_UNUSED)
 {
-    TD_##NAME* t = (TD_##NAME*)task;
     $SAVE_RVAL NAME##_CALL(lace_worker$TASK_GET_FROM_t);
 }
 
