@@ -512,12 +512,12 @@ typedef enum {
 
 typedef struct _lace_worker_public lace_worker_public;
 
-#define TASK_COMMON_FIELDS(type)                   \
-    void (*f)(lace_worker *, struct type *);        \
+#define TASK_COMMON_FIELDS                      \
+    void (*f)(lace_worker *, lace_task *);      \
     _Atomic(struct _lace_worker_public*) thief;
 
 typedef struct _lace_task {
-    TASK_COMMON_FIELDS(_lace_task)
+    TASK_COMMON_FIELDS
     char d[LACE_TASKSIZE-sizeof(void*)-sizeof(struct _lace_worker_public*)];
 } lace_task;
 
@@ -972,7 +972,7 @@ fi
 echo "$DEF_MACRO
 
 typedef struct _TD_##NAME {
-  TASK_COMMON_FIELDS(_TD_##NAME)
+  TASK_COMMON_FIELDS
   $UNION
 } TD_##NAME;
 
@@ -980,8 +980,9 @@ static_assert(sizeof(TD_##NAME) <= sizeof(lace_task), \"TD_\" #NAME \" is too la
 
 $RTYPE NAME##_CALL(lace_worker*$DECL_ARGS);
 
-static void NAME##_WRAP(lace_worker* lace_worker, TD_##NAME *t LACE_UNUSED)
+static void NAME##_WRAP(lace_worker* lace_worker, lace_task* task)
 {
+    TD_##NAME* t = (TD_##NAME*)task;
     $SAVE_RVAL NAME##_CALL(lace_worker$TASK_GET_FROM_t);
 }
 

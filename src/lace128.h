@@ -505,12 +505,12 @@ typedef enum {
 
 typedef struct _lace_worker_public lace_worker_public;
 
-#define TASK_COMMON_FIELDS(type)                   \
-    void (*f)(lace_worker *, struct type *);        \
+#define TASK_COMMON_FIELDS                      \
+    void (*f)(lace_worker *, lace_task *);      \
     _Atomic(struct _lace_worker_public*) thief;
 
 typedef struct _lace_task {
-    TASK_COMMON_FIELDS(_lace_task)
+    TASK_COMMON_FIELDS
     char d[LACE_TASKSIZE-sizeof(void*)-sizeof(struct _lace_worker_public*)];
 } lace_task;
 
@@ -903,7 +903,7 @@ int lace_sync(lace_worker *w, lace_task *head);
 #define TASK_0(RTYPE, NAME)                                                           \
                                                                                       \
 typedef struct _TD_##NAME {                                                           \
-  TASK_COMMON_FIELDS(_TD_##NAME)                                                      \
+  TASK_COMMON_FIELDS                                                                  \
   union {  RTYPE res; } d;                                                            \
 } TD_##NAME;                                                                          \
                                                                                       \
@@ -911,8 +911,9 @@ static_assert(sizeof(TD_##NAME) <= sizeof(lace_task), "TD_" #NAME " is too large
                                                                                       \
 RTYPE NAME##_CALL(lace_worker*);                                                      \
                                                                                       \
-static void NAME##_WRAP(lace_worker* lace_worker, TD_##NAME *t LACE_UNUSED)           \
+static void NAME##_WRAP(lace_worker* lace_worker, lace_task* task)                    \
 {                                                                                     \
+    TD_##NAME* t = (TD_##NAME*)task;                                                  \
     t->d.res = NAME##_CALL(lace_worker);                                              \
 }                                                                                     \
                                                                                       \
@@ -1040,7 +1041,7 @@ RTYPE NAME##_SYNC(lace_worker* _lace_worker)                                    
 #define VOID_TASK_0(NAME)                                                             \
                                                                                       \
 typedef struct _TD_##NAME {                                                           \
-  TASK_COMMON_FIELDS(_TD_##NAME)                                                      \
+  TASK_COMMON_FIELDS                                                                  \
                                                                                       \
 } TD_##NAME;                                                                          \
                                                                                       \
@@ -1048,8 +1049,9 @@ static_assert(sizeof(TD_##NAME) <= sizeof(lace_task), "TD_" #NAME " is too large
                                                                                       \
 void NAME##_CALL(lace_worker*);                                                       \
                                                                                       \
-static void NAME##_WRAP(lace_worker* lace_worker, TD_##NAME *t LACE_UNUSED)           \
+static void NAME##_WRAP(lace_worker* lace_worker, lace_task* task)                    \
 {                                                                                     \
+    TD_##NAME* t = (TD_##NAME*)task;                                                  \
      NAME##_CALL(lace_worker);                                                        \
 }                                                                                     \
                                                                                       \
@@ -1180,7 +1182,7 @@ void NAME##_SYNC(lace_worker* _lace_worker)                                     
 #define TASK_1(RTYPE, NAME, ATYPE_1, ARG_1)                                           \
                                                                                       \
 typedef struct _TD_##NAME {                                                           \
-  TASK_COMMON_FIELDS(_TD_##NAME)                                                      \
+  TASK_COMMON_FIELDS                                                                  \
   union { struct {  ATYPE_1 arg_1; } args; RTYPE res; } d;                            \
 } TD_##NAME;                                                                          \
                                                                                       \
@@ -1188,8 +1190,9 @@ static_assert(sizeof(TD_##NAME) <= sizeof(lace_task), "TD_" #NAME " is too large
                                                                                       \
 RTYPE NAME##_CALL(lace_worker*, ATYPE_1);                                             \
                                                                                       \
-static void NAME##_WRAP(lace_worker* lace_worker, TD_##NAME *t LACE_UNUSED)           \
+static void NAME##_WRAP(lace_worker* lace_worker, lace_task* task)                    \
 {                                                                                     \
+    TD_##NAME* t = (TD_##NAME*)task;                                                  \
     t->d.res = NAME##_CALL(lace_worker, t->d.args.arg_1);                             \
 }                                                                                     \
                                                                                       \
@@ -1317,7 +1320,7 @@ RTYPE NAME##_SYNC(lace_worker* _lace_worker)                                    
 #define VOID_TASK_1(NAME, ATYPE_1, ARG_1)                                             \
                                                                                       \
 typedef struct _TD_##NAME {                                                           \
-  TASK_COMMON_FIELDS(_TD_##NAME)                                                      \
+  TASK_COMMON_FIELDS                                                                  \
   union { struct {  ATYPE_1 arg_1; } args; } d;                                       \
 } TD_##NAME;                                                                          \
                                                                                       \
@@ -1325,8 +1328,9 @@ static_assert(sizeof(TD_##NAME) <= sizeof(lace_task), "TD_" #NAME " is too large
                                                                                       \
 void NAME##_CALL(lace_worker*, ATYPE_1);                                              \
                                                                                       \
-static void NAME##_WRAP(lace_worker* lace_worker, TD_##NAME *t LACE_UNUSED)           \
+static void NAME##_WRAP(lace_worker* lace_worker, lace_task* task)                    \
 {                                                                                     \
+    TD_##NAME* t = (TD_##NAME*)task;                                                  \
      NAME##_CALL(lace_worker, t->d.args.arg_1);                                       \
 }                                                                                     \
                                                                                       \
@@ -1457,7 +1461,7 @@ void NAME##_SYNC(lace_worker* _lace_worker)                                     
 #define TASK_2(RTYPE, NAME, ATYPE_1, ARG_1, ATYPE_2, ARG_2)                           \
                                                                                       \
 typedef struct _TD_##NAME {                                                           \
-  TASK_COMMON_FIELDS(_TD_##NAME)                                                      \
+  TASK_COMMON_FIELDS                                                                  \
   union { struct {  ATYPE_1 arg_1; ATYPE_2 arg_2; } args; RTYPE res; } d;             \
 } TD_##NAME;                                                                          \
                                                                                       \
@@ -1465,8 +1469,9 @@ static_assert(sizeof(TD_##NAME) <= sizeof(lace_task), "TD_" #NAME " is too large
                                                                                       \
 RTYPE NAME##_CALL(lace_worker*, ATYPE_1, ATYPE_2);                                    \
                                                                                       \
-static void NAME##_WRAP(lace_worker* lace_worker, TD_##NAME *t LACE_UNUSED)           \
+static void NAME##_WRAP(lace_worker* lace_worker, lace_task* task)                    \
 {                                                                                     \
+    TD_##NAME* t = (TD_##NAME*)task;                                                  \
     t->d.res = NAME##_CALL(lace_worker, t->d.args.arg_1, t->d.args.arg_2);            \
 }                                                                                     \
                                                                                       \
@@ -1594,7 +1599,7 @@ RTYPE NAME##_SYNC(lace_worker* _lace_worker)                                    
 #define VOID_TASK_2(NAME, ATYPE_1, ARG_1, ATYPE_2, ARG_2)                             \
                                                                                       \
 typedef struct _TD_##NAME {                                                           \
-  TASK_COMMON_FIELDS(_TD_##NAME)                                                      \
+  TASK_COMMON_FIELDS                                                                  \
   union { struct {  ATYPE_1 arg_1; ATYPE_2 arg_2; } args; } d;                        \
 } TD_##NAME;                                                                          \
                                                                                       \
@@ -1602,8 +1607,9 @@ static_assert(sizeof(TD_##NAME) <= sizeof(lace_task), "TD_" #NAME " is too large
                                                                                       \
 void NAME##_CALL(lace_worker*, ATYPE_1, ATYPE_2);                                     \
                                                                                       \
-static void NAME##_WRAP(lace_worker* lace_worker, TD_##NAME *t LACE_UNUSED)           \
+static void NAME##_WRAP(lace_worker* lace_worker, lace_task* task)                    \
 {                                                                                     \
+    TD_##NAME* t = (TD_##NAME*)task;                                                  \
      NAME##_CALL(lace_worker, t->d.args.arg_1, t->d.args.arg_2);                      \
 }                                                                                     \
                                                                                       \
@@ -1734,7 +1740,7 @@ void NAME##_SYNC(lace_worker* _lace_worker)                                     
 #define TASK_3(RTYPE, NAME, ATYPE_1, ARG_1, ATYPE_2, ARG_2, ATYPE_3, ARG_3)           \
                                                                                       \
 typedef struct _TD_##NAME {                                                           \
-  TASK_COMMON_FIELDS(_TD_##NAME)                                                      \
+  TASK_COMMON_FIELDS                                                                  \
   union { struct {  ATYPE_1 arg_1; ATYPE_2 arg_2; ATYPE_3 arg_3; } args; RTYPE res; } d;\
 } TD_##NAME;                                                                          \
                                                                                       \
@@ -1742,8 +1748,9 @@ static_assert(sizeof(TD_##NAME) <= sizeof(lace_task), "TD_" #NAME " is too large
                                                                                       \
 RTYPE NAME##_CALL(lace_worker*, ATYPE_1, ATYPE_2, ATYPE_3);                           \
                                                                                       \
-static void NAME##_WRAP(lace_worker* lace_worker, TD_##NAME *t LACE_UNUSED)           \
+static void NAME##_WRAP(lace_worker* lace_worker, lace_task* task)                    \
 {                                                                                     \
+    TD_##NAME* t = (TD_##NAME*)task;                                                  \
     t->d.res = NAME##_CALL(lace_worker, t->d.args.arg_1, t->d.args.arg_2, t->d.args.arg_3);\
 }                                                                                     \
                                                                                       \
@@ -1871,7 +1878,7 @@ RTYPE NAME##_SYNC(lace_worker* _lace_worker)                                    
 #define VOID_TASK_3(NAME, ATYPE_1, ARG_1, ATYPE_2, ARG_2, ATYPE_3, ARG_3)             \
                                                                                       \
 typedef struct _TD_##NAME {                                                           \
-  TASK_COMMON_FIELDS(_TD_##NAME)                                                      \
+  TASK_COMMON_FIELDS                                                                  \
   union { struct {  ATYPE_1 arg_1; ATYPE_2 arg_2; ATYPE_3 arg_3; } args; } d;         \
 } TD_##NAME;                                                                          \
                                                                                       \
@@ -1879,8 +1886,9 @@ static_assert(sizeof(TD_##NAME) <= sizeof(lace_task), "TD_" #NAME " is too large
                                                                                       \
 void NAME##_CALL(lace_worker*, ATYPE_1, ATYPE_2, ATYPE_3);                            \
                                                                                       \
-static void NAME##_WRAP(lace_worker* lace_worker, TD_##NAME *t LACE_UNUSED)           \
+static void NAME##_WRAP(lace_worker* lace_worker, lace_task* task)                    \
 {                                                                                     \
+    TD_##NAME* t = (TD_##NAME*)task;                                                  \
      NAME##_CALL(lace_worker, t->d.args.arg_1, t->d.args.arg_2, t->d.args.arg_3);     \
 }                                                                                     \
                                                                                       \
@@ -2011,7 +2019,7 @@ void NAME##_SYNC(lace_worker* _lace_worker)                                     
 #define TASK_4(RTYPE, NAME, ATYPE_1, ARG_1, ATYPE_2, ARG_2, ATYPE_3, ARG_3, ATYPE_4, ARG_4)\
                                                                                       \
 typedef struct _TD_##NAME {                                                           \
-  TASK_COMMON_FIELDS(_TD_##NAME)                                                      \
+  TASK_COMMON_FIELDS                                                                  \
   union { struct {  ATYPE_1 arg_1; ATYPE_2 arg_2; ATYPE_3 arg_3; ATYPE_4 arg_4; } args; RTYPE res; } d;\
 } TD_##NAME;                                                                          \
                                                                                       \
@@ -2019,8 +2027,9 @@ static_assert(sizeof(TD_##NAME) <= sizeof(lace_task), "TD_" #NAME " is too large
                                                                                       \
 RTYPE NAME##_CALL(lace_worker*, ATYPE_1, ATYPE_2, ATYPE_3, ATYPE_4);                  \
                                                                                       \
-static void NAME##_WRAP(lace_worker* lace_worker, TD_##NAME *t LACE_UNUSED)           \
+static void NAME##_WRAP(lace_worker* lace_worker, lace_task* task)                    \
 {                                                                                     \
+    TD_##NAME* t = (TD_##NAME*)task;                                                  \
     t->d.res = NAME##_CALL(lace_worker, t->d.args.arg_1, t->d.args.arg_2, t->d.args.arg_3, t->d.args.arg_4);\
 }                                                                                     \
                                                                                       \
@@ -2148,7 +2157,7 @@ RTYPE NAME##_SYNC(lace_worker* _lace_worker)                                    
 #define VOID_TASK_4(NAME, ATYPE_1, ARG_1, ATYPE_2, ARG_2, ATYPE_3, ARG_3, ATYPE_4, ARG_4)\
                                                                                       \
 typedef struct _TD_##NAME {                                                           \
-  TASK_COMMON_FIELDS(_TD_##NAME)                                                      \
+  TASK_COMMON_FIELDS                                                                  \
   union { struct {  ATYPE_1 arg_1; ATYPE_2 arg_2; ATYPE_3 arg_3; ATYPE_4 arg_4; } args; } d;\
 } TD_##NAME;                                                                          \
                                                                                       \
@@ -2156,8 +2165,9 @@ static_assert(sizeof(TD_##NAME) <= sizeof(lace_task), "TD_" #NAME " is too large
                                                                                       \
 void NAME##_CALL(lace_worker*, ATYPE_1, ATYPE_2, ATYPE_3, ATYPE_4);                   \
                                                                                       \
-static void NAME##_WRAP(lace_worker* lace_worker, TD_##NAME *t LACE_UNUSED)           \
+static void NAME##_WRAP(lace_worker* lace_worker, lace_task* task)                    \
 {                                                                                     \
+    TD_##NAME* t = (TD_##NAME*)task;                                                  \
      NAME##_CALL(lace_worker, t->d.args.arg_1, t->d.args.arg_2, t->d.args.arg_3, t->d.args.arg_4);\
 }                                                                                     \
                                                                                       \
@@ -2288,7 +2298,7 @@ void NAME##_SYNC(lace_worker* _lace_worker)                                     
 #define TASK_5(RTYPE, NAME, ATYPE_1, ARG_1, ATYPE_2, ARG_2, ATYPE_3, ARG_3, ATYPE_4, ARG_4, ATYPE_5, ARG_5)\
                                                                                       \
 typedef struct _TD_##NAME {                                                           \
-  TASK_COMMON_FIELDS(_TD_##NAME)                                                      \
+  TASK_COMMON_FIELDS                                                                  \
   union { struct {  ATYPE_1 arg_1; ATYPE_2 arg_2; ATYPE_3 arg_3; ATYPE_4 arg_4; ATYPE_5 arg_5; } args; RTYPE res; } d;\
 } TD_##NAME;                                                                          \
                                                                                       \
@@ -2296,8 +2306,9 @@ static_assert(sizeof(TD_##NAME) <= sizeof(lace_task), "TD_" #NAME " is too large
                                                                                       \
 RTYPE NAME##_CALL(lace_worker*, ATYPE_1, ATYPE_2, ATYPE_3, ATYPE_4, ATYPE_5);         \
                                                                                       \
-static void NAME##_WRAP(lace_worker* lace_worker, TD_##NAME *t LACE_UNUSED)           \
+static void NAME##_WRAP(lace_worker* lace_worker, lace_task* task)                    \
 {                                                                                     \
+    TD_##NAME* t = (TD_##NAME*)task;                                                  \
     t->d.res = NAME##_CALL(lace_worker, t->d.args.arg_1, t->d.args.arg_2, t->d.args.arg_3, t->d.args.arg_4, t->d.args.arg_5);\
 }                                                                                     \
                                                                                       \
@@ -2425,7 +2436,7 @@ RTYPE NAME##_SYNC(lace_worker* _lace_worker)                                    
 #define VOID_TASK_5(NAME, ATYPE_1, ARG_1, ATYPE_2, ARG_2, ATYPE_3, ARG_3, ATYPE_4, ARG_4, ATYPE_5, ARG_5)\
                                                                                       \
 typedef struct _TD_##NAME {                                                           \
-  TASK_COMMON_FIELDS(_TD_##NAME)                                                      \
+  TASK_COMMON_FIELDS                                                                  \
   union { struct {  ATYPE_1 arg_1; ATYPE_2 arg_2; ATYPE_3 arg_3; ATYPE_4 arg_4; ATYPE_5 arg_5; } args; } d;\
 } TD_##NAME;                                                                          \
                                                                                       \
@@ -2433,8 +2444,9 @@ static_assert(sizeof(TD_##NAME) <= sizeof(lace_task), "TD_" #NAME " is too large
                                                                                       \
 void NAME##_CALL(lace_worker*, ATYPE_1, ATYPE_2, ATYPE_3, ATYPE_4, ATYPE_5);          \
                                                                                       \
-static void NAME##_WRAP(lace_worker* lace_worker, TD_##NAME *t LACE_UNUSED)           \
+static void NAME##_WRAP(lace_worker* lace_worker, lace_task* task)                    \
 {                                                                                     \
+    TD_##NAME* t = (TD_##NAME*)task;                                                  \
      NAME##_CALL(lace_worker, t->d.args.arg_1, t->d.args.arg_2, t->d.args.arg_3, t->d.args.arg_4, t->d.args.arg_5);\
 }                                                                                     \
                                                                                       \
@@ -2565,7 +2577,7 @@ void NAME##_SYNC(lace_worker* _lace_worker)                                     
 #define TASK_6(RTYPE, NAME, ATYPE_1, ARG_1, ATYPE_2, ARG_2, ATYPE_3, ARG_3, ATYPE_4, ARG_4, ATYPE_5, ARG_5, ATYPE_6, ARG_6)\
                                                                                       \
 typedef struct _TD_##NAME {                                                           \
-  TASK_COMMON_FIELDS(_TD_##NAME)                                                      \
+  TASK_COMMON_FIELDS                                                                  \
   union { struct {  ATYPE_1 arg_1; ATYPE_2 arg_2; ATYPE_3 arg_3; ATYPE_4 arg_4; ATYPE_5 arg_5; ATYPE_6 arg_6; } args; RTYPE res; } d;\
 } TD_##NAME;                                                                          \
                                                                                       \
@@ -2573,8 +2585,9 @@ static_assert(sizeof(TD_##NAME) <= sizeof(lace_task), "TD_" #NAME " is too large
                                                                                       \
 RTYPE NAME##_CALL(lace_worker*, ATYPE_1, ATYPE_2, ATYPE_3, ATYPE_4, ATYPE_5, ATYPE_6);\
                                                                                       \
-static void NAME##_WRAP(lace_worker* lace_worker, TD_##NAME *t LACE_UNUSED)           \
+static void NAME##_WRAP(lace_worker* lace_worker, lace_task* task)                    \
 {                                                                                     \
+    TD_##NAME* t = (TD_##NAME*)task;                                                  \
     t->d.res = NAME##_CALL(lace_worker, t->d.args.arg_1, t->d.args.arg_2, t->d.args.arg_3, t->d.args.arg_4, t->d.args.arg_5, t->d.args.arg_6);\
 }                                                                                     \
                                                                                       \
@@ -2702,7 +2715,7 @@ RTYPE NAME##_SYNC(lace_worker* _lace_worker)                                    
 #define VOID_TASK_6(NAME, ATYPE_1, ARG_1, ATYPE_2, ARG_2, ATYPE_3, ARG_3, ATYPE_4, ARG_4, ATYPE_5, ARG_5, ATYPE_6, ARG_6)\
                                                                                       \
 typedef struct _TD_##NAME {                                                           \
-  TASK_COMMON_FIELDS(_TD_##NAME)                                                      \
+  TASK_COMMON_FIELDS                                                                  \
   union { struct {  ATYPE_1 arg_1; ATYPE_2 arg_2; ATYPE_3 arg_3; ATYPE_4 arg_4; ATYPE_5 arg_5; ATYPE_6 arg_6; } args; } d;\
 } TD_##NAME;                                                                          \
                                                                                       \
@@ -2710,8 +2723,9 @@ static_assert(sizeof(TD_##NAME) <= sizeof(lace_task), "TD_" #NAME " is too large
                                                                                       \
 void NAME##_CALL(lace_worker*, ATYPE_1, ATYPE_2, ATYPE_3, ATYPE_4, ATYPE_5, ATYPE_6); \
                                                                                       \
-static void NAME##_WRAP(lace_worker* lace_worker, TD_##NAME *t LACE_UNUSED)           \
+static void NAME##_WRAP(lace_worker* lace_worker, lace_task* task)                    \
 {                                                                                     \
+    TD_##NAME* t = (TD_##NAME*)task;                                                  \
      NAME##_CALL(lace_worker, t->d.args.arg_1, t->d.args.arg_2, t->d.args.arg_3, t->d.args.arg_4, t->d.args.arg_5, t->d.args.arg_6);\
 }                                                                                     \
                                                                                       \
@@ -2842,7 +2856,7 @@ void NAME##_SYNC(lace_worker* _lace_worker)                                     
 #define TASK_7(RTYPE, NAME, ATYPE_1, ARG_1, ATYPE_2, ARG_2, ATYPE_3, ARG_3, ATYPE_4, ARG_4, ATYPE_5, ARG_5, ATYPE_6, ARG_6, ATYPE_7, ARG_7)\
                                                                                       \
 typedef struct _TD_##NAME {                                                           \
-  TASK_COMMON_FIELDS(_TD_##NAME)                                                      \
+  TASK_COMMON_FIELDS                                                                  \
   union { struct {  ATYPE_1 arg_1; ATYPE_2 arg_2; ATYPE_3 arg_3; ATYPE_4 arg_4; ATYPE_5 arg_5; ATYPE_6 arg_6; ATYPE_7 arg_7; } args; RTYPE res; } d;\
 } TD_##NAME;                                                                          \
                                                                                       \
@@ -2850,8 +2864,9 @@ static_assert(sizeof(TD_##NAME) <= sizeof(lace_task), "TD_" #NAME " is too large
                                                                                       \
 RTYPE NAME##_CALL(lace_worker*, ATYPE_1, ATYPE_2, ATYPE_3, ATYPE_4, ATYPE_5, ATYPE_6, ATYPE_7);\
                                                                                       \
-static void NAME##_WRAP(lace_worker* lace_worker, TD_##NAME *t LACE_UNUSED)           \
+static void NAME##_WRAP(lace_worker* lace_worker, lace_task* task)                    \
 {                                                                                     \
+    TD_##NAME* t = (TD_##NAME*)task;                                                  \
     t->d.res = NAME##_CALL(lace_worker, t->d.args.arg_1, t->d.args.arg_2, t->d.args.arg_3, t->d.args.arg_4, t->d.args.arg_5, t->d.args.arg_6, t->d.args.arg_7);\
 }                                                                                     \
                                                                                       \
@@ -2979,7 +2994,7 @@ RTYPE NAME##_SYNC(lace_worker* _lace_worker)                                    
 #define VOID_TASK_7(NAME, ATYPE_1, ARG_1, ATYPE_2, ARG_2, ATYPE_3, ARG_3, ATYPE_4, ARG_4, ATYPE_5, ARG_5, ATYPE_6, ARG_6, ATYPE_7, ARG_7)\
                                                                                       \
 typedef struct _TD_##NAME {                                                           \
-  TASK_COMMON_FIELDS(_TD_##NAME)                                                      \
+  TASK_COMMON_FIELDS                                                                  \
   union { struct {  ATYPE_1 arg_1; ATYPE_2 arg_2; ATYPE_3 arg_3; ATYPE_4 arg_4; ATYPE_5 arg_5; ATYPE_6 arg_6; ATYPE_7 arg_7; } args; } d;\
 } TD_##NAME;                                                                          \
                                                                                       \
@@ -2987,8 +3002,9 @@ static_assert(sizeof(TD_##NAME) <= sizeof(lace_task), "TD_" #NAME " is too large
                                                                                       \
 void NAME##_CALL(lace_worker*, ATYPE_1, ATYPE_2, ATYPE_3, ATYPE_4, ATYPE_5, ATYPE_6, ATYPE_7);\
                                                                                       \
-static void NAME##_WRAP(lace_worker* lace_worker, TD_##NAME *t LACE_UNUSED)           \
+static void NAME##_WRAP(lace_worker* lace_worker, lace_task* task)                    \
 {                                                                                     \
+    TD_##NAME* t = (TD_##NAME*)task;                                                  \
      NAME##_CALL(lace_worker, t->d.args.arg_1, t->d.args.arg_2, t->d.args.arg_3, t->d.args.arg_4, t->d.args.arg_5, t->d.args.arg_6, t->d.args.arg_7);\
 }                                                                                     \
                                                                                       \
@@ -3119,7 +3135,7 @@ void NAME##_SYNC(lace_worker* _lace_worker)                                     
 #define TASK_8(RTYPE, NAME, ATYPE_1, ARG_1, ATYPE_2, ARG_2, ATYPE_3, ARG_3, ATYPE_4, ARG_4, ATYPE_5, ARG_5, ATYPE_6, ARG_6, ATYPE_7, ARG_7, ATYPE_8, ARG_8)\
                                                                                       \
 typedef struct _TD_##NAME {                                                           \
-  TASK_COMMON_FIELDS(_TD_##NAME)                                                      \
+  TASK_COMMON_FIELDS                                                                  \
   union { struct {  ATYPE_1 arg_1; ATYPE_2 arg_2; ATYPE_3 arg_3; ATYPE_4 arg_4; ATYPE_5 arg_5; ATYPE_6 arg_6; ATYPE_7 arg_7; ATYPE_8 arg_8; } args; RTYPE res; } d;\
 } TD_##NAME;                                                                          \
                                                                                       \
@@ -3127,8 +3143,9 @@ static_assert(sizeof(TD_##NAME) <= sizeof(lace_task), "TD_" #NAME " is too large
                                                                                       \
 RTYPE NAME##_CALL(lace_worker*, ATYPE_1, ATYPE_2, ATYPE_3, ATYPE_4, ATYPE_5, ATYPE_6, ATYPE_7, ATYPE_8);\
                                                                                       \
-static void NAME##_WRAP(lace_worker* lace_worker, TD_##NAME *t LACE_UNUSED)           \
+static void NAME##_WRAP(lace_worker* lace_worker, lace_task* task)                    \
 {                                                                                     \
+    TD_##NAME* t = (TD_##NAME*)task;                                                  \
     t->d.res = NAME##_CALL(lace_worker, t->d.args.arg_1, t->d.args.arg_2, t->d.args.arg_3, t->d.args.arg_4, t->d.args.arg_5, t->d.args.arg_6, t->d.args.arg_7, t->d.args.arg_8);\
 }                                                                                     \
                                                                                       \
@@ -3256,7 +3273,7 @@ RTYPE NAME##_SYNC(lace_worker* _lace_worker)                                    
 #define VOID_TASK_8(NAME, ATYPE_1, ARG_1, ATYPE_2, ARG_2, ATYPE_3, ARG_3, ATYPE_4, ARG_4, ATYPE_5, ARG_5, ATYPE_6, ARG_6, ATYPE_7, ARG_7, ATYPE_8, ARG_8)\
                                                                                       \
 typedef struct _TD_##NAME {                                                           \
-  TASK_COMMON_FIELDS(_TD_##NAME)                                                      \
+  TASK_COMMON_FIELDS                                                                  \
   union { struct {  ATYPE_1 arg_1; ATYPE_2 arg_2; ATYPE_3 arg_3; ATYPE_4 arg_4; ATYPE_5 arg_5; ATYPE_6 arg_6; ATYPE_7 arg_7; ATYPE_8 arg_8; } args; } d;\
 } TD_##NAME;                                                                          \
                                                                                       \
@@ -3264,8 +3281,9 @@ static_assert(sizeof(TD_##NAME) <= sizeof(lace_task), "TD_" #NAME " is too large
                                                                                       \
 void NAME##_CALL(lace_worker*, ATYPE_1, ATYPE_2, ATYPE_3, ATYPE_4, ATYPE_5, ATYPE_6, ATYPE_7, ATYPE_8);\
                                                                                       \
-static void NAME##_WRAP(lace_worker* lace_worker, TD_##NAME *t LACE_UNUSED)           \
+static void NAME##_WRAP(lace_worker* lace_worker, lace_task* task)                    \
 {                                                                                     \
+    TD_##NAME* t = (TD_##NAME*)task;                                                  \
      NAME##_CALL(lace_worker, t->d.args.arg_1, t->d.args.arg_2, t->d.args.arg_3, t->d.args.arg_4, t->d.args.arg_5, t->d.args.arg_6, t->d.args.arg_7, t->d.args.arg_8);\
 }                                                                                     \
                                                                                       \
@@ -3396,7 +3414,7 @@ void NAME##_SYNC(lace_worker* _lace_worker)                                     
 #define TASK_9(RTYPE, NAME, ATYPE_1, ARG_1, ATYPE_2, ARG_2, ATYPE_3, ARG_3, ATYPE_4, ARG_4, ATYPE_5, ARG_5, ATYPE_6, ARG_6, ATYPE_7, ARG_7, ATYPE_8, ARG_8, ATYPE_9, ARG_9)\
                                                                                       \
 typedef struct _TD_##NAME {                                                           \
-  TASK_COMMON_FIELDS(_TD_##NAME)                                                      \
+  TASK_COMMON_FIELDS                                                                  \
   union { struct {  ATYPE_1 arg_1; ATYPE_2 arg_2; ATYPE_3 arg_3; ATYPE_4 arg_4; ATYPE_5 arg_5; ATYPE_6 arg_6; ATYPE_7 arg_7; ATYPE_8 arg_8; ATYPE_9 arg_9; } args; RTYPE res; } d;\
 } TD_##NAME;                                                                          \
                                                                                       \
@@ -3404,8 +3422,9 @@ static_assert(sizeof(TD_##NAME) <= sizeof(lace_task), "TD_" #NAME " is too large
                                                                                       \
 RTYPE NAME##_CALL(lace_worker*, ATYPE_1, ATYPE_2, ATYPE_3, ATYPE_4, ATYPE_5, ATYPE_6, ATYPE_7, ATYPE_8, ATYPE_9);\
                                                                                       \
-static void NAME##_WRAP(lace_worker* lace_worker, TD_##NAME *t LACE_UNUSED)           \
+static void NAME##_WRAP(lace_worker* lace_worker, lace_task* task)                    \
 {                                                                                     \
+    TD_##NAME* t = (TD_##NAME*)task;                                                  \
     t->d.res = NAME##_CALL(lace_worker, t->d.args.arg_1, t->d.args.arg_2, t->d.args.arg_3, t->d.args.arg_4, t->d.args.arg_5, t->d.args.arg_6, t->d.args.arg_7, t->d.args.arg_8, t->d.args.arg_9);\
 }                                                                                     \
                                                                                       \
@@ -3533,7 +3552,7 @@ RTYPE NAME##_SYNC(lace_worker* _lace_worker)                                    
 #define VOID_TASK_9(NAME, ATYPE_1, ARG_1, ATYPE_2, ARG_2, ATYPE_3, ARG_3, ATYPE_4, ARG_4, ATYPE_5, ARG_5, ATYPE_6, ARG_6, ATYPE_7, ARG_7, ATYPE_8, ARG_8, ATYPE_9, ARG_9)\
                                                                                       \
 typedef struct _TD_##NAME {                                                           \
-  TASK_COMMON_FIELDS(_TD_##NAME)                                                      \
+  TASK_COMMON_FIELDS                                                                  \
   union { struct {  ATYPE_1 arg_1; ATYPE_2 arg_2; ATYPE_3 arg_3; ATYPE_4 arg_4; ATYPE_5 arg_5; ATYPE_6 arg_6; ATYPE_7 arg_7; ATYPE_8 arg_8; ATYPE_9 arg_9; } args; } d;\
 } TD_##NAME;                                                                          \
                                                                                       \
@@ -3541,8 +3560,9 @@ static_assert(sizeof(TD_##NAME) <= sizeof(lace_task), "TD_" #NAME " is too large
                                                                                       \
 void NAME##_CALL(lace_worker*, ATYPE_1, ATYPE_2, ATYPE_3, ATYPE_4, ATYPE_5, ATYPE_6, ATYPE_7, ATYPE_8, ATYPE_9);\
                                                                                       \
-static void NAME##_WRAP(lace_worker* lace_worker, TD_##NAME *t LACE_UNUSED)           \
+static void NAME##_WRAP(lace_worker* lace_worker, lace_task* task)                    \
 {                                                                                     \
+    TD_##NAME* t = (TD_##NAME*)task;                                                  \
      NAME##_CALL(lace_worker, t->d.args.arg_1, t->d.args.arg_2, t->d.args.arg_3, t->d.args.arg_4, t->d.args.arg_5, t->d.args.arg_6, t->d.args.arg_7, t->d.args.arg_8, t->d.args.arg_9);\
 }                                                                                     \
                                                                                       \
@@ -3673,7 +3693,7 @@ void NAME##_SYNC(lace_worker* _lace_worker)                                     
 #define TASK_10(RTYPE, NAME, ATYPE_1, ARG_1, ATYPE_2, ARG_2, ATYPE_3, ARG_3, ATYPE_4, ARG_4, ATYPE_5, ARG_5, ATYPE_6, ARG_6, ATYPE_7, ARG_7, ATYPE_8, ARG_8, ATYPE_9, ARG_9, ATYPE_10, ARG_10)\
                                                                                       \
 typedef struct _TD_##NAME {                                                           \
-  TASK_COMMON_FIELDS(_TD_##NAME)                                                      \
+  TASK_COMMON_FIELDS                                                                  \
   union { struct {  ATYPE_1 arg_1; ATYPE_2 arg_2; ATYPE_3 arg_3; ATYPE_4 arg_4; ATYPE_5 arg_5; ATYPE_6 arg_6; ATYPE_7 arg_7; ATYPE_8 arg_8; ATYPE_9 arg_9; ATYPE_10 arg_10; } args; RTYPE res; } d;\
 } TD_##NAME;                                                                          \
                                                                                       \
@@ -3681,8 +3701,9 @@ static_assert(sizeof(TD_##NAME) <= sizeof(lace_task), "TD_" #NAME " is too large
                                                                                       \
 RTYPE NAME##_CALL(lace_worker*, ATYPE_1, ATYPE_2, ATYPE_3, ATYPE_4, ATYPE_5, ATYPE_6, ATYPE_7, ATYPE_8, ATYPE_9, ATYPE_10);\
                                                                                       \
-static void NAME##_WRAP(lace_worker* lace_worker, TD_##NAME *t LACE_UNUSED)           \
+static void NAME##_WRAP(lace_worker* lace_worker, lace_task* task)                    \
 {                                                                                     \
+    TD_##NAME* t = (TD_##NAME*)task;                                                  \
     t->d.res = NAME##_CALL(lace_worker, t->d.args.arg_1, t->d.args.arg_2, t->d.args.arg_3, t->d.args.arg_4, t->d.args.arg_5, t->d.args.arg_6, t->d.args.arg_7, t->d.args.arg_8, t->d.args.arg_9, t->d.args.arg_10);\
 }                                                                                     \
                                                                                       \
@@ -3810,7 +3831,7 @@ RTYPE NAME##_SYNC(lace_worker* _lace_worker)                                    
 #define VOID_TASK_10(NAME, ATYPE_1, ARG_1, ATYPE_2, ARG_2, ATYPE_3, ARG_3, ATYPE_4, ARG_4, ATYPE_5, ARG_5, ATYPE_6, ARG_6, ATYPE_7, ARG_7, ATYPE_8, ARG_8, ATYPE_9, ARG_9, ATYPE_10, ARG_10)\
                                                                                       \
 typedef struct _TD_##NAME {                                                           \
-  TASK_COMMON_FIELDS(_TD_##NAME)                                                      \
+  TASK_COMMON_FIELDS                                                                  \
   union { struct {  ATYPE_1 arg_1; ATYPE_2 arg_2; ATYPE_3 arg_3; ATYPE_4 arg_4; ATYPE_5 arg_5; ATYPE_6 arg_6; ATYPE_7 arg_7; ATYPE_8 arg_8; ATYPE_9 arg_9; ATYPE_10 arg_10; } args; } d;\
 } TD_##NAME;                                                                          \
                                                                                       \
@@ -3818,8 +3839,9 @@ static_assert(sizeof(TD_##NAME) <= sizeof(lace_task), "TD_" #NAME " is too large
                                                                                       \
 void NAME##_CALL(lace_worker*, ATYPE_1, ATYPE_2, ATYPE_3, ATYPE_4, ATYPE_5, ATYPE_6, ATYPE_7, ATYPE_8, ATYPE_9, ATYPE_10);\
                                                                                       \
-static void NAME##_WRAP(lace_worker* lace_worker, TD_##NAME *t LACE_UNUSED)           \
+static void NAME##_WRAP(lace_worker* lace_worker, lace_task* task)                    \
 {                                                                                     \
+    TD_##NAME* t = (TD_##NAME*)task;                                                  \
      NAME##_CALL(lace_worker, t->d.args.arg_1, t->d.args.arg_2, t->d.args.arg_3, t->d.args.arg_4, t->d.args.arg_5, t->d.args.arg_6, t->d.args.arg_7, t->d.args.arg_8, t->d.args.arg_9, t->d.args.arg_10);\
 }                                                                                     \
                                                                                       \
@@ -3950,7 +3972,7 @@ void NAME##_SYNC(lace_worker* _lace_worker)                                     
 #define TASK_11(RTYPE, NAME, ATYPE_1, ARG_1, ATYPE_2, ARG_2, ATYPE_3, ARG_3, ATYPE_4, ARG_4, ATYPE_5, ARG_5, ATYPE_6, ARG_6, ATYPE_7, ARG_7, ATYPE_8, ARG_8, ATYPE_9, ARG_9, ATYPE_10, ARG_10, ATYPE_11, ARG_11)\
                                                                                       \
 typedef struct _TD_##NAME {                                                           \
-  TASK_COMMON_FIELDS(_TD_##NAME)                                                      \
+  TASK_COMMON_FIELDS                                                                  \
   union { struct {  ATYPE_1 arg_1; ATYPE_2 arg_2; ATYPE_3 arg_3; ATYPE_4 arg_4; ATYPE_5 arg_5; ATYPE_6 arg_6; ATYPE_7 arg_7; ATYPE_8 arg_8; ATYPE_9 arg_9; ATYPE_10 arg_10; ATYPE_11 arg_11; } args; RTYPE res; } d;\
 } TD_##NAME;                                                                          \
                                                                                       \
@@ -3958,8 +3980,9 @@ static_assert(sizeof(TD_##NAME) <= sizeof(lace_task), "TD_" #NAME " is too large
                                                                                       \
 RTYPE NAME##_CALL(lace_worker*, ATYPE_1, ATYPE_2, ATYPE_3, ATYPE_4, ATYPE_5, ATYPE_6, ATYPE_7, ATYPE_8, ATYPE_9, ATYPE_10, ATYPE_11);\
                                                                                       \
-static void NAME##_WRAP(lace_worker* lace_worker, TD_##NAME *t LACE_UNUSED)           \
+static void NAME##_WRAP(lace_worker* lace_worker, lace_task* task)                    \
 {                                                                                     \
+    TD_##NAME* t = (TD_##NAME*)task;                                                  \
     t->d.res = NAME##_CALL(lace_worker, t->d.args.arg_1, t->d.args.arg_2, t->d.args.arg_3, t->d.args.arg_4, t->d.args.arg_5, t->d.args.arg_6, t->d.args.arg_7, t->d.args.arg_8, t->d.args.arg_9, t->d.args.arg_10, t->d.args.arg_11);\
 }                                                                                     \
                                                                                       \
@@ -4087,7 +4110,7 @@ RTYPE NAME##_SYNC(lace_worker* _lace_worker)                                    
 #define VOID_TASK_11(NAME, ATYPE_1, ARG_1, ATYPE_2, ARG_2, ATYPE_3, ARG_3, ATYPE_4, ARG_4, ATYPE_5, ARG_5, ATYPE_6, ARG_6, ATYPE_7, ARG_7, ATYPE_8, ARG_8, ATYPE_9, ARG_9, ATYPE_10, ARG_10, ATYPE_11, ARG_11)\
                                                                                       \
 typedef struct _TD_##NAME {                                                           \
-  TASK_COMMON_FIELDS(_TD_##NAME)                                                      \
+  TASK_COMMON_FIELDS                                                                  \
   union { struct {  ATYPE_1 arg_1; ATYPE_2 arg_2; ATYPE_3 arg_3; ATYPE_4 arg_4; ATYPE_5 arg_5; ATYPE_6 arg_6; ATYPE_7 arg_7; ATYPE_8 arg_8; ATYPE_9 arg_9; ATYPE_10 arg_10; ATYPE_11 arg_11; } args; } d;\
 } TD_##NAME;                                                                          \
                                                                                       \
@@ -4095,8 +4118,9 @@ static_assert(sizeof(TD_##NAME) <= sizeof(lace_task), "TD_" #NAME " is too large
                                                                                       \
 void NAME##_CALL(lace_worker*, ATYPE_1, ATYPE_2, ATYPE_3, ATYPE_4, ATYPE_5, ATYPE_6, ATYPE_7, ATYPE_8, ATYPE_9, ATYPE_10, ATYPE_11);\
                                                                                       \
-static void NAME##_WRAP(lace_worker* lace_worker, TD_##NAME *t LACE_UNUSED)           \
+static void NAME##_WRAP(lace_worker* lace_worker, lace_task* task)                    \
 {                                                                                     \
+    TD_##NAME* t = (TD_##NAME*)task;                                                  \
      NAME##_CALL(lace_worker, t->d.args.arg_1, t->d.args.arg_2, t->d.args.arg_3, t->d.args.arg_4, t->d.args.arg_5, t->d.args.arg_6, t->d.args.arg_7, t->d.args.arg_8, t->d.args.arg_9, t->d.args.arg_10, t->d.args.arg_11);\
 }                                                                                     \
                                                                                       \
@@ -4227,7 +4251,7 @@ void NAME##_SYNC(lace_worker* _lace_worker)                                     
 #define TASK_12(RTYPE, NAME, ATYPE_1, ARG_1, ATYPE_2, ARG_2, ATYPE_3, ARG_3, ATYPE_4, ARG_4, ATYPE_5, ARG_5, ATYPE_6, ARG_6, ATYPE_7, ARG_7, ATYPE_8, ARG_8, ATYPE_9, ARG_9, ATYPE_10, ARG_10, ATYPE_11, ARG_11, ATYPE_12, ARG_12)\
                                                                                       \
 typedef struct _TD_##NAME {                                                           \
-  TASK_COMMON_FIELDS(_TD_##NAME)                                                      \
+  TASK_COMMON_FIELDS                                                                  \
   union { struct {  ATYPE_1 arg_1; ATYPE_2 arg_2; ATYPE_3 arg_3; ATYPE_4 arg_4; ATYPE_5 arg_5; ATYPE_6 arg_6; ATYPE_7 arg_7; ATYPE_8 arg_8; ATYPE_9 arg_9; ATYPE_10 arg_10; ATYPE_11 arg_11; ATYPE_12 arg_12; } args; RTYPE res; } d;\
 } TD_##NAME;                                                                          \
                                                                                       \
@@ -4235,8 +4259,9 @@ static_assert(sizeof(TD_##NAME) <= sizeof(lace_task), "TD_" #NAME " is too large
                                                                                       \
 RTYPE NAME##_CALL(lace_worker*, ATYPE_1, ATYPE_2, ATYPE_3, ATYPE_4, ATYPE_5, ATYPE_6, ATYPE_7, ATYPE_8, ATYPE_9, ATYPE_10, ATYPE_11, ATYPE_12);\
                                                                                       \
-static void NAME##_WRAP(lace_worker* lace_worker, TD_##NAME *t LACE_UNUSED)           \
+static void NAME##_WRAP(lace_worker* lace_worker, lace_task* task)                    \
 {                                                                                     \
+    TD_##NAME* t = (TD_##NAME*)task;                                                  \
     t->d.res = NAME##_CALL(lace_worker, t->d.args.arg_1, t->d.args.arg_2, t->d.args.arg_3, t->d.args.arg_4, t->d.args.arg_5, t->d.args.arg_6, t->d.args.arg_7, t->d.args.arg_8, t->d.args.arg_9, t->d.args.arg_10, t->d.args.arg_11, t->d.args.arg_12);\
 }                                                                                     \
                                                                                       \
@@ -4364,7 +4389,7 @@ RTYPE NAME##_SYNC(lace_worker* _lace_worker)                                    
 #define VOID_TASK_12(NAME, ATYPE_1, ARG_1, ATYPE_2, ARG_2, ATYPE_3, ARG_3, ATYPE_4, ARG_4, ATYPE_5, ARG_5, ATYPE_6, ARG_6, ATYPE_7, ARG_7, ATYPE_8, ARG_8, ATYPE_9, ARG_9, ATYPE_10, ARG_10, ATYPE_11, ARG_11, ATYPE_12, ARG_12)\
                                                                                       \
 typedef struct _TD_##NAME {                                                           \
-  TASK_COMMON_FIELDS(_TD_##NAME)                                                      \
+  TASK_COMMON_FIELDS                                                                  \
   union { struct {  ATYPE_1 arg_1; ATYPE_2 arg_2; ATYPE_3 arg_3; ATYPE_4 arg_4; ATYPE_5 arg_5; ATYPE_6 arg_6; ATYPE_7 arg_7; ATYPE_8 arg_8; ATYPE_9 arg_9; ATYPE_10 arg_10; ATYPE_11 arg_11; ATYPE_12 arg_12; } args; } d;\
 } TD_##NAME;                                                                          \
                                                                                       \
@@ -4372,8 +4397,9 @@ static_assert(sizeof(TD_##NAME) <= sizeof(lace_task), "TD_" #NAME " is too large
                                                                                       \
 void NAME##_CALL(lace_worker*, ATYPE_1, ATYPE_2, ATYPE_3, ATYPE_4, ATYPE_5, ATYPE_6, ATYPE_7, ATYPE_8, ATYPE_9, ATYPE_10, ATYPE_11, ATYPE_12);\
                                                                                       \
-static void NAME##_WRAP(lace_worker* lace_worker, TD_##NAME *t LACE_UNUSED)           \
+static void NAME##_WRAP(lace_worker* lace_worker, lace_task* task)                    \
 {                                                                                     \
+    TD_##NAME* t = (TD_##NAME*)task;                                                  \
      NAME##_CALL(lace_worker, t->d.args.arg_1, t->d.args.arg_2, t->d.args.arg_3, t->d.args.arg_4, t->d.args.arg_5, t->d.args.arg_6, t->d.args.arg_7, t->d.args.arg_8, t->d.args.arg_9, t->d.args.arg_10, t->d.args.arg_11, t->d.args.arg_12);\
 }                                                                                     \
                                                                                       \
@@ -4504,7 +4530,7 @@ void NAME##_SYNC(lace_worker* _lace_worker)                                     
 #define TASK_13(RTYPE, NAME, ATYPE_1, ARG_1, ATYPE_2, ARG_2, ATYPE_3, ARG_3, ATYPE_4, ARG_4, ATYPE_5, ARG_5, ATYPE_6, ARG_6, ATYPE_7, ARG_7, ATYPE_8, ARG_8, ATYPE_9, ARG_9, ATYPE_10, ARG_10, ATYPE_11, ARG_11, ATYPE_12, ARG_12, ATYPE_13, ARG_13)\
                                                                                       \
 typedef struct _TD_##NAME {                                                           \
-  TASK_COMMON_FIELDS(_TD_##NAME)                                                      \
+  TASK_COMMON_FIELDS                                                                  \
   union { struct {  ATYPE_1 arg_1; ATYPE_2 arg_2; ATYPE_3 arg_3; ATYPE_4 arg_4; ATYPE_5 arg_5; ATYPE_6 arg_6; ATYPE_7 arg_7; ATYPE_8 arg_8; ATYPE_9 arg_9; ATYPE_10 arg_10; ATYPE_11 arg_11; ATYPE_12 arg_12; ATYPE_13 arg_13; } args; RTYPE res; } d;\
 } TD_##NAME;                                                                          \
                                                                                       \
@@ -4512,8 +4538,9 @@ static_assert(sizeof(TD_##NAME) <= sizeof(lace_task), "TD_" #NAME " is too large
                                                                                       \
 RTYPE NAME##_CALL(lace_worker*, ATYPE_1, ATYPE_2, ATYPE_3, ATYPE_4, ATYPE_5, ATYPE_6, ATYPE_7, ATYPE_8, ATYPE_9, ATYPE_10, ATYPE_11, ATYPE_12, ATYPE_13);\
                                                                                       \
-static void NAME##_WRAP(lace_worker* lace_worker, TD_##NAME *t LACE_UNUSED)           \
+static void NAME##_WRAP(lace_worker* lace_worker, lace_task* task)                    \
 {                                                                                     \
+    TD_##NAME* t = (TD_##NAME*)task;                                                  \
     t->d.res = NAME##_CALL(lace_worker, t->d.args.arg_1, t->d.args.arg_2, t->d.args.arg_3, t->d.args.arg_4, t->d.args.arg_5, t->d.args.arg_6, t->d.args.arg_7, t->d.args.arg_8, t->d.args.arg_9, t->d.args.arg_10, t->d.args.arg_11, t->d.args.arg_12, t->d.args.arg_13);\
 }                                                                                     \
                                                                                       \
@@ -4641,7 +4668,7 @@ RTYPE NAME##_SYNC(lace_worker* _lace_worker)                                    
 #define VOID_TASK_13(NAME, ATYPE_1, ARG_1, ATYPE_2, ARG_2, ATYPE_3, ARG_3, ATYPE_4, ARG_4, ATYPE_5, ARG_5, ATYPE_6, ARG_6, ATYPE_7, ARG_7, ATYPE_8, ARG_8, ATYPE_9, ARG_9, ATYPE_10, ARG_10, ATYPE_11, ARG_11, ATYPE_12, ARG_12, ATYPE_13, ARG_13)\
                                                                                       \
 typedef struct _TD_##NAME {                                                           \
-  TASK_COMMON_FIELDS(_TD_##NAME)                                                      \
+  TASK_COMMON_FIELDS                                                                  \
   union { struct {  ATYPE_1 arg_1; ATYPE_2 arg_2; ATYPE_3 arg_3; ATYPE_4 arg_4; ATYPE_5 arg_5; ATYPE_6 arg_6; ATYPE_7 arg_7; ATYPE_8 arg_8; ATYPE_9 arg_9; ATYPE_10 arg_10; ATYPE_11 arg_11; ATYPE_12 arg_12; ATYPE_13 arg_13; } args; } d;\
 } TD_##NAME;                                                                          \
                                                                                       \
@@ -4649,8 +4676,9 @@ static_assert(sizeof(TD_##NAME) <= sizeof(lace_task), "TD_" #NAME " is too large
                                                                                       \
 void NAME##_CALL(lace_worker*, ATYPE_1, ATYPE_2, ATYPE_3, ATYPE_4, ATYPE_5, ATYPE_6, ATYPE_7, ATYPE_8, ATYPE_9, ATYPE_10, ATYPE_11, ATYPE_12, ATYPE_13);\
                                                                                       \
-static void NAME##_WRAP(lace_worker* lace_worker, TD_##NAME *t LACE_UNUSED)           \
+static void NAME##_WRAP(lace_worker* lace_worker, lace_task* task)                    \
 {                                                                                     \
+    TD_##NAME* t = (TD_##NAME*)task;                                                  \
      NAME##_CALL(lace_worker, t->d.args.arg_1, t->d.args.arg_2, t->d.args.arg_3, t->d.args.arg_4, t->d.args.arg_5, t->d.args.arg_6, t->d.args.arg_7, t->d.args.arg_8, t->d.args.arg_9, t->d.args.arg_10, t->d.args.arg_11, t->d.args.arg_12, t->d.args.arg_13);\
 }                                                                                     \
                                                                                       \
@@ -4781,7 +4809,7 @@ void NAME##_SYNC(lace_worker* _lace_worker)                                     
 #define TASK_14(RTYPE, NAME, ATYPE_1, ARG_1, ATYPE_2, ARG_2, ATYPE_3, ARG_3, ATYPE_4, ARG_4, ATYPE_5, ARG_5, ATYPE_6, ARG_6, ATYPE_7, ARG_7, ATYPE_8, ARG_8, ATYPE_9, ARG_9, ATYPE_10, ARG_10, ATYPE_11, ARG_11, ATYPE_12, ARG_12, ATYPE_13, ARG_13, ATYPE_14, ARG_14)\
                                                                                       \
 typedef struct _TD_##NAME {                                                           \
-  TASK_COMMON_FIELDS(_TD_##NAME)                                                      \
+  TASK_COMMON_FIELDS                                                                  \
   union { struct {  ATYPE_1 arg_1; ATYPE_2 arg_2; ATYPE_3 arg_3; ATYPE_4 arg_4; ATYPE_5 arg_5; ATYPE_6 arg_6; ATYPE_7 arg_7; ATYPE_8 arg_8; ATYPE_9 arg_9; ATYPE_10 arg_10; ATYPE_11 arg_11; ATYPE_12 arg_12; ATYPE_13 arg_13; ATYPE_14 arg_14; } args; RTYPE res; } d;\
 } TD_##NAME;                                                                          \
                                                                                       \
@@ -4789,8 +4817,9 @@ static_assert(sizeof(TD_##NAME) <= sizeof(lace_task), "TD_" #NAME " is too large
                                                                                       \
 RTYPE NAME##_CALL(lace_worker*, ATYPE_1, ATYPE_2, ATYPE_3, ATYPE_4, ATYPE_5, ATYPE_6, ATYPE_7, ATYPE_8, ATYPE_9, ATYPE_10, ATYPE_11, ATYPE_12, ATYPE_13, ATYPE_14);\
                                                                                       \
-static void NAME##_WRAP(lace_worker* lace_worker, TD_##NAME *t LACE_UNUSED)           \
+static void NAME##_WRAP(lace_worker* lace_worker, lace_task* task)                    \
 {                                                                                     \
+    TD_##NAME* t = (TD_##NAME*)task;                                                  \
     t->d.res = NAME##_CALL(lace_worker, t->d.args.arg_1, t->d.args.arg_2, t->d.args.arg_3, t->d.args.arg_4, t->d.args.arg_5, t->d.args.arg_6, t->d.args.arg_7, t->d.args.arg_8, t->d.args.arg_9, t->d.args.arg_10, t->d.args.arg_11, t->d.args.arg_12, t->d.args.arg_13, t->d.args.arg_14);\
 }                                                                                     \
                                                                                       \
@@ -4918,7 +4947,7 @@ RTYPE NAME##_SYNC(lace_worker* _lace_worker)                                    
 #define VOID_TASK_14(NAME, ATYPE_1, ARG_1, ATYPE_2, ARG_2, ATYPE_3, ARG_3, ATYPE_4, ARG_4, ATYPE_5, ARG_5, ATYPE_6, ARG_6, ATYPE_7, ARG_7, ATYPE_8, ARG_8, ATYPE_9, ARG_9, ATYPE_10, ARG_10, ATYPE_11, ARG_11, ATYPE_12, ARG_12, ATYPE_13, ARG_13, ATYPE_14, ARG_14)\
                                                                                       \
 typedef struct _TD_##NAME {                                                           \
-  TASK_COMMON_FIELDS(_TD_##NAME)                                                      \
+  TASK_COMMON_FIELDS                                                                  \
   union { struct {  ATYPE_1 arg_1; ATYPE_2 arg_2; ATYPE_3 arg_3; ATYPE_4 arg_4; ATYPE_5 arg_5; ATYPE_6 arg_6; ATYPE_7 arg_7; ATYPE_8 arg_8; ATYPE_9 arg_9; ATYPE_10 arg_10; ATYPE_11 arg_11; ATYPE_12 arg_12; ATYPE_13 arg_13; ATYPE_14 arg_14; } args; } d;\
 } TD_##NAME;                                                                          \
                                                                                       \
@@ -4926,8 +4955,9 @@ static_assert(sizeof(TD_##NAME) <= sizeof(lace_task), "TD_" #NAME " is too large
                                                                                       \
 void NAME##_CALL(lace_worker*, ATYPE_1, ATYPE_2, ATYPE_3, ATYPE_4, ATYPE_5, ATYPE_6, ATYPE_7, ATYPE_8, ATYPE_9, ATYPE_10, ATYPE_11, ATYPE_12, ATYPE_13, ATYPE_14);\
                                                                                       \
-static void NAME##_WRAP(lace_worker* lace_worker, TD_##NAME *t LACE_UNUSED)           \
+static void NAME##_WRAP(lace_worker* lace_worker, lace_task* task)                    \
 {                                                                                     \
+    TD_##NAME* t = (TD_##NAME*)task;                                                  \
      NAME##_CALL(lace_worker, t->d.args.arg_1, t->d.args.arg_2, t->d.args.arg_3, t->d.args.arg_4, t->d.args.arg_5, t->d.args.arg_6, t->d.args.arg_7, t->d.args.arg_8, t->d.args.arg_9, t->d.args.arg_10, t->d.args.arg_11, t->d.args.arg_12, t->d.args.arg_13, t->d.args.arg_14);\
 }                                                                                     \
                                                                                       \
