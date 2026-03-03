@@ -144,6 +144,15 @@ size_t get_cache_line_size(void)
 static size_t cache_line_size;
 
 /**
+ * Thread handles
+ */
+#if !LACE_MSVC
+    static pthread_t *handles = NULL;
+#else
+    static HANDLE *handles = NULL;
+#endif
+
+/**
  * (public) Worker data
  */
 static lace_worker_public **workers = NULL;
@@ -1043,14 +1052,19 @@ lace_start(unsigned int _n_workers, size_t dequesize, size_t stacksize)
         fprintf(stdout, "Lace startup: creating %d worker threads with program stack %zu bytes.\n", n_workers, stacksize);
     }
 
+#if !LACE_MSVC
+    handles = (pthread_t*)malloc(n_workers * sizeof(*handles));
+#else
+    handles = (HANDLE*)malloc(n_workers * sizeof(*handles));
+#endif
+
     /* Spawn all workers */
     for (unsigned int i=0; i<n_workers; i++) {
 #if !LACE_MSVC
-        pthread_t res;
-        pthread_create(&res, &worker_attr, lace_worker_thread, (void*)(size_t)i);
+        pthread_create(&handles[i], &worker_attr, lace_worker_thread, (void*)(size_t)i);
 #else
         unsigned thread_id;
-        HANDLE h = (HANDLE)_beginthreadex(
+        handles[i] = (HANDLE)_beginthreadex(
             NULL,                       // security
             (unsigned)stacksize,        // stack size in bytes
             lace_worker_thread_win,     // start routine
@@ -1062,8 +1076,6 @@ lace_start(unsigned int _n_workers, size_t dequesize, size_t stacksize)
             fprintf(stderr, "Lace error: failed to create worker thread %u\n", i);
             exit(1);
         }
-        // Store handles if we need to join later... or just close if we don't...
-        // CloseHandle(h); // only if we never join/wait on them
 #endif
     }
 
@@ -1236,7 +1248,16 @@ void lace_stop()
 
     lace_quits = 1;
 
-    while (workers_running != 0) {}
+    for (int i = 0; i < n_workers; i++) {
+#if !LACE_MSVC
+        pthread_join(handles[i], NULL);
+#else
+        WaitForSingleObject(handles[i], INFINITE);
+        CloseHandle(handles[i]);
+#endif
+    }
+
+    free(handles);
 
 #if LACE_COUNT_EVENTS
     lace_count_report_file(stdout);
