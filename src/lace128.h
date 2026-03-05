@@ -256,6 +256,16 @@
 
 #endif
 
+#if defined(__has_feature)
+    #if __has_feature(thread_sanitizer)
+        #define LACE_NO_SANITIZE_THREAD __attribute__((no_sanitize("thread")))
+    #else
+        #define LACE_NO_SANITIZE_THREAD
+    #endif
+#else
+    #define LACE_NO_SANITIZE_THREAD
+#endif
+
 // Architecture configuration
 
 // We add padding to some datastructures in order to avoid false sharing.
@@ -899,11 +909,13 @@ static_assert(sizeof(TD_##NAME) <= sizeof(lace_task), "TD_" #NAME " is too large
                                                                                       \
 RTYPE NAME##_CALL(lace_worker*);                                                      \
                                                                                       \
+LACE_NO_SANITIZE_THREAD                                                               \
 static void NAME##_WRAP(lace_worker* lace_worker, lace_task* t LACE_UNUSED)           \
 {                                                                                     \
     ((TD_##NAME*)t)->d.res = NAME##_CALL(lace_worker);                                \
 }                                                                                     \
                                                                                       \
+LACE_NO_SANITIZE_THREAD                                                               \
 static inline LACE_UNUSED                                                             \
 lace_task* NAME##_SPAWN(lace_worker* _lace_worker)                                    \
 {                                                                                     \
@@ -946,6 +958,7 @@ lace_task* NAME##_SPAWN(lace_worker* _lace_worker)                              
     return lace_head;                                                                 \
 }                                                                                     \
                                                                                       \
+LACE_NO_SANITIZE_THREAD                                                               \
 static inline LACE_UNUSED                                                             \
 RTYPE NAME##_NEWFRAME(void)                                                           \
 {                                                                                     \
@@ -958,6 +971,7 @@ RTYPE NAME##_NEWFRAME(void)                                                     
     return ((TD_##NAME *)t)->d.res;                                                   \
 }                                                                                     \
                                                                                       \
+LACE_NO_SANITIZE_THREAD                                                               \
 static inline LACE_UNUSED                                                             \
 void NAME##_TOGETHER(void)                                                            \
 {                                                                                     \
@@ -998,6 +1012,7 @@ RTYPE NAME##_RUNEX(void)                                                        
     return ((TD_##NAME *)t)->d.res;                                                   \
 }                                                                                     \
                                                                                       \
+LACE_NO_SANITIZE_THREAD                                                               \
 static inline LACE_UNUSED                                                             \
 RTYPE NAME##_SYNC(lace_worker* _lace_worker)                                          \
 {                                                                                     \
@@ -1036,11 +1051,13 @@ static_assert(sizeof(TD_##NAME) <= sizeof(lace_task), "TD_" #NAME " is too large
                                                                                       \
 void NAME##_CALL(lace_worker*);                                                       \
                                                                                       \
+LACE_NO_SANITIZE_THREAD                                                               \
 static void NAME##_WRAP(lace_worker* lace_worker, lace_task* t LACE_UNUSED)           \
 {                                                                                     \
      NAME##_CALL(lace_worker);                                                        \
 }                                                                                     \
                                                                                       \
+LACE_NO_SANITIZE_THREAD                                                               \
 static inline LACE_UNUSED                                                             \
 lace_task* NAME##_SPAWN(lace_worker* _lace_worker)                                    \
 {                                                                                     \
@@ -1083,6 +1100,7 @@ lace_task* NAME##_SPAWN(lace_worker* _lace_worker)                              
     return lace_head;                                                                 \
 }                                                                                     \
                                                                                       \
+LACE_NO_SANITIZE_THREAD                                                               \
 static inline LACE_UNUSED                                                             \
 void NAME##_NEWFRAME(void)                                                            \
 {                                                                                     \
@@ -1095,6 +1113,7 @@ void NAME##_NEWFRAME(void)                                                      
     return ;                                                                          \
 }                                                                                     \
                                                                                       \
+LACE_NO_SANITIZE_THREAD                                                               \
 static inline LACE_UNUSED                                                             \
 void NAME##_TOGETHER(void)                                                            \
 {                                                                                     \
@@ -1135,6 +1154,7 @@ void NAME##_RUNEX(void)                                                         
     return ;                                                                          \
 }                                                                                     \
                                                                                       \
+LACE_NO_SANITIZE_THREAD                                                               \
 static inline LACE_UNUSED                                                             \
 void NAME##_SYNC(lace_worker* _lace_worker)                                           \
 {                                                                                     \
@@ -1176,11 +1196,13 @@ static_assert(sizeof(TD_##NAME) <= sizeof(lace_task), "TD_" #NAME " is too large
                                                                                       \
 RTYPE NAME##_CALL(lace_worker*, ATYPE_1);                                             \
                                                                                       \
+LACE_NO_SANITIZE_THREAD                                                               \
 static void NAME##_WRAP(lace_worker* lace_worker, lace_task* t LACE_UNUSED)           \
 {                                                                                     \
     ((TD_##NAME*)t)->d.res = NAME##_CALL(lace_worker, ((TD_##NAME*)t)->d.args.arg_1); \
 }                                                                                     \
                                                                                       \
+LACE_NO_SANITIZE_THREAD                                                               \
 static inline LACE_UNUSED                                                             \
 lace_task* NAME##_SPAWN(lace_worker* _lace_worker, ATYPE_1 arg_1)                     \
 {                                                                                     \
@@ -1223,6 +1245,7 @@ lace_task* NAME##_SPAWN(lace_worker* _lace_worker, ATYPE_1 arg_1)               
     return lace_head;                                                                 \
 }                                                                                     \
                                                                                       \
+LACE_NO_SANITIZE_THREAD                                                               \
 static inline LACE_UNUSED                                                             \
 RTYPE NAME##_NEWFRAME(ATYPE_1 arg_1)                                                  \
 {                                                                                     \
@@ -1235,6 +1258,7 @@ RTYPE NAME##_NEWFRAME(ATYPE_1 arg_1)                                            
     return ((TD_##NAME *)t)->d.res;                                                   \
 }                                                                                     \
                                                                                       \
+LACE_NO_SANITIZE_THREAD                                                               \
 static inline LACE_UNUSED                                                             \
 void NAME##_TOGETHER(ATYPE_1 arg_1)                                                   \
 {                                                                                     \
@@ -1275,6 +1299,7 @@ RTYPE NAME##_RUNEX(ATYPE_1 arg_1)                                               
     return ((TD_##NAME *)t)->d.res;                                                   \
 }                                                                                     \
                                                                                       \
+LACE_NO_SANITIZE_THREAD                                                               \
 static inline LACE_UNUSED                                                             \
 RTYPE NAME##_SYNC(lace_worker* _lace_worker)                                          \
 {                                                                                     \
@@ -1313,11 +1338,13 @@ static_assert(sizeof(TD_##NAME) <= sizeof(lace_task), "TD_" #NAME " is too large
                                                                                       \
 void NAME##_CALL(lace_worker*, ATYPE_1);                                              \
                                                                                       \
+LACE_NO_SANITIZE_THREAD                                                               \
 static void NAME##_WRAP(lace_worker* lace_worker, lace_task* t LACE_UNUSED)           \
 {                                                                                     \
      NAME##_CALL(lace_worker, ((TD_##NAME*)t)->d.args.arg_1);                         \
 }                                                                                     \
                                                                                       \
+LACE_NO_SANITIZE_THREAD                                                               \
 static inline LACE_UNUSED                                                             \
 lace_task* NAME##_SPAWN(lace_worker* _lace_worker, ATYPE_1 arg_1)                     \
 {                                                                                     \
@@ -1360,6 +1387,7 @@ lace_task* NAME##_SPAWN(lace_worker* _lace_worker, ATYPE_1 arg_1)               
     return lace_head;                                                                 \
 }                                                                                     \
                                                                                       \
+LACE_NO_SANITIZE_THREAD                                                               \
 static inline LACE_UNUSED                                                             \
 void NAME##_NEWFRAME(ATYPE_1 arg_1)                                                   \
 {                                                                                     \
@@ -1372,6 +1400,7 @@ void NAME##_NEWFRAME(ATYPE_1 arg_1)                                             
     return ;                                                                          \
 }                                                                                     \
                                                                                       \
+LACE_NO_SANITIZE_THREAD                                                               \
 static inline LACE_UNUSED                                                             \
 void NAME##_TOGETHER(ATYPE_1 arg_1)                                                   \
 {                                                                                     \
@@ -1412,6 +1441,7 @@ void NAME##_RUNEX(ATYPE_1 arg_1)                                                
     return ;                                                                          \
 }                                                                                     \
                                                                                       \
+LACE_NO_SANITIZE_THREAD                                                               \
 static inline LACE_UNUSED                                                             \
 void NAME##_SYNC(lace_worker* _lace_worker)                                           \
 {                                                                                     \
@@ -1453,11 +1483,13 @@ static_assert(sizeof(TD_##NAME) <= sizeof(lace_task), "TD_" #NAME " is too large
                                                                                       \
 RTYPE NAME##_CALL(lace_worker*, ATYPE_1, ATYPE_2);                                    \
                                                                                       \
+LACE_NO_SANITIZE_THREAD                                                               \
 static void NAME##_WRAP(lace_worker* lace_worker, lace_task* t LACE_UNUSED)           \
 {                                                                                     \
     ((TD_##NAME*)t)->d.res = NAME##_CALL(lace_worker, ((TD_##NAME*)t)->d.args.arg_1, ((TD_##NAME*)t)->d.args.arg_2);\
 }                                                                                     \
                                                                                       \
+LACE_NO_SANITIZE_THREAD                                                               \
 static inline LACE_UNUSED                                                             \
 lace_task* NAME##_SPAWN(lace_worker* _lace_worker, ATYPE_1 arg_1, ATYPE_2 arg_2)      \
 {                                                                                     \
@@ -1500,6 +1532,7 @@ lace_task* NAME##_SPAWN(lace_worker* _lace_worker, ATYPE_1 arg_1, ATYPE_2 arg_2)
     return lace_head;                                                                 \
 }                                                                                     \
                                                                                       \
+LACE_NO_SANITIZE_THREAD                                                               \
 static inline LACE_UNUSED                                                             \
 RTYPE NAME##_NEWFRAME(ATYPE_1 arg_1, ATYPE_2 arg_2)                                   \
 {                                                                                     \
@@ -1512,6 +1545,7 @@ RTYPE NAME##_NEWFRAME(ATYPE_1 arg_1, ATYPE_2 arg_2)                             
     return ((TD_##NAME *)t)->d.res;                                                   \
 }                                                                                     \
                                                                                       \
+LACE_NO_SANITIZE_THREAD                                                               \
 static inline LACE_UNUSED                                                             \
 void NAME##_TOGETHER(ATYPE_1 arg_1, ATYPE_2 arg_2)                                    \
 {                                                                                     \
@@ -1552,6 +1586,7 @@ RTYPE NAME##_RUNEX(ATYPE_1 arg_1, ATYPE_2 arg_2)                                
     return ((TD_##NAME *)t)->d.res;                                                   \
 }                                                                                     \
                                                                                       \
+LACE_NO_SANITIZE_THREAD                                                               \
 static inline LACE_UNUSED                                                             \
 RTYPE NAME##_SYNC(lace_worker* _lace_worker)                                          \
 {                                                                                     \
@@ -1590,11 +1625,13 @@ static_assert(sizeof(TD_##NAME) <= sizeof(lace_task), "TD_" #NAME " is too large
                                                                                       \
 void NAME##_CALL(lace_worker*, ATYPE_1, ATYPE_2);                                     \
                                                                                       \
+LACE_NO_SANITIZE_THREAD                                                               \
 static void NAME##_WRAP(lace_worker* lace_worker, lace_task* t LACE_UNUSED)           \
 {                                                                                     \
      NAME##_CALL(lace_worker, ((TD_##NAME*)t)->d.args.arg_1, ((TD_##NAME*)t)->d.args.arg_2);\
 }                                                                                     \
                                                                                       \
+LACE_NO_SANITIZE_THREAD                                                               \
 static inline LACE_UNUSED                                                             \
 lace_task* NAME##_SPAWN(lace_worker* _lace_worker, ATYPE_1 arg_1, ATYPE_2 arg_2)      \
 {                                                                                     \
@@ -1637,6 +1674,7 @@ lace_task* NAME##_SPAWN(lace_worker* _lace_worker, ATYPE_1 arg_1, ATYPE_2 arg_2)
     return lace_head;                                                                 \
 }                                                                                     \
                                                                                       \
+LACE_NO_SANITIZE_THREAD                                                               \
 static inline LACE_UNUSED                                                             \
 void NAME##_NEWFRAME(ATYPE_1 arg_1, ATYPE_2 arg_2)                                    \
 {                                                                                     \
@@ -1649,6 +1687,7 @@ void NAME##_NEWFRAME(ATYPE_1 arg_1, ATYPE_2 arg_2)                              
     return ;                                                                          \
 }                                                                                     \
                                                                                       \
+LACE_NO_SANITIZE_THREAD                                                               \
 static inline LACE_UNUSED                                                             \
 void NAME##_TOGETHER(ATYPE_1 arg_1, ATYPE_2 arg_2)                                    \
 {                                                                                     \
@@ -1689,6 +1728,7 @@ void NAME##_RUNEX(ATYPE_1 arg_1, ATYPE_2 arg_2)                                 
     return ;                                                                          \
 }                                                                                     \
                                                                                       \
+LACE_NO_SANITIZE_THREAD                                                               \
 static inline LACE_UNUSED                                                             \
 void NAME##_SYNC(lace_worker* _lace_worker)                                           \
 {                                                                                     \
@@ -1730,11 +1770,13 @@ static_assert(sizeof(TD_##NAME) <= sizeof(lace_task), "TD_" #NAME " is too large
                                                                                       \
 RTYPE NAME##_CALL(lace_worker*, ATYPE_1, ATYPE_2, ATYPE_3);                           \
                                                                                       \
+LACE_NO_SANITIZE_THREAD                                                               \
 static void NAME##_WRAP(lace_worker* lace_worker, lace_task* t LACE_UNUSED)           \
 {                                                                                     \
     ((TD_##NAME*)t)->d.res = NAME##_CALL(lace_worker, ((TD_##NAME*)t)->d.args.arg_1, ((TD_##NAME*)t)->d.args.arg_2, ((TD_##NAME*)t)->d.args.arg_3);\
 }                                                                                     \
                                                                                       \
+LACE_NO_SANITIZE_THREAD                                                               \
 static inline LACE_UNUSED                                                             \
 lace_task* NAME##_SPAWN(lace_worker* _lace_worker, ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3)\
 {                                                                                     \
@@ -1777,6 +1819,7 @@ lace_task* NAME##_SPAWN(lace_worker* _lace_worker, ATYPE_1 arg_1, ATYPE_2 arg_2,
     return lace_head;                                                                 \
 }                                                                                     \
                                                                                       \
+LACE_NO_SANITIZE_THREAD                                                               \
 static inline LACE_UNUSED                                                             \
 RTYPE NAME##_NEWFRAME(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3)                    \
 {                                                                                     \
@@ -1789,6 +1832,7 @@ RTYPE NAME##_NEWFRAME(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3)              
     return ((TD_##NAME *)t)->d.res;                                                   \
 }                                                                                     \
                                                                                       \
+LACE_NO_SANITIZE_THREAD                                                               \
 static inline LACE_UNUSED                                                             \
 void NAME##_TOGETHER(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3)                     \
 {                                                                                     \
@@ -1829,6 +1873,7 @@ RTYPE NAME##_RUNEX(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3)                 
     return ((TD_##NAME *)t)->d.res;                                                   \
 }                                                                                     \
                                                                                       \
+LACE_NO_SANITIZE_THREAD                                                               \
 static inline LACE_UNUSED                                                             \
 RTYPE NAME##_SYNC(lace_worker* _lace_worker)                                          \
 {                                                                                     \
@@ -1867,11 +1912,13 @@ static_assert(sizeof(TD_##NAME) <= sizeof(lace_task), "TD_" #NAME " is too large
                                                                                       \
 void NAME##_CALL(lace_worker*, ATYPE_1, ATYPE_2, ATYPE_3);                            \
                                                                                       \
+LACE_NO_SANITIZE_THREAD                                                               \
 static void NAME##_WRAP(lace_worker* lace_worker, lace_task* t LACE_UNUSED)           \
 {                                                                                     \
      NAME##_CALL(lace_worker, ((TD_##NAME*)t)->d.args.arg_1, ((TD_##NAME*)t)->d.args.arg_2, ((TD_##NAME*)t)->d.args.arg_3);\
 }                                                                                     \
                                                                                       \
+LACE_NO_SANITIZE_THREAD                                                               \
 static inline LACE_UNUSED                                                             \
 lace_task* NAME##_SPAWN(lace_worker* _lace_worker, ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3)\
 {                                                                                     \
@@ -1914,6 +1961,7 @@ lace_task* NAME##_SPAWN(lace_worker* _lace_worker, ATYPE_1 arg_1, ATYPE_2 arg_2,
     return lace_head;                                                                 \
 }                                                                                     \
                                                                                       \
+LACE_NO_SANITIZE_THREAD                                                               \
 static inline LACE_UNUSED                                                             \
 void NAME##_NEWFRAME(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3)                     \
 {                                                                                     \
@@ -1926,6 +1974,7 @@ void NAME##_NEWFRAME(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3)               
     return ;                                                                          \
 }                                                                                     \
                                                                                       \
+LACE_NO_SANITIZE_THREAD                                                               \
 static inline LACE_UNUSED                                                             \
 void NAME##_TOGETHER(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3)                     \
 {                                                                                     \
@@ -1966,6 +2015,7 @@ void NAME##_RUNEX(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3)                  
     return ;                                                                          \
 }                                                                                     \
                                                                                       \
+LACE_NO_SANITIZE_THREAD                                                               \
 static inline LACE_UNUSED                                                             \
 void NAME##_SYNC(lace_worker* _lace_worker)                                           \
 {                                                                                     \
@@ -2007,11 +2057,13 @@ static_assert(sizeof(TD_##NAME) <= sizeof(lace_task), "TD_" #NAME " is too large
                                                                                       \
 RTYPE NAME##_CALL(lace_worker*, ATYPE_1, ATYPE_2, ATYPE_3, ATYPE_4);                  \
                                                                                       \
+LACE_NO_SANITIZE_THREAD                                                               \
 static void NAME##_WRAP(lace_worker* lace_worker, lace_task* t LACE_UNUSED)           \
 {                                                                                     \
     ((TD_##NAME*)t)->d.res = NAME##_CALL(lace_worker, ((TD_##NAME*)t)->d.args.arg_1, ((TD_##NAME*)t)->d.args.arg_2, ((TD_##NAME*)t)->d.args.arg_3, ((TD_##NAME*)t)->d.args.arg_4);\
 }                                                                                     \
                                                                                       \
+LACE_NO_SANITIZE_THREAD                                                               \
 static inline LACE_UNUSED                                                             \
 lace_task* NAME##_SPAWN(lace_worker* _lace_worker, ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4)\
 {                                                                                     \
@@ -2054,6 +2106,7 @@ lace_task* NAME##_SPAWN(lace_worker* _lace_worker, ATYPE_1 arg_1, ATYPE_2 arg_2,
     return lace_head;                                                                 \
 }                                                                                     \
                                                                                       \
+LACE_NO_SANITIZE_THREAD                                                               \
 static inline LACE_UNUSED                                                             \
 RTYPE NAME##_NEWFRAME(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4)     \
 {                                                                                     \
@@ -2066,6 +2119,7 @@ RTYPE NAME##_NEWFRAME(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4
     return ((TD_##NAME *)t)->d.res;                                                   \
 }                                                                                     \
                                                                                       \
+LACE_NO_SANITIZE_THREAD                                                               \
 static inline LACE_UNUSED                                                             \
 void NAME##_TOGETHER(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4)      \
 {                                                                                     \
@@ -2106,6 +2160,7 @@ RTYPE NAME##_RUNEX(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4)  
     return ((TD_##NAME *)t)->d.res;                                                   \
 }                                                                                     \
                                                                                       \
+LACE_NO_SANITIZE_THREAD                                                               \
 static inline LACE_UNUSED                                                             \
 RTYPE NAME##_SYNC(lace_worker* _lace_worker)                                          \
 {                                                                                     \
@@ -2144,11 +2199,13 @@ static_assert(sizeof(TD_##NAME) <= sizeof(lace_task), "TD_" #NAME " is too large
                                                                                       \
 void NAME##_CALL(lace_worker*, ATYPE_1, ATYPE_2, ATYPE_3, ATYPE_4);                   \
                                                                                       \
+LACE_NO_SANITIZE_THREAD                                                               \
 static void NAME##_WRAP(lace_worker* lace_worker, lace_task* t LACE_UNUSED)           \
 {                                                                                     \
      NAME##_CALL(lace_worker, ((TD_##NAME*)t)->d.args.arg_1, ((TD_##NAME*)t)->d.args.arg_2, ((TD_##NAME*)t)->d.args.arg_3, ((TD_##NAME*)t)->d.args.arg_4);\
 }                                                                                     \
                                                                                       \
+LACE_NO_SANITIZE_THREAD                                                               \
 static inline LACE_UNUSED                                                             \
 lace_task* NAME##_SPAWN(lace_worker* _lace_worker, ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4)\
 {                                                                                     \
@@ -2191,6 +2248,7 @@ lace_task* NAME##_SPAWN(lace_worker* _lace_worker, ATYPE_1 arg_1, ATYPE_2 arg_2,
     return lace_head;                                                                 \
 }                                                                                     \
                                                                                       \
+LACE_NO_SANITIZE_THREAD                                                               \
 static inline LACE_UNUSED                                                             \
 void NAME##_NEWFRAME(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4)      \
 {                                                                                     \
@@ -2203,6 +2261,7 @@ void NAME##_NEWFRAME(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4)
     return ;                                                                          \
 }                                                                                     \
                                                                                       \
+LACE_NO_SANITIZE_THREAD                                                               \
 static inline LACE_UNUSED                                                             \
 void NAME##_TOGETHER(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4)      \
 {                                                                                     \
@@ -2243,6 +2302,7 @@ void NAME##_RUNEX(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4)   
     return ;                                                                          \
 }                                                                                     \
                                                                                       \
+LACE_NO_SANITIZE_THREAD                                                               \
 static inline LACE_UNUSED                                                             \
 void NAME##_SYNC(lace_worker* _lace_worker)                                           \
 {                                                                                     \
@@ -2284,11 +2344,13 @@ static_assert(sizeof(TD_##NAME) <= sizeof(lace_task), "TD_" #NAME " is too large
                                                                                       \
 RTYPE NAME##_CALL(lace_worker*, ATYPE_1, ATYPE_2, ATYPE_3, ATYPE_4, ATYPE_5);         \
                                                                                       \
+LACE_NO_SANITIZE_THREAD                                                               \
 static void NAME##_WRAP(lace_worker* lace_worker, lace_task* t LACE_UNUSED)           \
 {                                                                                     \
     ((TD_##NAME*)t)->d.res = NAME##_CALL(lace_worker, ((TD_##NAME*)t)->d.args.arg_1, ((TD_##NAME*)t)->d.args.arg_2, ((TD_##NAME*)t)->d.args.arg_3, ((TD_##NAME*)t)->d.args.arg_4, ((TD_##NAME*)t)->d.args.arg_5);\
 }                                                                                     \
                                                                                       \
+LACE_NO_SANITIZE_THREAD                                                               \
 static inline LACE_UNUSED                                                             \
 lace_task* NAME##_SPAWN(lace_worker* _lace_worker, ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, ATYPE_5 arg_5)\
 {                                                                                     \
@@ -2331,6 +2393,7 @@ lace_task* NAME##_SPAWN(lace_worker* _lace_worker, ATYPE_1 arg_1, ATYPE_2 arg_2,
     return lace_head;                                                                 \
 }                                                                                     \
                                                                                       \
+LACE_NO_SANITIZE_THREAD                                                               \
 static inline LACE_UNUSED                                                             \
 RTYPE NAME##_NEWFRAME(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, ATYPE_5 arg_5)\
 {                                                                                     \
@@ -2343,6 +2406,7 @@ RTYPE NAME##_NEWFRAME(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4
     return ((TD_##NAME *)t)->d.res;                                                   \
 }                                                                                     \
                                                                                       \
+LACE_NO_SANITIZE_THREAD                                                               \
 static inline LACE_UNUSED                                                             \
 void NAME##_TOGETHER(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, ATYPE_5 arg_5)\
 {                                                                                     \
@@ -2383,6 +2447,7 @@ RTYPE NAME##_RUNEX(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, A
     return ((TD_##NAME *)t)->d.res;                                                   \
 }                                                                                     \
                                                                                       \
+LACE_NO_SANITIZE_THREAD                                                               \
 static inline LACE_UNUSED                                                             \
 RTYPE NAME##_SYNC(lace_worker* _lace_worker)                                          \
 {                                                                                     \
@@ -2421,11 +2486,13 @@ static_assert(sizeof(TD_##NAME) <= sizeof(lace_task), "TD_" #NAME " is too large
                                                                                       \
 void NAME##_CALL(lace_worker*, ATYPE_1, ATYPE_2, ATYPE_3, ATYPE_4, ATYPE_5);          \
                                                                                       \
+LACE_NO_SANITIZE_THREAD                                                               \
 static void NAME##_WRAP(lace_worker* lace_worker, lace_task* t LACE_UNUSED)           \
 {                                                                                     \
      NAME##_CALL(lace_worker, ((TD_##NAME*)t)->d.args.arg_1, ((TD_##NAME*)t)->d.args.arg_2, ((TD_##NAME*)t)->d.args.arg_3, ((TD_##NAME*)t)->d.args.arg_4, ((TD_##NAME*)t)->d.args.arg_5);\
 }                                                                                     \
                                                                                       \
+LACE_NO_SANITIZE_THREAD                                                               \
 static inline LACE_UNUSED                                                             \
 lace_task* NAME##_SPAWN(lace_worker* _lace_worker, ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, ATYPE_5 arg_5)\
 {                                                                                     \
@@ -2468,6 +2535,7 @@ lace_task* NAME##_SPAWN(lace_worker* _lace_worker, ATYPE_1 arg_1, ATYPE_2 arg_2,
     return lace_head;                                                                 \
 }                                                                                     \
                                                                                       \
+LACE_NO_SANITIZE_THREAD                                                               \
 static inline LACE_UNUSED                                                             \
 void NAME##_NEWFRAME(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, ATYPE_5 arg_5)\
 {                                                                                     \
@@ -2480,6 +2548,7 @@ void NAME##_NEWFRAME(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4,
     return ;                                                                          \
 }                                                                                     \
                                                                                       \
+LACE_NO_SANITIZE_THREAD                                                               \
 static inline LACE_UNUSED                                                             \
 void NAME##_TOGETHER(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, ATYPE_5 arg_5)\
 {                                                                                     \
@@ -2520,6 +2589,7 @@ void NAME##_RUNEX(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, AT
     return ;                                                                          \
 }                                                                                     \
                                                                                       \
+LACE_NO_SANITIZE_THREAD                                                               \
 static inline LACE_UNUSED                                                             \
 void NAME##_SYNC(lace_worker* _lace_worker)                                           \
 {                                                                                     \
@@ -2561,11 +2631,13 @@ static_assert(sizeof(TD_##NAME) <= sizeof(lace_task), "TD_" #NAME " is too large
                                                                                       \
 RTYPE NAME##_CALL(lace_worker*, ATYPE_1, ATYPE_2, ATYPE_3, ATYPE_4, ATYPE_5, ATYPE_6);\
                                                                                       \
+LACE_NO_SANITIZE_THREAD                                                               \
 static void NAME##_WRAP(lace_worker* lace_worker, lace_task* t LACE_UNUSED)           \
 {                                                                                     \
     ((TD_##NAME*)t)->d.res = NAME##_CALL(lace_worker, ((TD_##NAME*)t)->d.args.arg_1, ((TD_##NAME*)t)->d.args.arg_2, ((TD_##NAME*)t)->d.args.arg_3, ((TD_##NAME*)t)->d.args.arg_4, ((TD_##NAME*)t)->d.args.arg_5, ((TD_##NAME*)t)->d.args.arg_6);\
 }                                                                                     \
                                                                                       \
+LACE_NO_SANITIZE_THREAD                                                               \
 static inline LACE_UNUSED                                                             \
 lace_task* NAME##_SPAWN(lace_worker* _lace_worker, ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, ATYPE_5 arg_5, ATYPE_6 arg_6)\
 {                                                                                     \
@@ -2608,6 +2680,7 @@ lace_task* NAME##_SPAWN(lace_worker* _lace_worker, ATYPE_1 arg_1, ATYPE_2 arg_2,
     return lace_head;                                                                 \
 }                                                                                     \
                                                                                       \
+LACE_NO_SANITIZE_THREAD                                                               \
 static inline LACE_UNUSED                                                             \
 RTYPE NAME##_NEWFRAME(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, ATYPE_5 arg_5, ATYPE_6 arg_6)\
 {                                                                                     \
@@ -2620,6 +2693,7 @@ RTYPE NAME##_NEWFRAME(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4
     return ((TD_##NAME *)t)->d.res;                                                   \
 }                                                                                     \
                                                                                       \
+LACE_NO_SANITIZE_THREAD                                                               \
 static inline LACE_UNUSED                                                             \
 void NAME##_TOGETHER(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, ATYPE_5 arg_5, ATYPE_6 arg_6)\
 {                                                                                     \
@@ -2660,6 +2734,7 @@ RTYPE NAME##_RUNEX(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, A
     return ((TD_##NAME *)t)->d.res;                                                   \
 }                                                                                     \
                                                                                       \
+LACE_NO_SANITIZE_THREAD                                                               \
 static inline LACE_UNUSED                                                             \
 RTYPE NAME##_SYNC(lace_worker* _lace_worker)                                          \
 {                                                                                     \
@@ -2698,11 +2773,13 @@ static_assert(sizeof(TD_##NAME) <= sizeof(lace_task), "TD_" #NAME " is too large
                                                                                       \
 void NAME##_CALL(lace_worker*, ATYPE_1, ATYPE_2, ATYPE_3, ATYPE_4, ATYPE_5, ATYPE_6); \
                                                                                       \
+LACE_NO_SANITIZE_THREAD                                                               \
 static void NAME##_WRAP(lace_worker* lace_worker, lace_task* t LACE_UNUSED)           \
 {                                                                                     \
      NAME##_CALL(lace_worker, ((TD_##NAME*)t)->d.args.arg_1, ((TD_##NAME*)t)->d.args.arg_2, ((TD_##NAME*)t)->d.args.arg_3, ((TD_##NAME*)t)->d.args.arg_4, ((TD_##NAME*)t)->d.args.arg_5, ((TD_##NAME*)t)->d.args.arg_6);\
 }                                                                                     \
                                                                                       \
+LACE_NO_SANITIZE_THREAD                                                               \
 static inline LACE_UNUSED                                                             \
 lace_task* NAME##_SPAWN(lace_worker* _lace_worker, ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, ATYPE_5 arg_5, ATYPE_6 arg_6)\
 {                                                                                     \
@@ -2745,6 +2822,7 @@ lace_task* NAME##_SPAWN(lace_worker* _lace_worker, ATYPE_1 arg_1, ATYPE_2 arg_2,
     return lace_head;                                                                 \
 }                                                                                     \
                                                                                       \
+LACE_NO_SANITIZE_THREAD                                                               \
 static inline LACE_UNUSED                                                             \
 void NAME##_NEWFRAME(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, ATYPE_5 arg_5, ATYPE_6 arg_6)\
 {                                                                                     \
@@ -2757,6 +2835,7 @@ void NAME##_NEWFRAME(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4,
     return ;                                                                          \
 }                                                                                     \
                                                                                       \
+LACE_NO_SANITIZE_THREAD                                                               \
 static inline LACE_UNUSED                                                             \
 void NAME##_TOGETHER(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, ATYPE_5 arg_5, ATYPE_6 arg_6)\
 {                                                                                     \
@@ -2797,6 +2876,7 @@ void NAME##_RUNEX(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, AT
     return ;                                                                          \
 }                                                                                     \
                                                                                       \
+LACE_NO_SANITIZE_THREAD                                                               \
 static inline LACE_UNUSED                                                             \
 void NAME##_SYNC(lace_worker* _lace_worker)                                           \
 {                                                                                     \
@@ -2838,11 +2918,13 @@ static_assert(sizeof(TD_##NAME) <= sizeof(lace_task), "TD_" #NAME " is too large
                                                                                       \
 RTYPE NAME##_CALL(lace_worker*, ATYPE_1, ATYPE_2, ATYPE_3, ATYPE_4, ATYPE_5, ATYPE_6, ATYPE_7);\
                                                                                       \
+LACE_NO_SANITIZE_THREAD                                                               \
 static void NAME##_WRAP(lace_worker* lace_worker, lace_task* t LACE_UNUSED)           \
 {                                                                                     \
     ((TD_##NAME*)t)->d.res = NAME##_CALL(lace_worker, ((TD_##NAME*)t)->d.args.arg_1, ((TD_##NAME*)t)->d.args.arg_2, ((TD_##NAME*)t)->d.args.arg_3, ((TD_##NAME*)t)->d.args.arg_4, ((TD_##NAME*)t)->d.args.arg_5, ((TD_##NAME*)t)->d.args.arg_6, ((TD_##NAME*)t)->d.args.arg_7);\
 }                                                                                     \
                                                                                       \
+LACE_NO_SANITIZE_THREAD                                                               \
 static inline LACE_UNUSED                                                             \
 lace_task* NAME##_SPAWN(lace_worker* _lace_worker, ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, ATYPE_5 arg_5, ATYPE_6 arg_6, ATYPE_7 arg_7)\
 {                                                                                     \
@@ -2885,6 +2967,7 @@ lace_task* NAME##_SPAWN(lace_worker* _lace_worker, ATYPE_1 arg_1, ATYPE_2 arg_2,
     return lace_head;                                                                 \
 }                                                                                     \
                                                                                       \
+LACE_NO_SANITIZE_THREAD                                                               \
 static inline LACE_UNUSED                                                             \
 RTYPE NAME##_NEWFRAME(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, ATYPE_5 arg_5, ATYPE_6 arg_6, ATYPE_7 arg_7)\
 {                                                                                     \
@@ -2897,6 +2980,7 @@ RTYPE NAME##_NEWFRAME(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4
     return ((TD_##NAME *)t)->d.res;                                                   \
 }                                                                                     \
                                                                                       \
+LACE_NO_SANITIZE_THREAD                                                               \
 static inline LACE_UNUSED                                                             \
 void NAME##_TOGETHER(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, ATYPE_5 arg_5, ATYPE_6 arg_6, ATYPE_7 arg_7)\
 {                                                                                     \
@@ -2937,6 +3021,7 @@ RTYPE NAME##_RUNEX(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, A
     return ((TD_##NAME *)t)->d.res;                                                   \
 }                                                                                     \
                                                                                       \
+LACE_NO_SANITIZE_THREAD                                                               \
 static inline LACE_UNUSED                                                             \
 RTYPE NAME##_SYNC(lace_worker* _lace_worker)                                          \
 {                                                                                     \
@@ -2975,11 +3060,13 @@ static_assert(sizeof(TD_##NAME) <= sizeof(lace_task), "TD_" #NAME " is too large
                                                                                       \
 void NAME##_CALL(lace_worker*, ATYPE_1, ATYPE_2, ATYPE_3, ATYPE_4, ATYPE_5, ATYPE_6, ATYPE_7);\
                                                                                       \
+LACE_NO_SANITIZE_THREAD                                                               \
 static void NAME##_WRAP(lace_worker* lace_worker, lace_task* t LACE_UNUSED)           \
 {                                                                                     \
      NAME##_CALL(lace_worker, ((TD_##NAME*)t)->d.args.arg_1, ((TD_##NAME*)t)->d.args.arg_2, ((TD_##NAME*)t)->d.args.arg_3, ((TD_##NAME*)t)->d.args.arg_4, ((TD_##NAME*)t)->d.args.arg_5, ((TD_##NAME*)t)->d.args.arg_6, ((TD_##NAME*)t)->d.args.arg_7);\
 }                                                                                     \
                                                                                       \
+LACE_NO_SANITIZE_THREAD                                                               \
 static inline LACE_UNUSED                                                             \
 lace_task* NAME##_SPAWN(lace_worker* _lace_worker, ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, ATYPE_5 arg_5, ATYPE_6 arg_6, ATYPE_7 arg_7)\
 {                                                                                     \
@@ -3022,6 +3109,7 @@ lace_task* NAME##_SPAWN(lace_worker* _lace_worker, ATYPE_1 arg_1, ATYPE_2 arg_2,
     return lace_head;                                                                 \
 }                                                                                     \
                                                                                       \
+LACE_NO_SANITIZE_THREAD                                                               \
 static inline LACE_UNUSED                                                             \
 void NAME##_NEWFRAME(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, ATYPE_5 arg_5, ATYPE_6 arg_6, ATYPE_7 arg_7)\
 {                                                                                     \
@@ -3034,6 +3122,7 @@ void NAME##_NEWFRAME(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4,
     return ;                                                                          \
 }                                                                                     \
                                                                                       \
+LACE_NO_SANITIZE_THREAD                                                               \
 static inline LACE_UNUSED                                                             \
 void NAME##_TOGETHER(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, ATYPE_5 arg_5, ATYPE_6 arg_6, ATYPE_7 arg_7)\
 {                                                                                     \
@@ -3074,6 +3163,7 @@ void NAME##_RUNEX(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, AT
     return ;                                                                          \
 }                                                                                     \
                                                                                       \
+LACE_NO_SANITIZE_THREAD                                                               \
 static inline LACE_UNUSED                                                             \
 void NAME##_SYNC(lace_worker* _lace_worker)                                           \
 {                                                                                     \
@@ -3115,11 +3205,13 @@ static_assert(sizeof(TD_##NAME) <= sizeof(lace_task), "TD_" #NAME " is too large
                                                                                       \
 RTYPE NAME##_CALL(lace_worker*, ATYPE_1, ATYPE_2, ATYPE_3, ATYPE_4, ATYPE_5, ATYPE_6, ATYPE_7, ATYPE_8);\
                                                                                       \
+LACE_NO_SANITIZE_THREAD                                                               \
 static void NAME##_WRAP(lace_worker* lace_worker, lace_task* t LACE_UNUSED)           \
 {                                                                                     \
     ((TD_##NAME*)t)->d.res = NAME##_CALL(lace_worker, ((TD_##NAME*)t)->d.args.arg_1, ((TD_##NAME*)t)->d.args.arg_2, ((TD_##NAME*)t)->d.args.arg_3, ((TD_##NAME*)t)->d.args.arg_4, ((TD_##NAME*)t)->d.args.arg_5, ((TD_##NAME*)t)->d.args.arg_6, ((TD_##NAME*)t)->d.args.arg_7, ((TD_##NAME*)t)->d.args.arg_8);\
 }                                                                                     \
                                                                                       \
+LACE_NO_SANITIZE_THREAD                                                               \
 static inline LACE_UNUSED                                                             \
 lace_task* NAME##_SPAWN(lace_worker* _lace_worker, ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, ATYPE_5 arg_5, ATYPE_6 arg_6, ATYPE_7 arg_7, ATYPE_8 arg_8)\
 {                                                                                     \
@@ -3162,6 +3254,7 @@ lace_task* NAME##_SPAWN(lace_worker* _lace_worker, ATYPE_1 arg_1, ATYPE_2 arg_2,
     return lace_head;                                                                 \
 }                                                                                     \
                                                                                       \
+LACE_NO_SANITIZE_THREAD                                                               \
 static inline LACE_UNUSED                                                             \
 RTYPE NAME##_NEWFRAME(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, ATYPE_5 arg_5, ATYPE_6 arg_6, ATYPE_7 arg_7, ATYPE_8 arg_8)\
 {                                                                                     \
@@ -3174,6 +3267,7 @@ RTYPE NAME##_NEWFRAME(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4
     return ((TD_##NAME *)t)->d.res;                                                   \
 }                                                                                     \
                                                                                       \
+LACE_NO_SANITIZE_THREAD                                                               \
 static inline LACE_UNUSED                                                             \
 void NAME##_TOGETHER(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, ATYPE_5 arg_5, ATYPE_6 arg_6, ATYPE_7 arg_7, ATYPE_8 arg_8)\
 {                                                                                     \
@@ -3214,6 +3308,7 @@ RTYPE NAME##_RUNEX(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, A
     return ((TD_##NAME *)t)->d.res;                                                   \
 }                                                                                     \
                                                                                       \
+LACE_NO_SANITIZE_THREAD                                                               \
 static inline LACE_UNUSED                                                             \
 RTYPE NAME##_SYNC(lace_worker* _lace_worker)                                          \
 {                                                                                     \
@@ -3252,11 +3347,13 @@ static_assert(sizeof(TD_##NAME) <= sizeof(lace_task), "TD_" #NAME " is too large
                                                                                       \
 void NAME##_CALL(lace_worker*, ATYPE_1, ATYPE_2, ATYPE_3, ATYPE_4, ATYPE_5, ATYPE_6, ATYPE_7, ATYPE_8);\
                                                                                       \
+LACE_NO_SANITIZE_THREAD                                                               \
 static void NAME##_WRAP(lace_worker* lace_worker, lace_task* t LACE_UNUSED)           \
 {                                                                                     \
      NAME##_CALL(lace_worker, ((TD_##NAME*)t)->d.args.arg_1, ((TD_##NAME*)t)->d.args.arg_2, ((TD_##NAME*)t)->d.args.arg_3, ((TD_##NAME*)t)->d.args.arg_4, ((TD_##NAME*)t)->d.args.arg_5, ((TD_##NAME*)t)->d.args.arg_6, ((TD_##NAME*)t)->d.args.arg_7, ((TD_##NAME*)t)->d.args.arg_8);\
 }                                                                                     \
                                                                                       \
+LACE_NO_SANITIZE_THREAD                                                               \
 static inline LACE_UNUSED                                                             \
 lace_task* NAME##_SPAWN(lace_worker* _lace_worker, ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, ATYPE_5 arg_5, ATYPE_6 arg_6, ATYPE_7 arg_7, ATYPE_8 arg_8)\
 {                                                                                     \
@@ -3299,6 +3396,7 @@ lace_task* NAME##_SPAWN(lace_worker* _lace_worker, ATYPE_1 arg_1, ATYPE_2 arg_2,
     return lace_head;                                                                 \
 }                                                                                     \
                                                                                       \
+LACE_NO_SANITIZE_THREAD                                                               \
 static inline LACE_UNUSED                                                             \
 void NAME##_NEWFRAME(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, ATYPE_5 arg_5, ATYPE_6 arg_6, ATYPE_7 arg_7, ATYPE_8 arg_8)\
 {                                                                                     \
@@ -3311,6 +3409,7 @@ void NAME##_NEWFRAME(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4,
     return ;                                                                          \
 }                                                                                     \
                                                                                       \
+LACE_NO_SANITIZE_THREAD                                                               \
 static inline LACE_UNUSED                                                             \
 void NAME##_TOGETHER(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, ATYPE_5 arg_5, ATYPE_6 arg_6, ATYPE_7 arg_7, ATYPE_8 arg_8)\
 {                                                                                     \
@@ -3351,6 +3450,7 @@ void NAME##_RUNEX(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, AT
     return ;                                                                          \
 }                                                                                     \
                                                                                       \
+LACE_NO_SANITIZE_THREAD                                                               \
 static inline LACE_UNUSED                                                             \
 void NAME##_SYNC(lace_worker* _lace_worker)                                           \
 {                                                                                     \
@@ -3392,11 +3492,13 @@ static_assert(sizeof(TD_##NAME) <= sizeof(lace_task), "TD_" #NAME " is too large
                                                                                       \
 RTYPE NAME##_CALL(lace_worker*, ATYPE_1, ATYPE_2, ATYPE_3, ATYPE_4, ATYPE_5, ATYPE_6, ATYPE_7, ATYPE_8, ATYPE_9);\
                                                                                       \
+LACE_NO_SANITIZE_THREAD                                                               \
 static void NAME##_WRAP(lace_worker* lace_worker, lace_task* t LACE_UNUSED)           \
 {                                                                                     \
     ((TD_##NAME*)t)->d.res = NAME##_CALL(lace_worker, ((TD_##NAME*)t)->d.args.arg_1, ((TD_##NAME*)t)->d.args.arg_2, ((TD_##NAME*)t)->d.args.arg_3, ((TD_##NAME*)t)->d.args.arg_4, ((TD_##NAME*)t)->d.args.arg_5, ((TD_##NAME*)t)->d.args.arg_6, ((TD_##NAME*)t)->d.args.arg_7, ((TD_##NAME*)t)->d.args.arg_8, ((TD_##NAME*)t)->d.args.arg_9);\
 }                                                                                     \
                                                                                       \
+LACE_NO_SANITIZE_THREAD                                                               \
 static inline LACE_UNUSED                                                             \
 lace_task* NAME##_SPAWN(lace_worker* _lace_worker, ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, ATYPE_5 arg_5, ATYPE_6 arg_6, ATYPE_7 arg_7, ATYPE_8 arg_8, ATYPE_9 arg_9)\
 {                                                                                     \
@@ -3439,6 +3541,7 @@ lace_task* NAME##_SPAWN(lace_worker* _lace_worker, ATYPE_1 arg_1, ATYPE_2 arg_2,
     return lace_head;                                                                 \
 }                                                                                     \
                                                                                       \
+LACE_NO_SANITIZE_THREAD                                                               \
 static inline LACE_UNUSED                                                             \
 RTYPE NAME##_NEWFRAME(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, ATYPE_5 arg_5, ATYPE_6 arg_6, ATYPE_7 arg_7, ATYPE_8 arg_8, ATYPE_9 arg_9)\
 {                                                                                     \
@@ -3451,6 +3554,7 @@ RTYPE NAME##_NEWFRAME(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4
     return ((TD_##NAME *)t)->d.res;                                                   \
 }                                                                                     \
                                                                                       \
+LACE_NO_SANITIZE_THREAD                                                               \
 static inline LACE_UNUSED                                                             \
 void NAME##_TOGETHER(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, ATYPE_5 arg_5, ATYPE_6 arg_6, ATYPE_7 arg_7, ATYPE_8 arg_8, ATYPE_9 arg_9)\
 {                                                                                     \
@@ -3491,6 +3595,7 @@ RTYPE NAME##_RUNEX(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, A
     return ((TD_##NAME *)t)->d.res;                                                   \
 }                                                                                     \
                                                                                       \
+LACE_NO_SANITIZE_THREAD                                                               \
 static inline LACE_UNUSED                                                             \
 RTYPE NAME##_SYNC(lace_worker* _lace_worker)                                          \
 {                                                                                     \
@@ -3529,11 +3634,13 @@ static_assert(sizeof(TD_##NAME) <= sizeof(lace_task), "TD_" #NAME " is too large
                                                                                       \
 void NAME##_CALL(lace_worker*, ATYPE_1, ATYPE_2, ATYPE_3, ATYPE_4, ATYPE_5, ATYPE_6, ATYPE_7, ATYPE_8, ATYPE_9);\
                                                                                       \
+LACE_NO_SANITIZE_THREAD                                                               \
 static void NAME##_WRAP(lace_worker* lace_worker, lace_task* t LACE_UNUSED)           \
 {                                                                                     \
      NAME##_CALL(lace_worker, ((TD_##NAME*)t)->d.args.arg_1, ((TD_##NAME*)t)->d.args.arg_2, ((TD_##NAME*)t)->d.args.arg_3, ((TD_##NAME*)t)->d.args.arg_4, ((TD_##NAME*)t)->d.args.arg_5, ((TD_##NAME*)t)->d.args.arg_6, ((TD_##NAME*)t)->d.args.arg_7, ((TD_##NAME*)t)->d.args.arg_8, ((TD_##NAME*)t)->d.args.arg_9);\
 }                                                                                     \
                                                                                       \
+LACE_NO_SANITIZE_THREAD                                                               \
 static inline LACE_UNUSED                                                             \
 lace_task* NAME##_SPAWN(lace_worker* _lace_worker, ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, ATYPE_5 arg_5, ATYPE_6 arg_6, ATYPE_7 arg_7, ATYPE_8 arg_8, ATYPE_9 arg_9)\
 {                                                                                     \
@@ -3576,6 +3683,7 @@ lace_task* NAME##_SPAWN(lace_worker* _lace_worker, ATYPE_1 arg_1, ATYPE_2 arg_2,
     return lace_head;                                                                 \
 }                                                                                     \
                                                                                       \
+LACE_NO_SANITIZE_THREAD                                                               \
 static inline LACE_UNUSED                                                             \
 void NAME##_NEWFRAME(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, ATYPE_5 arg_5, ATYPE_6 arg_6, ATYPE_7 arg_7, ATYPE_8 arg_8, ATYPE_9 arg_9)\
 {                                                                                     \
@@ -3588,6 +3696,7 @@ void NAME##_NEWFRAME(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4,
     return ;                                                                          \
 }                                                                                     \
                                                                                       \
+LACE_NO_SANITIZE_THREAD                                                               \
 static inline LACE_UNUSED                                                             \
 void NAME##_TOGETHER(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, ATYPE_5 arg_5, ATYPE_6 arg_6, ATYPE_7 arg_7, ATYPE_8 arg_8, ATYPE_9 arg_9)\
 {                                                                                     \
@@ -3628,6 +3737,7 @@ void NAME##_RUNEX(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, AT
     return ;                                                                          \
 }                                                                                     \
                                                                                       \
+LACE_NO_SANITIZE_THREAD                                                               \
 static inline LACE_UNUSED                                                             \
 void NAME##_SYNC(lace_worker* _lace_worker)                                           \
 {                                                                                     \
@@ -3669,11 +3779,13 @@ static_assert(sizeof(TD_##NAME) <= sizeof(lace_task), "TD_" #NAME " is too large
                                                                                       \
 RTYPE NAME##_CALL(lace_worker*, ATYPE_1, ATYPE_2, ATYPE_3, ATYPE_4, ATYPE_5, ATYPE_6, ATYPE_7, ATYPE_8, ATYPE_9, ATYPE_10);\
                                                                                       \
+LACE_NO_SANITIZE_THREAD                                                               \
 static void NAME##_WRAP(lace_worker* lace_worker, lace_task* t LACE_UNUSED)           \
 {                                                                                     \
     ((TD_##NAME*)t)->d.res = NAME##_CALL(lace_worker, ((TD_##NAME*)t)->d.args.arg_1, ((TD_##NAME*)t)->d.args.arg_2, ((TD_##NAME*)t)->d.args.arg_3, ((TD_##NAME*)t)->d.args.arg_4, ((TD_##NAME*)t)->d.args.arg_5, ((TD_##NAME*)t)->d.args.arg_6, ((TD_##NAME*)t)->d.args.arg_7, ((TD_##NAME*)t)->d.args.arg_8, ((TD_##NAME*)t)->d.args.arg_9, ((TD_##NAME*)t)->d.args.arg_10);\
 }                                                                                     \
                                                                                       \
+LACE_NO_SANITIZE_THREAD                                                               \
 static inline LACE_UNUSED                                                             \
 lace_task* NAME##_SPAWN(lace_worker* _lace_worker, ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, ATYPE_5 arg_5, ATYPE_6 arg_6, ATYPE_7 arg_7, ATYPE_8 arg_8, ATYPE_9 arg_9, ATYPE_10 arg_10)\
 {                                                                                     \
@@ -3716,6 +3828,7 @@ lace_task* NAME##_SPAWN(lace_worker* _lace_worker, ATYPE_1 arg_1, ATYPE_2 arg_2,
     return lace_head;                                                                 \
 }                                                                                     \
                                                                                       \
+LACE_NO_SANITIZE_THREAD                                                               \
 static inline LACE_UNUSED                                                             \
 RTYPE NAME##_NEWFRAME(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, ATYPE_5 arg_5, ATYPE_6 arg_6, ATYPE_7 arg_7, ATYPE_8 arg_8, ATYPE_9 arg_9, ATYPE_10 arg_10)\
 {                                                                                     \
@@ -3728,6 +3841,7 @@ RTYPE NAME##_NEWFRAME(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4
     return ((TD_##NAME *)t)->d.res;                                                   \
 }                                                                                     \
                                                                                       \
+LACE_NO_SANITIZE_THREAD                                                               \
 static inline LACE_UNUSED                                                             \
 void NAME##_TOGETHER(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, ATYPE_5 arg_5, ATYPE_6 arg_6, ATYPE_7 arg_7, ATYPE_8 arg_8, ATYPE_9 arg_9, ATYPE_10 arg_10)\
 {                                                                                     \
@@ -3768,6 +3882,7 @@ RTYPE NAME##_RUNEX(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, A
     return ((TD_##NAME *)t)->d.res;                                                   \
 }                                                                                     \
                                                                                       \
+LACE_NO_SANITIZE_THREAD                                                               \
 static inline LACE_UNUSED                                                             \
 RTYPE NAME##_SYNC(lace_worker* _lace_worker)                                          \
 {                                                                                     \
@@ -3806,11 +3921,13 @@ static_assert(sizeof(TD_##NAME) <= sizeof(lace_task), "TD_" #NAME " is too large
                                                                                       \
 void NAME##_CALL(lace_worker*, ATYPE_1, ATYPE_2, ATYPE_3, ATYPE_4, ATYPE_5, ATYPE_6, ATYPE_7, ATYPE_8, ATYPE_9, ATYPE_10);\
                                                                                       \
+LACE_NO_SANITIZE_THREAD                                                               \
 static void NAME##_WRAP(lace_worker* lace_worker, lace_task* t LACE_UNUSED)           \
 {                                                                                     \
      NAME##_CALL(lace_worker, ((TD_##NAME*)t)->d.args.arg_1, ((TD_##NAME*)t)->d.args.arg_2, ((TD_##NAME*)t)->d.args.arg_3, ((TD_##NAME*)t)->d.args.arg_4, ((TD_##NAME*)t)->d.args.arg_5, ((TD_##NAME*)t)->d.args.arg_6, ((TD_##NAME*)t)->d.args.arg_7, ((TD_##NAME*)t)->d.args.arg_8, ((TD_##NAME*)t)->d.args.arg_9, ((TD_##NAME*)t)->d.args.arg_10);\
 }                                                                                     \
                                                                                       \
+LACE_NO_SANITIZE_THREAD                                                               \
 static inline LACE_UNUSED                                                             \
 lace_task* NAME##_SPAWN(lace_worker* _lace_worker, ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, ATYPE_5 arg_5, ATYPE_6 arg_6, ATYPE_7 arg_7, ATYPE_8 arg_8, ATYPE_9 arg_9, ATYPE_10 arg_10)\
 {                                                                                     \
@@ -3853,6 +3970,7 @@ lace_task* NAME##_SPAWN(lace_worker* _lace_worker, ATYPE_1 arg_1, ATYPE_2 arg_2,
     return lace_head;                                                                 \
 }                                                                                     \
                                                                                       \
+LACE_NO_SANITIZE_THREAD                                                               \
 static inline LACE_UNUSED                                                             \
 void NAME##_NEWFRAME(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, ATYPE_5 arg_5, ATYPE_6 arg_6, ATYPE_7 arg_7, ATYPE_8 arg_8, ATYPE_9 arg_9, ATYPE_10 arg_10)\
 {                                                                                     \
@@ -3865,6 +3983,7 @@ void NAME##_NEWFRAME(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4,
     return ;                                                                          \
 }                                                                                     \
                                                                                       \
+LACE_NO_SANITIZE_THREAD                                                               \
 static inline LACE_UNUSED                                                             \
 void NAME##_TOGETHER(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, ATYPE_5 arg_5, ATYPE_6 arg_6, ATYPE_7 arg_7, ATYPE_8 arg_8, ATYPE_9 arg_9, ATYPE_10 arg_10)\
 {                                                                                     \
@@ -3905,6 +4024,7 @@ void NAME##_RUNEX(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, AT
     return ;                                                                          \
 }                                                                                     \
                                                                                       \
+LACE_NO_SANITIZE_THREAD                                                               \
 static inline LACE_UNUSED                                                             \
 void NAME##_SYNC(lace_worker* _lace_worker)                                           \
 {                                                                                     \
@@ -3946,11 +4066,13 @@ static_assert(sizeof(TD_##NAME) <= sizeof(lace_task), "TD_" #NAME " is too large
                                                                                       \
 RTYPE NAME##_CALL(lace_worker*, ATYPE_1, ATYPE_2, ATYPE_3, ATYPE_4, ATYPE_5, ATYPE_6, ATYPE_7, ATYPE_8, ATYPE_9, ATYPE_10, ATYPE_11);\
                                                                                       \
+LACE_NO_SANITIZE_THREAD                                                               \
 static void NAME##_WRAP(lace_worker* lace_worker, lace_task* t LACE_UNUSED)           \
 {                                                                                     \
     ((TD_##NAME*)t)->d.res = NAME##_CALL(lace_worker, ((TD_##NAME*)t)->d.args.arg_1, ((TD_##NAME*)t)->d.args.arg_2, ((TD_##NAME*)t)->d.args.arg_3, ((TD_##NAME*)t)->d.args.arg_4, ((TD_##NAME*)t)->d.args.arg_5, ((TD_##NAME*)t)->d.args.arg_6, ((TD_##NAME*)t)->d.args.arg_7, ((TD_##NAME*)t)->d.args.arg_8, ((TD_##NAME*)t)->d.args.arg_9, ((TD_##NAME*)t)->d.args.arg_10, ((TD_##NAME*)t)->d.args.arg_11);\
 }                                                                                     \
                                                                                       \
+LACE_NO_SANITIZE_THREAD                                                               \
 static inline LACE_UNUSED                                                             \
 lace_task* NAME##_SPAWN(lace_worker* _lace_worker, ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, ATYPE_5 arg_5, ATYPE_6 arg_6, ATYPE_7 arg_7, ATYPE_8 arg_8, ATYPE_9 arg_9, ATYPE_10 arg_10, ATYPE_11 arg_11)\
 {                                                                                     \
@@ -3993,6 +4115,7 @@ lace_task* NAME##_SPAWN(lace_worker* _lace_worker, ATYPE_1 arg_1, ATYPE_2 arg_2,
     return lace_head;                                                                 \
 }                                                                                     \
                                                                                       \
+LACE_NO_SANITIZE_THREAD                                                               \
 static inline LACE_UNUSED                                                             \
 RTYPE NAME##_NEWFRAME(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, ATYPE_5 arg_5, ATYPE_6 arg_6, ATYPE_7 arg_7, ATYPE_8 arg_8, ATYPE_9 arg_9, ATYPE_10 arg_10, ATYPE_11 arg_11)\
 {                                                                                     \
@@ -4005,6 +4128,7 @@ RTYPE NAME##_NEWFRAME(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4
     return ((TD_##NAME *)t)->d.res;                                                   \
 }                                                                                     \
                                                                                       \
+LACE_NO_SANITIZE_THREAD                                                               \
 static inline LACE_UNUSED                                                             \
 void NAME##_TOGETHER(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, ATYPE_5 arg_5, ATYPE_6 arg_6, ATYPE_7 arg_7, ATYPE_8 arg_8, ATYPE_9 arg_9, ATYPE_10 arg_10, ATYPE_11 arg_11)\
 {                                                                                     \
@@ -4045,6 +4169,7 @@ RTYPE NAME##_RUNEX(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, A
     return ((TD_##NAME *)t)->d.res;                                                   \
 }                                                                                     \
                                                                                       \
+LACE_NO_SANITIZE_THREAD                                                               \
 static inline LACE_UNUSED                                                             \
 RTYPE NAME##_SYNC(lace_worker* _lace_worker)                                          \
 {                                                                                     \
@@ -4083,11 +4208,13 @@ static_assert(sizeof(TD_##NAME) <= sizeof(lace_task), "TD_" #NAME " is too large
                                                                                       \
 void NAME##_CALL(lace_worker*, ATYPE_1, ATYPE_2, ATYPE_3, ATYPE_4, ATYPE_5, ATYPE_6, ATYPE_7, ATYPE_8, ATYPE_9, ATYPE_10, ATYPE_11);\
                                                                                       \
+LACE_NO_SANITIZE_THREAD                                                               \
 static void NAME##_WRAP(lace_worker* lace_worker, lace_task* t LACE_UNUSED)           \
 {                                                                                     \
      NAME##_CALL(lace_worker, ((TD_##NAME*)t)->d.args.arg_1, ((TD_##NAME*)t)->d.args.arg_2, ((TD_##NAME*)t)->d.args.arg_3, ((TD_##NAME*)t)->d.args.arg_4, ((TD_##NAME*)t)->d.args.arg_5, ((TD_##NAME*)t)->d.args.arg_6, ((TD_##NAME*)t)->d.args.arg_7, ((TD_##NAME*)t)->d.args.arg_8, ((TD_##NAME*)t)->d.args.arg_9, ((TD_##NAME*)t)->d.args.arg_10, ((TD_##NAME*)t)->d.args.arg_11);\
 }                                                                                     \
                                                                                       \
+LACE_NO_SANITIZE_THREAD                                                               \
 static inline LACE_UNUSED                                                             \
 lace_task* NAME##_SPAWN(lace_worker* _lace_worker, ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, ATYPE_5 arg_5, ATYPE_6 arg_6, ATYPE_7 arg_7, ATYPE_8 arg_8, ATYPE_9 arg_9, ATYPE_10 arg_10, ATYPE_11 arg_11)\
 {                                                                                     \
@@ -4130,6 +4257,7 @@ lace_task* NAME##_SPAWN(lace_worker* _lace_worker, ATYPE_1 arg_1, ATYPE_2 arg_2,
     return lace_head;                                                                 \
 }                                                                                     \
                                                                                       \
+LACE_NO_SANITIZE_THREAD                                                               \
 static inline LACE_UNUSED                                                             \
 void NAME##_NEWFRAME(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, ATYPE_5 arg_5, ATYPE_6 arg_6, ATYPE_7 arg_7, ATYPE_8 arg_8, ATYPE_9 arg_9, ATYPE_10 arg_10, ATYPE_11 arg_11)\
 {                                                                                     \
@@ -4142,6 +4270,7 @@ void NAME##_NEWFRAME(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4,
     return ;                                                                          \
 }                                                                                     \
                                                                                       \
+LACE_NO_SANITIZE_THREAD                                                               \
 static inline LACE_UNUSED                                                             \
 void NAME##_TOGETHER(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, ATYPE_5 arg_5, ATYPE_6 arg_6, ATYPE_7 arg_7, ATYPE_8 arg_8, ATYPE_9 arg_9, ATYPE_10 arg_10, ATYPE_11 arg_11)\
 {                                                                                     \
@@ -4182,6 +4311,7 @@ void NAME##_RUNEX(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, AT
     return ;                                                                          \
 }                                                                                     \
                                                                                       \
+LACE_NO_SANITIZE_THREAD                                                               \
 static inline LACE_UNUSED                                                             \
 void NAME##_SYNC(lace_worker* _lace_worker)                                           \
 {                                                                                     \
@@ -4223,11 +4353,13 @@ static_assert(sizeof(TD_##NAME) <= sizeof(lace_task), "TD_" #NAME " is too large
                                                                                       \
 RTYPE NAME##_CALL(lace_worker*, ATYPE_1, ATYPE_2, ATYPE_3, ATYPE_4, ATYPE_5, ATYPE_6, ATYPE_7, ATYPE_8, ATYPE_9, ATYPE_10, ATYPE_11, ATYPE_12);\
                                                                                       \
+LACE_NO_SANITIZE_THREAD                                                               \
 static void NAME##_WRAP(lace_worker* lace_worker, lace_task* t LACE_UNUSED)           \
 {                                                                                     \
     ((TD_##NAME*)t)->d.res = NAME##_CALL(lace_worker, ((TD_##NAME*)t)->d.args.arg_1, ((TD_##NAME*)t)->d.args.arg_2, ((TD_##NAME*)t)->d.args.arg_3, ((TD_##NAME*)t)->d.args.arg_4, ((TD_##NAME*)t)->d.args.arg_5, ((TD_##NAME*)t)->d.args.arg_6, ((TD_##NAME*)t)->d.args.arg_7, ((TD_##NAME*)t)->d.args.arg_8, ((TD_##NAME*)t)->d.args.arg_9, ((TD_##NAME*)t)->d.args.arg_10, ((TD_##NAME*)t)->d.args.arg_11, ((TD_##NAME*)t)->d.args.arg_12);\
 }                                                                                     \
                                                                                       \
+LACE_NO_SANITIZE_THREAD                                                               \
 static inline LACE_UNUSED                                                             \
 lace_task* NAME##_SPAWN(lace_worker* _lace_worker, ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, ATYPE_5 arg_5, ATYPE_6 arg_6, ATYPE_7 arg_7, ATYPE_8 arg_8, ATYPE_9 arg_9, ATYPE_10 arg_10, ATYPE_11 arg_11, ATYPE_12 arg_12)\
 {                                                                                     \
@@ -4270,6 +4402,7 @@ lace_task* NAME##_SPAWN(lace_worker* _lace_worker, ATYPE_1 arg_1, ATYPE_2 arg_2,
     return lace_head;                                                                 \
 }                                                                                     \
                                                                                       \
+LACE_NO_SANITIZE_THREAD                                                               \
 static inline LACE_UNUSED                                                             \
 RTYPE NAME##_NEWFRAME(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, ATYPE_5 arg_5, ATYPE_6 arg_6, ATYPE_7 arg_7, ATYPE_8 arg_8, ATYPE_9 arg_9, ATYPE_10 arg_10, ATYPE_11 arg_11, ATYPE_12 arg_12)\
 {                                                                                     \
@@ -4282,6 +4415,7 @@ RTYPE NAME##_NEWFRAME(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4
     return ((TD_##NAME *)t)->d.res;                                                   \
 }                                                                                     \
                                                                                       \
+LACE_NO_SANITIZE_THREAD                                                               \
 static inline LACE_UNUSED                                                             \
 void NAME##_TOGETHER(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, ATYPE_5 arg_5, ATYPE_6 arg_6, ATYPE_7 arg_7, ATYPE_8 arg_8, ATYPE_9 arg_9, ATYPE_10 arg_10, ATYPE_11 arg_11, ATYPE_12 arg_12)\
 {                                                                                     \
@@ -4322,6 +4456,7 @@ RTYPE NAME##_RUNEX(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, A
     return ((TD_##NAME *)t)->d.res;                                                   \
 }                                                                                     \
                                                                                       \
+LACE_NO_SANITIZE_THREAD                                                               \
 static inline LACE_UNUSED                                                             \
 RTYPE NAME##_SYNC(lace_worker* _lace_worker)                                          \
 {                                                                                     \
@@ -4360,11 +4495,13 @@ static_assert(sizeof(TD_##NAME) <= sizeof(lace_task), "TD_" #NAME " is too large
                                                                                       \
 void NAME##_CALL(lace_worker*, ATYPE_1, ATYPE_2, ATYPE_3, ATYPE_4, ATYPE_5, ATYPE_6, ATYPE_7, ATYPE_8, ATYPE_9, ATYPE_10, ATYPE_11, ATYPE_12);\
                                                                                       \
+LACE_NO_SANITIZE_THREAD                                                               \
 static void NAME##_WRAP(lace_worker* lace_worker, lace_task* t LACE_UNUSED)           \
 {                                                                                     \
      NAME##_CALL(lace_worker, ((TD_##NAME*)t)->d.args.arg_1, ((TD_##NAME*)t)->d.args.arg_2, ((TD_##NAME*)t)->d.args.arg_3, ((TD_##NAME*)t)->d.args.arg_4, ((TD_##NAME*)t)->d.args.arg_5, ((TD_##NAME*)t)->d.args.arg_6, ((TD_##NAME*)t)->d.args.arg_7, ((TD_##NAME*)t)->d.args.arg_8, ((TD_##NAME*)t)->d.args.arg_9, ((TD_##NAME*)t)->d.args.arg_10, ((TD_##NAME*)t)->d.args.arg_11, ((TD_##NAME*)t)->d.args.arg_12);\
 }                                                                                     \
                                                                                       \
+LACE_NO_SANITIZE_THREAD                                                               \
 static inline LACE_UNUSED                                                             \
 lace_task* NAME##_SPAWN(lace_worker* _lace_worker, ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, ATYPE_5 arg_5, ATYPE_6 arg_6, ATYPE_7 arg_7, ATYPE_8 arg_8, ATYPE_9 arg_9, ATYPE_10 arg_10, ATYPE_11 arg_11, ATYPE_12 arg_12)\
 {                                                                                     \
@@ -4407,6 +4544,7 @@ lace_task* NAME##_SPAWN(lace_worker* _lace_worker, ATYPE_1 arg_1, ATYPE_2 arg_2,
     return lace_head;                                                                 \
 }                                                                                     \
                                                                                       \
+LACE_NO_SANITIZE_THREAD                                                               \
 static inline LACE_UNUSED                                                             \
 void NAME##_NEWFRAME(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, ATYPE_5 arg_5, ATYPE_6 arg_6, ATYPE_7 arg_7, ATYPE_8 arg_8, ATYPE_9 arg_9, ATYPE_10 arg_10, ATYPE_11 arg_11, ATYPE_12 arg_12)\
 {                                                                                     \
@@ -4419,6 +4557,7 @@ void NAME##_NEWFRAME(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4,
     return ;                                                                          \
 }                                                                                     \
                                                                                       \
+LACE_NO_SANITIZE_THREAD                                                               \
 static inline LACE_UNUSED                                                             \
 void NAME##_TOGETHER(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, ATYPE_5 arg_5, ATYPE_6 arg_6, ATYPE_7 arg_7, ATYPE_8 arg_8, ATYPE_9 arg_9, ATYPE_10 arg_10, ATYPE_11 arg_11, ATYPE_12 arg_12)\
 {                                                                                     \
@@ -4459,6 +4598,7 @@ void NAME##_RUNEX(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, AT
     return ;                                                                          \
 }                                                                                     \
                                                                                       \
+LACE_NO_SANITIZE_THREAD                                                               \
 static inline LACE_UNUSED                                                             \
 void NAME##_SYNC(lace_worker* _lace_worker)                                           \
 {                                                                                     \
@@ -4500,11 +4640,13 @@ static_assert(sizeof(TD_##NAME) <= sizeof(lace_task), "TD_" #NAME " is too large
                                                                                       \
 RTYPE NAME##_CALL(lace_worker*, ATYPE_1, ATYPE_2, ATYPE_3, ATYPE_4, ATYPE_5, ATYPE_6, ATYPE_7, ATYPE_8, ATYPE_9, ATYPE_10, ATYPE_11, ATYPE_12, ATYPE_13);\
                                                                                       \
+LACE_NO_SANITIZE_THREAD                                                               \
 static void NAME##_WRAP(lace_worker* lace_worker, lace_task* t LACE_UNUSED)           \
 {                                                                                     \
     ((TD_##NAME*)t)->d.res = NAME##_CALL(lace_worker, ((TD_##NAME*)t)->d.args.arg_1, ((TD_##NAME*)t)->d.args.arg_2, ((TD_##NAME*)t)->d.args.arg_3, ((TD_##NAME*)t)->d.args.arg_4, ((TD_##NAME*)t)->d.args.arg_5, ((TD_##NAME*)t)->d.args.arg_6, ((TD_##NAME*)t)->d.args.arg_7, ((TD_##NAME*)t)->d.args.arg_8, ((TD_##NAME*)t)->d.args.arg_9, ((TD_##NAME*)t)->d.args.arg_10, ((TD_##NAME*)t)->d.args.arg_11, ((TD_##NAME*)t)->d.args.arg_12, ((TD_##NAME*)t)->d.args.arg_13);\
 }                                                                                     \
                                                                                       \
+LACE_NO_SANITIZE_THREAD                                                               \
 static inline LACE_UNUSED                                                             \
 lace_task* NAME##_SPAWN(lace_worker* _lace_worker, ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, ATYPE_5 arg_5, ATYPE_6 arg_6, ATYPE_7 arg_7, ATYPE_8 arg_8, ATYPE_9 arg_9, ATYPE_10 arg_10, ATYPE_11 arg_11, ATYPE_12 arg_12, ATYPE_13 arg_13)\
 {                                                                                     \
@@ -4547,6 +4689,7 @@ lace_task* NAME##_SPAWN(lace_worker* _lace_worker, ATYPE_1 arg_1, ATYPE_2 arg_2,
     return lace_head;                                                                 \
 }                                                                                     \
                                                                                       \
+LACE_NO_SANITIZE_THREAD                                                               \
 static inline LACE_UNUSED                                                             \
 RTYPE NAME##_NEWFRAME(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, ATYPE_5 arg_5, ATYPE_6 arg_6, ATYPE_7 arg_7, ATYPE_8 arg_8, ATYPE_9 arg_9, ATYPE_10 arg_10, ATYPE_11 arg_11, ATYPE_12 arg_12, ATYPE_13 arg_13)\
 {                                                                                     \
@@ -4559,6 +4702,7 @@ RTYPE NAME##_NEWFRAME(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4
     return ((TD_##NAME *)t)->d.res;                                                   \
 }                                                                                     \
                                                                                       \
+LACE_NO_SANITIZE_THREAD                                                               \
 static inline LACE_UNUSED                                                             \
 void NAME##_TOGETHER(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, ATYPE_5 arg_5, ATYPE_6 arg_6, ATYPE_7 arg_7, ATYPE_8 arg_8, ATYPE_9 arg_9, ATYPE_10 arg_10, ATYPE_11 arg_11, ATYPE_12 arg_12, ATYPE_13 arg_13)\
 {                                                                                     \
@@ -4599,6 +4743,7 @@ RTYPE NAME##_RUNEX(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, A
     return ((TD_##NAME *)t)->d.res;                                                   \
 }                                                                                     \
                                                                                       \
+LACE_NO_SANITIZE_THREAD                                                               \
 static inline LACE_UNUSED                                                             \
 RTYPE NAME##_SYNC(lace_worker* _lace_worker)                                          \
 {                                                                                     \
@@ -4637,11 +4782,13 @@ static_assert(sizeof(TD_##NAME) <= sizeof(lace_task), "TD_" #NAME " is too large
                                                                                       \
 void NAME##_CALL(lace_worker*, ATYPE_1, ATYPE_2, ATYPE_3, ATYPE_4, ATYPE_5, ATYPE_6, ATYPE_7, ATYPE_8, ATYPE_9, ATYPE_10, ATYPE_11, ATYPE_12, ATYPE_13);\
                                                                                       \
+LACE_NO_SANITIZE_THREAD                                                               \
 static void NAME##_WRAP(lace_worker* lace_worker, lace_task* t LACE_UNUSED)           \
 {                                                                                     \
      NAME##_CALL(lace_worker, ((TD_##NAME*)t)->d.args.arg_1, ((TD_##NAME*)t)->d.args.arg_2, ((TD_##NAME*)t)->d.args.arg_3, ((TD_##NAME*)t)->d.args.arg_4, ((TD_##NAME*)t)->d.args.arg_5, ((TD_##NAME*)t)->d.args.arg_6, ((TD_##NAME*)t)->d.args.arg_7, ((TD_##NAME*)t)->d.args.arg_8, ((TD_##NAME*)t)->d.args.arg_9, ((TD_##NAME*)t)->d.args.arg_10, ((TD_##NAME*)t)->d.args.arg_11, ((TD_##NAME*)t)->d.args.arg_12, ((TD_##NAME*)t)->d.args.arg_13);\
 }                                                                                     \
                                                                                       \
+LACE_NO_SANITIZE_THREAD                                                               \
 static inline LACE_UNUSED                                                             \
 lace_task* NAME##_SPAWN(lace_worker* _lace_worker, ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, ATYPE_5 arg_5, ATYPE_6 arg_6, ATYPE_7 arg_7, ATYPE_8 arg_8, ATYPE_9 arg_9, ATYPE_10 arg_10, ATYPE_11 arg_11, ATYPE_12 arg_12, ATYPE_13 arg_13)\
 {                                                                                     \
@@ -4684,6 +4831,7 @@ lace_task* NAME##_SPAWN(lace_worker* _lace_worker, ATYPE_1 arg_1, ATYPE_2 arg_2,
     return lace_head;                                                                 \
 }                                                                                     \
                                                                                       \
+LACE_NO_SANITIZE_THREAD                                                               \
 static inline LACE_UNUSED                                                             \
 void NAME##_NEWFRAME(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, ATYPE_5 arg_5, ATYPE_6 arg_6, ATYPE_7 arg_7, ATYPE_8 arg_8, ATYPE_9 arg_9, ATYPE_10 arg_10, ATYPE_11 arg_11, ATYPE_12 arg_12, ATYPE_13 arg_13)\
 {                                                                                     \
@@ -4696,6 +4844,7 @@ void NAME##_NEWFRAME(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4,
     return ;                                                                          \
 }                                                                                     \
                                                                                       \
+LACE_NO_SANITIZE_THREAD                                                               \
 static inline LACE_UNUSED                                                             \
 void NAME##_TOGETHER(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, ATYPE_5 arg_5, ATYPE_6 arg_6, ATYPE_7 arg_7, ATYPE_8 arg_8, ATYPE_9 arg_9, ATYPE_10 arg_10, ATYPE_11 arg_11, ATYPE_12 arg_12, ATYPE_13 arg_13)\
 {                                                                                     \
@@ -4736,6 +4885,7 @@ void NAME##_RUNEX(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, AT
     return ;                                                                          \
 }                                                                                     \
                                                                                       \
+LACE_NO_SANITIZE_THREAD                                                               \
 static inline LACE_UNUSED                                                             \
 void NAME##_SYNC(lace_worker* _lace_worker)                                           \
 {                                                                                     \
@@ -4777,11 +4927,13 @@ static_assert(sizeof(TD_##NAME) <= sizeof(lace_task), "TD_" #NAME " is too large
                                                                                       \
 RTYPE NAME##_CALL(lace_worker*, ATYPE_1, ATYPE_2, ATYPE_3, ATYPE_4, ATYPE_5, ATYPE_6, ATYPE_7, ATYPE_8, ATYPE_9, ATYPE_10, ATYPE_11, ATYPE_12, ATYPE_13, ATYPE_14);\
                                                                                       \
+LACE_NO_SANITIZE_THREAD                                                               \
 static void NAME##_WRAP(lace_worker* lace_worker, lace_task* t LACE_UNUSED)           \
 {                                                                                     \
     ((TD_##NAME*)t)->d.res = NAME##_CALL(lace_worker, ((TD_##NAME*)t)->d.args.arg_1, ((TD_##NAME*)t)->d.args.arg_2, ((TD_##NAME*)t)->d.args.arg_3, ((TD_##NAME*)t)->d.args.arg_4, ((TD_##NAME*)t)->d.args.arg_5, ((TD_##NAME*)t)->d.args.arg_6, ((TD_##NAME*)t)->d.args.arg_7, ((TD_##NAME*)t)->d.args.arg_8, ((TD_##NAME*)t)->d.args.arg_9, ((TD_##NAME*)t)->d.args.arg_10, ((TD_##NAME*)t)->d.args.arg_11, ((TD_##NAME*)t)->d.args.arg_12, ((TD_##NAME*)t)->d.args.arg_13, ((TD_##NAME*)t)->d.args.arg_14);\
 }                                                                                     \
                                                                                       \
+LACE_NO_SANITIZE_THREAD                                                               \
 static inline LACE_UNUSED                                                             \
 lace_task* NAME##_SPAWN(lace_worker* _lace_worker, ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, ATYPE_5 arg_5, ATYPE_6 arg_6, ATYPE_7 arg_7, ATYPE_8 arg_8, ATYPE_9 arg_9, ATYPE_10 arg_10, ATYPE_11 arg_11, ATYPE_12 arg_12, ATYPE_13 arg_13, ATYPE_14 arg_14)\
 {                                                                                     \
@@ -4824,6 +4976,7 @@ lace_task* NAME##_SPAWN(lace_worker* _lace_worker, ATYPE_1 arg_1, ATYPE_2 arg_2,
     return lace_head;                                                                 \
 }                                                                                     \
                                                                                       \
+LACE_NO_SANITIZE_THREAD                                                               \
 static inline LACE_UNUSED                                                             \
 RTYPE NAME##_NEWFRAME(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, ATYPE_5 arg_5, ATYPE_6 arg_6, ATYPE_7 arg_7, ATYPE_8 arg_8, ATYPE_9 arg_9, ATYPE_10 arg_10, ATYPE_11 arg_11, ATYPE_12 arg_12, ATYPE_13 arg_13, ATYPE_14 arg_14)\
 {                                                                                     \
@@ -4836,6 +4989,7 @@ RTYPE NAME##_NEWFRAME(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4
     return ((TD_##NAME *)t)->d.res;                                                   \
 }                                                                                     \
                                                                                       \
+LACE_NO_SANITIZE_THREAD                                                               \
 static inline LACE_UNUSED                                                             \
 void NAME##_TOGETHER(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, ATYPE_5 arg_5, ATYPE_6 arg_6, ATYPE_7 arg_7, ATYPE_8 arg_8, ATYPE_9 arg_9, ATYPE_10 arg_10, ATYPE_11 arg_11, ATYPE_12 arg_12, ATYPE_13 arg_13, ATYPE_14 arg_14)\
 {                                                                                     \
@@ -4876,6 +5030,7 @@ RTYPE NAME##_RUNEX(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, A
     return ((TD_##NAME *)t)->d.res;                                                   \
 }                                                                                     \
                                                                                       \
+LACE_NO_SANITIZE_THREAD                                                               \
 static inline LACE_UNUSED                                                             \
 RTYPE NAME##_SYNC(lace_worker* _lace_worker)                                          \
 {                                                                                     \
@@ -4914,11 +5069,13 @@ static_assert(sizeof(TD_##NAME) <= sizeof(lace_task), "TD_" #NAME " is too large
                                                                                       \
 void NAME##_CALL(lace_worker*, ATYPE_1, ATYPE_2, ATYPE_3, ATYPE_4, ATYPE_5, ATYPE_6, ATYPE_7, ATYPE_8, ATYPE_9, ATYPE_10, ATYPE_11, ATYPE_12, ATYPE_13, ATYPE_14);\
                                                                                       \
+LACE_NO_SANITIZE_THREAD                                                               \
 static void NAME##_WRAP(lace_worker* lace_worker, lace_task* t LACE_UNUSED)           \
 {                                                                                     \
      NAME##_CALL(lace_worker, ((TD_##NAME*)t)->d.args.arg_1, ((TD_##NAME*)t)->d.args.arg_2, ((TD_##NAME*)t)->d.args.arg_3, ((TD_##NAME*)t)->d.args.arg_4, ((TD_##NAME*)t)->d.args.arg_5, ((TD_##NAME*)t)->d.args.arg_6, ((TD_##NAME*)t)->d.args.arg_7, ((TD_##NAME*)t)->d.args.arg_8, ((TD_##NAME*)t)->d.args.arg_9, ((TD_##NAME*)t)->d.args.arg_10, ((TD_##NAME*)t)->d.args.arg_11, ((TD_##NAME*)t)->d.args.arg_12, ((TD_##NAME*)t)->d.args.arg_13, ((TD_##NAME*)t)->d.args.arg_14);\
 }                                                                                     \
                                                                                       \
+LACE_NO_SANITIZE_THREAD                                                               \
 static inline LACE_UNUSED                                                             \
 lace_task* NAME##_SPAWN(lace_worker* _lace_worker, ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, ATYPE_5 arg_5, ATYPE_6 arg_6, ATYPE_7 arg_7, ATYPE_8 arg_8, ATYPE_9 arg_9, ATYPE_10 arg_10, ATYPE_11 arg_11, ATYPE_12 arg_12, ATYPE_13 arg_13, ATYPE_14 arg_14)\
 {                                                                                     \
@@ -4961,6 +5118,7 @@ lace_task* NAME##_SPAWN(lace_worker* _lace_worker, ATYPE_1 arg_1, ATYPE_2 arg_2,
     return lace_head;                                                                 \
 }                                                                                     \
                                                                                       \
+LACE_NO_SANITIZE_THREAD                                                               \
 static inline LACE_UNUSED                                                             \
 void NAME##_NEWFRAME(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, ATYPE_5 arg_5, ATYPE_6 arg_6, ATYPE_7 arg_7, ATYPE_8 arg_8, ATYPE_9 arg_9, ATYPE_10 arg_10, ATYPE_11 arg_11, ATYPE_12 arg_12, ATYPE_13 arg_13, ATYPE_14 arg_14)\
 {                                                                                     \
@@ -4973,6 +5131,7 @@ void NAME##_NEWFRAME(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4,
     return ;                                                                          \
 }                                                                                     \
                                                                                       \
+LACE_NO_SANITIZE_THREAD                                                               \
 static inline LACE_UNUSED                                                             \
 void NAME##_TOGETHER(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, ATYPE_5 arg_5, ATYPE_6 arg_6, ATYPE_7 arg_7, ATYPE_8 arg_8, ATYPE_9 arg_9, ATYPE_10 arg_10, ATYPE_11 arg_11, ATYPE_12 arg_12, ATYPE_13 arg_13, ATYPE_14 arg_14)\
 {                                                                                     \
@@ -5013,6 +5172,7 @@ void NAME##_RUNEX(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, AT
     return ;                                                                          \
 }                                                                                     \
                                                                                       \
+LACE_NO_SANITIZE_THREAD                                                               \
 static inline LACE_UNUSED                                                             \
 void NAME##_SYNC(lace_worker* _lace_worker)                                           \
 {                                                                                     \

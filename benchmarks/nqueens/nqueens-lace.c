@@ -14,9 +14,9 @@ long nqueens_CALL(lace_worker* worker, const int* a, int n, int d, int i)
 {
     // copy queens from a to new array aa and check if ok
 #if defined(_MSC_VER) && !defined(__clang__)
-    int* aa = (int*)_alloca((d + 1) * sizeof(*aa));
+    int* aa = (int*)_alloca((d + 2) * sizeof(*aa));
 #else
-    int aa[d + 1];
+    int aa[d + 2]; // allocate one more to avoid UB
 #endif
 
     for (int j = 0; j < d; ++j) {

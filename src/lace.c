@@ -25,6 +25,7 @@
 #include <lace.h>
 
 #include <errno.h> // for errno
+#include <inttypes.h> // for PRIu64
 #include <stddef.h> // for size_t
 #include <stdio.h>  // for fprintf
 #include <stdlib.h> // for memalign, malloc
@@ -229,7 +230,7 @@ lace_newframe_t lace_newframe;
  * Get the number of workers
  */
 unsigned int
-lace_worker_count()
+lace_worker_count(void)
 {
     return n_workers;
 }
@@ -237,7 +238,7 @@ lace_worker_count()
 /**
  * If we are collecting PIE times, then we need some helper functions.
  */
-static uint64_t count_at_start, count_at_end;
+static uint64_t count_at_start;
 static uint64_t us_elapsed_timer;
 
 static inline uint64_t lace_now_us(void)
@@ -270,6 +271,7 @@ static void us_elapsed_start(void)
     us_elapsed_timer = lace_now_us();
 }
 
+LACE_UNUSED
 static unsigned long long us_elapsed(void)
 {
     return (unsigned long long)(lace_now_us() - us_elapsed_timer);
@@ -290,7 +292,7 @@ barrier_t lace_bar;
  * Enter the Lace barrier and wait until all workers have entered the Lace barrier.
  */
 void
-lace_barrier()
+lace_barrier(void)
 {
     int wait = atomic_load_explicit(&lace_bar.wait, memory_order_relaxed);
     if ((int)n_workers == 1 + atomic_fetch_add_explicit(&lace_bar.count, 1, memory_order_acq_rel)) {
@@ -312,7 +314,7 @@ lace_barrier()
  * Initialize the Lace barrier
  */
 static void
-lace_barrier_init()
+lace_barrier_init(void)
 {
     atomic_init(&lace_bar.count, 0);
     atomic_init(&lace_bar.leaving, 0);
@@ -323,7 +325,7 @@ lace_barrier_init()
  * Destroy the Lace barrier (just wait until all are exited)
  */
 static void
-lace_barrier_destroy()
+lace_barrier_destroy(void)
 {
     while (atomic_load_explicit(&lace_bar.leaving, memory_order_acquire) > 0) {
         // possibly pause/yield
@@ -635,6 +637,7 @@ void lace_steal_random(lace_worker *__lace_worker)
  */
 VOID_TASK_1(lace_steal_loop, atomic_int*, quit)
 
+LACE_NO_SANITIZE_THREAD
 void lace_steal_loop_CALL(lace_worker* lace_worker, atomic_int* quit)
 {
     // Determine who I am
@@ -686,8 +689,9 @@ void lace_steal_loop_CALL(lace_worker* lace_worker, atomic_int* quit)
 
 #if LACE_BACKOFF
         if (backoff > 1000) { // only back off after 1000 attempts
-            uint64_t delay_us = (1ULL << ((backoff-1000)/5)); // exponential backoff
-            if (delay_us > 5000) delay_us = 5000; // cap at 5ms
+            uint64_t delay_us;
+            if (backoff > 2000) delay_us = 5000;
+            else delay_us = (1ULL << ((backoff-1000)/100)); // exponential backoff
 #if LACE_PIE_TIMES
             uint64_t prev = lace_gethrtime();
 #endif
@@ -1022,7 +1026,7 @@ static uint64_t ctr_all[CTR_MAX];
  * Reset the counters of Lace.
  */
 void
-lace_count_reset()
+lace_count_reset(void)
 {
 #if LACE_COUNT_EVENTS
     unsigned int i;
@@ -1066,20 +1070,20 @@ lace_count_report_file(FILE *file)
 
 #if LACE_COUNT_TASKS
     for (i=0;i<n_workers;i++) {
-        fprintf(file, "lace_tasks (%d): %zu\n", i, workers_p[i]->ctr[CTR_tasks]);
+        fprintf(file, "Tasks (%d): %" PRIu64 "\n", i, workers_p[i]->ctr[CTR_tasks]);
     }
-    fprintf(file, "lace_tasks (sum): %zu\n", ctr_all[CTR_tasks]);
+    fprintf(file, "Tasks (sum): %" PRIu64 "\n", ctr_all[CTR_tasks]);
     fprintf(file, "\n");
 #endif
 
 #if LACE_COUNT_STEALS
     for (i=0;i<n_workers;i++) {
-        fprintf(file, "Steals (%d): %zu good/%zu busy of %zu tries; leaps: %zu good/%zu busy of %zu tries\n", i,
+        fprintf(file, "Steals (%d): %" PRIu64 " good/%" PRIu64 " busy of %" PRIu64 " tries; leaps: %" PRIu64 " good/%" PRIu64 " busy of %" PRIu64 " tries\n", i,
             workers_p[i]->ctr[CTR_steals], workers_p[i]->ctr[CTR_steal_busy],
             workers_p[i]->ctr[CTR_steal_tries], workers_p[i]->ctr[CTR_leaps],
             workers_p[i]->ctr[CTR_leap_busy], workers_p[i]->ctr[CTR_leap_tries]);
     }
-    fprintf(file, "Steals (sum): %zu good/%zu busy of %zu tries; leaps: %zu good/%zu busy of %zu tries\n", 
+    fprintf(file, "Steals (sum): %" PRIu64 " good/%" PRIu64 " busy of %" PRIu64 " tries; leaps: %" PRIu64 " good/%" PRIu64 " busy of %" PRIu64 " tries\n", 
         ctr_all[CTR_steals], ctr_all[CTR_steal_busy],
         ctr_all[CTR_steal_tries], ctr_all[CTR_leaps],
         ctr_all[CTR_leap_busy], ctr_all[CTR_leap_tries]);
@@ -1089,29 +1093,28 @@ lace_count_report_file(FILE *file)
 #if LACE_COUNT_STEALS && LACE_COUNT_TASKS
     for (i=0;i<n_workers;i++) {
         if ((workers_p[i]->ctr[CTR_steals]+workers_p[i]->ctr[CTR_leaps]) > 0) {
-            fprintf(file, "lace_tasks per steal (%d): %zu\n", i,
+            fprintf(file, "Tasks per steal (%d): %" PRIu64 "\n", i,
                 workers_p[i]->ctr[CTR_tasks]/(workers_p[i]->ctr[CTR_steals]+workers_p[i]->ctr[CTR_leaps]));
         }
     }
     if ((ctr_all[CTR_steals]+ctr_all[CTR_leaps]) > 0) {
-        fprintf(file, "lace_tasks per steal (sum): %zu\n", ctr_all[CTR_tasks]/(ctr_all[CTR_steals]+ctr_all[CTR_leaps]));
+        fprintf(file, "Tasks per steal (sum): %" PRIu64 "\n", ctr_all[CTR_tasks]/(ctr_all[CTR_steals]+ctr_all[CTR_leaps]));
     }
     fprintf(file, "\n");
 #endif
 
 #if LACE_COUNT_SPLITS
     for (i=0;i<n_workers;i++) {
-        fprintf(file, "Splits (%d): %zu shrinks, %zu grows, %zu outgoing requests\n", i,
+        fprintf(file, "Splits (%d): %" PRIu64 " shrinks, %" PRIu64 " grows, %" PRIu64 " outgoing requests\n", i,
             workers_p[i]->ctr[CTR_split_shrink], workers_p[i]->ctr[CTR_split_grow], workers_p[i]->ctr[CTR_split_req]);
     }
-    fprintf(file, "Splits (sum): %zu shrinks, %zu grows, %zu outgoing requests\n",
+    fprintf(file, "Splits (sum): %" PRIu64 " shrinks, %" PRIu64 " grows, %" PRIu64 " outgoing requests\n",
         ctr_all[CTR_split_shrink], ctr_all[CTR_split_grow], ctr_all[CTR_split_req]);
     fprintf(file, "\n");
 #endif
 
 #if LACE_PIE_TIMES
-    count_at_end = lace_gethrtime();
-
+    uint64_t count_at_end = lace_gethrtime();
     double ms = us_elapsed() / 1000.0;
     double count_per_ms = (double)(count_at_end - count_at_start) / ms;
     double dcpm = (double)count_per_ms;
@@ -1157,7 +1160,7 @@ lace_count_report_file(FILE *file)
  * End Lace. All Workers are signaled to quit.
  * This function waits until all threads are done, then returns.
  */
-void lace_stop()
+void lace_stop(void)
 {
     lace_quits = 1;
 
@@ -1419,6 +1422,7 @@ lace_abort_stack_overflow(void)
     exit(-1);
 }
 
+LACE_NO_SANITIZE_THREAD
 lace_worker_public*
 lace_steal(lace_worker *self, lace_worker_public *victim)
 {
@@ -1455,6 +1459,7 @@ lace_steal(lace_worker *self, lace_worker_public *victim)
     return LACE_NOWORK;
 }
 
+LACE_NO_SANITIZE_THREAD
 int
 lace_shrink_shared(lace_worker *w)
 {

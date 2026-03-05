@@ -263,6 +263,16 @@ echo '
 
 #endif
 
+#if defined(__has_feature)
+    #if __has_feature(thread_sanitizer)
+        #define LACE_NO_SANITIZE_THREAD __attribute__((no_sanitize("thread")))
+    #else
+        #define LACE_NO_SANITIZE_THREAD
+    #endif
+#else
+    #define LACE_NO_SANITIZE_THREAD
+#endif
+
 // Architecture configuration
 
 // We add padding to some datastructures in order to avoid false sharing.
@@ -968,11 +978,13 @@ static_assert(sizeof(TD_##NAME) <= sizeof(lace_task), \"TD_\" #NAME \" is too la
 
 $RTYPE NAME##_CALL(lace_worker*$DECL_ARGS);
 
+LACE_NO_SANITIZE_THREAD
 static void NAME##_WRAP(lace_worker* lace_worker, lace_task* t LACE_UNUSED)
 {
     $SAVE_RVAL NAME##_CALL(lace_worker$TASK_GET_FROM_t);
 }
 
+LACE_NO_SANITIZE_THREAD
 static inline LACE_UNUSED
 lace_task* NAME##_SPAWN(lace_worker* _lace_worker$FUN_ARGS)
 {
@@ -1015,6 +1027,7 @@ lace_task* NAME##_SPAWN(lace_worker* _lace_worker$FUN_ARGS)
     return lace_head;
 }
 
+LACE_NO_SANITIZE_THREAD
 static inline LACE_UNUSED
 $RTYPE NAME##_NEWFRAME($RUN_ARGS)
 {
@@ -1027,6 +1040,7 @@ $RTYPE NAME##_NEWFRAME($RUN_ARGS)
     return $RETURN_RES;
 }
 
+LACE_NO_SANITIZE_THREAD
 static inline LACE_UNUSED
 void NAME##_TOGETHER($RUN_ARGS)
 {
@@ -1067,6 +1081,7 @@ $RTYPE NAME##_RUNEX($RUN_ARGS)
     return $RETURN_RES;
 }
 
+LACE_NO_SANITIZE_THREAD
 static inline LACE_UNUSED
 $RTYPE NAME##_SYNC(lace_worker* _lace_worker)
 {
