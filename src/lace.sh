@@ -1001,7 +1001,8 @@ lace_task* NAME##_SPAWN(lace_worker* _lace_worker$FUN_ARGS)
     t->f = &NAME##_WRAP;
     atomic_store_explicit(&t->thief, THIEF_TASK, memory_order_relaxed);
     $TASK_INIT
-    atomic_thread_fence(memory_order_acquire);
+    atomic_thread_fence(memory_order_release);
+    /* do not allow later stores to float above */
 
     lace_worker_public *wt = _lace_worker->_public;
     if (LACE_UNLIKELY(_lace_worker->allstolen)) {
@@ -1009,7 +1010,7 @@ lace_task* NAME##_SPAWN(lace_worker* _lace_worker$FUN_ARGS)
         head = (uint32_t)(lace_head - _lace_worker->dq);
         ts.ts.tail = head;
         ts.ts.split = head+1;
-        wt->ts.v = ts.v;
+        atomic_store_explicit(&wt->ts.v, ts.v, memory_order_relaxed);;
         wt->allstolen = 0;
         _lace_worker->split = lace_head+1;
         _lace_worker->allstolen = 0;
@@ -1017,7 +1018,7 @@ lace_task* NAME##_SPAWN(lace_worker* _lace_worker$FUN_ARGS)
         head = (uint32_t)(lace_head - _lace_worker->dq);
         split = (uint32_t)(_lace_worker->split - _lace_worker->dq);
         newsplit = (split + head + 2)/2;
-        wt->ts.ts.split = newsplit;
+        atomic_store_explicit(&wt->ts.ts.split, newsplit, memory_order_relaxed);
         _lace_worker->split = _lace_worker->dq + newsplit;
         wt->movesplit = 0;
         PR_COUNTSPLITS(_lace_worker, CTR_split_grow);

@@ -1428,7 +1428,7 @@ lace_steal(lace_worker *self, lace_worker_public *victim)
 {
     if (victim != NULL && !victim->allstolen) {
         TailSplitNA ts;
-        ts.v = victim->ts.v;
+        ts.v = atomic_load_explicit(&victim->ts.v, memory_order_relaxed);
         if (ts.ts.tail < ts.ts.split) {
             TailSplitNA ts_new;
             ts_new.v = ts.v;
@@ -1465,15 +1465,15 @@ lace_shrink_shared(lace_worker *w)
 {
     lace_worker_public *wt = w->_public;
     TailSplitNA ts; /* Use non-atomic version to emit better code */
-    ts.v = wt->ts.v; /* Force in 1 memory read */
+    ts.v = atomic_load_explicit(&wt->ts.v, memory_order_relaxed); /* Force in 1 memory read */
     uint32_t tail = ts.ts.tail;
     uint32_t split = ts.ts.split;
 
     if (tail != split) {
         uint32_t newsplit = (tail + split)/2;
         atomic_store_explicit(&wt->ts.ts.split, newsplit, memory_order_relaxed); /* emit normal write */
-        atomic_thread_fence(memory_order_seq_cst);
-        tail = wt->ts.ts.tail;
+        atomic_thread_fence(memory_order_seq_cst); /* prevent StoreLoad rerdering */
+        tail = atomic_load_explicit(&wt->ts.ts.tail, memory_order_relaxed); /* emit normal read */
         if (tail != split) {
             if (LACE_UNLIKELY(tail > newsplit)) {
                 newsplit = (tail + split) / 2;
@@ -1553,9 +1553,9 @@ lace_sync(lace_worker *w, lace_task *head)
         lace_task *t = w->split;
         size_t diff = head - t;
         diff = (diff + 1) / 2;
-        w->split = t + diff;
-        //wt->ts.ts.split += diff;
-        atomic_fetch_add_explicit(&wt->ts.ts.split, (uint32_t)diff, memory_order_relaxed); // TODO is this correct?
+        lace_task *newsplit = t + diff;
+        w->split = newsplit;
+        atomic_store_explicit(&wt->ts.ts.split, (uint32_t)(newsplit-w->dq), memory_order_relaxed);
         wt->movesplit = 0;
         PR_COUNTSPLITS(w, CTR_split_grow);
     }
