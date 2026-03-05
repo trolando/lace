@@ -1482,6 +1482,8 @@ lace_shrink_shared(lace_worker *w)
             w->split = w->dq + newsplit;
             PR_COUNTSPLITS(w, CTR_split_shrink);
             return 0;
+        } else {
+            w->split = w->dq + split;
         }
     }
 
@@ -1543,6 +1545,8 @@ lace_leapfrog(lace_worker *lace_worker)
 int
 lace_sync(lace_worker *w, lace_task *head)
 {
+    /* note: head is decreased prior to entering lace_sync,
+       so w->split > head just means w->split == head + 1 */
     if ((w->allstolen) || (w->split > head && lace_shrink_shared(w))) {
         lace_leapfrog(w);
         return 1;
