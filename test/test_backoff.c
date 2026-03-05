@@ -1,18 +1,20 @@
 #include <stdio.h>
 #include <stdlib.h>
-#include <time.h>
 
 #include <lace.h>
 
-#if LACE_MSVC
+#if defined(_WIN32)
     #define WIN32_LEAN_AND_MEAN
     #define NOMINMAX
     #include <windows.h>
+#else
+    #include <time.h>
+    #include <sys/resource.h>
 #endif
 
 double wctime(void)
 {
-#if LACE_MSVC
+#if defined(_WIN32)
     LARGE_INTEGER now, freq;
     QueryPerformanceCounter(&now);
     QueryPerformanceFrequency(&freq);
@@ -23,6 +25,26 @@ double wctime(void)
     return (double)tv.tv_sec + 1e-9 * (double)tv.tv_nsec;
 #endif
 }
+
+#if defined(_WIN32)
+static double cpu_time_seconds(void)
+{
+    FILETIME create, exit, kernel, user;
+    GetProcessTimes(GetCurrentProcess(), &create, &exit, &kernel, &user);
+    /* FILETIME is in 100-nanosecond intervals */
+    uint64_t k = ((uint64_t)kernel.dwHighDateTime << 32) | kernel.dwLowDateTime;
+    uint64_t u = ((uint64_t)user.dwHighDateTime << 32) | user.dwLowDateTime;
+    return (k + u) / 1e7;
+}
+#else
+static double cpu_time_seconds(void)
+{
+    struct rusage ru;
+    getrusage(RUSAGE_SELF, &ru);
+    return ru.ru_utime.tv_sec + ru.ru_utime.tv_usec / 1e6
+         + ru.ru_stime.tv_sec + ru.ru_stime.tv_usec / 1e6;
+}
+#endif
 
 VOID_TASK_1(sleeptask, long, us)
 void sleeptask_CALL(lace_worker *lace, long us)
@@ -50,50 +72,48 @@ main (int argc, char *argv[])
         n_workers = atoi(argv[1]);
     }
 
+#if LACE_BACKOFF
+    printf("Running test_backoff LACE_BACKOFF: ON\n\n");
+#else
+    printf("Running test_backoff LACE_BACKOFF: OFF\n\n");
+#endif
+
     lace_set_verbosity(1);
     lace_start(n_workers, 0, 0);
-    double time0 = wctime();
-    long res = pfib(35);
-    printf("1 bla: %ld\n", res);
-    double time1 = wctime();
-    res = pfib(35);
-    printf("2 bla: %ld\n", res);
-    double time2 = wctime();
-    res = pfib(35);
-    printf("3 bla: %ld\n", res);
-    double time3 = wctime();
-    sleeptask(1000000);
-    double time4 = wctime();
-    res = pfib(35);
-    printf("4 bla: %ld\n", res);
-    double time5 = wctime();
-    res = pfib(35);
-    printf("5 bla: %ld\n", res);
-    double time6 = wctime();
-    res = pfib(35);
-    printf("6 bla: %ld\n", res);
-    double time7 = wctime();
-    sleeptask(1000000);
-    double time8 = wctime();
-    res = pfib(35);
-    printf("7 bla: %ld\n", res);
-    double time9 = wctime();
-    res = pfib(35);
-    printf("8 bla: %ld\n", res);
-    double time10 = wctime();
-    res = pfib(35);
-    printf("9 bla: %ld\n", res);
-    double time11 = wctime();
-    lace_stop();
 
-    printf("Calculating pfib(35) -: %f\n", (time2-time1));
-    printf("Calculating pfib(35) -: %f\n", (time3-time2));
-    printf("Calculating pfib(35) +: %f\n", (time5-time4));
-    printf("Calculating pfib(35) -: %f\n", (time6-time5));
-    printf("Calculating pfib(35) -: %f\n", (time7-time6));
-    printf("Calculating pfib(35) +: %f\n", (time9-time8));
-    printf("Calculating pfib(35) -: %f\n", (time10-time9));
-    printf("Calculating pfib(35) -: %f\n", (time11-time10));
+    for (int sus=0; sus<=1; sus++) {
+        if (sus) lace_suspend();
+        for (int i=0; i<10; i++) pfib(20); // some startup workload
+        for (int zzz=0; zzz<=1; zzz++) {
+            double cpu_before_1 = cpu_time_seconds();
+            double before_1 = wctime();
+            double sleep_1 = 0;
+            for (int i=0; i<200; i++) {
+                pfib(10);
+                double bef = wctime();
+                if (zzz) lace_sleep_us(10000);
+                double aft = wctime();
+                sleep_1 += (aft-bef);
+            }
+            double after_1 = wctime();
+            double cpu_after_1 = cpu_time_seconds();
+
+            if (sus) {
+                if (zzz) printf("\nWITH suspend WITH sleep\n");
+                else printf("\nWITH suspend WITHOUT sleep\n");
+            } else {
+                if (zzz) printf("\nWITHOUT suspend WITH sleep\n");
+                else printf("\nWITHOUT suspend WITHOUT sleep\n");
+            }
+            printf("WC time:     %f sec\n", (after_1-before_1));
+            printf("Sleep time:  %f sec\n", sleep_1);
+            printf("Wake time:   %f sec\n", (after_1-before_1-sleep_1));
+            printf("CPU time:    %f sec\n", (cpu_after_1-cpu_before_1));
+        }
+        if (sus) lace_resume();
+    }
+
+    lace_stop();
 
     return 0;
 }

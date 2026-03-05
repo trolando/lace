@@ -43,32 +43,6 @@ int pfib_CALL(lace_worker* worker, int n)
     return m+k;
 }
 
-void
-runtests(int n_workers)
-{
-    // first run sfib a few times
-    for (int i=0; i<10; i++) sfib(35);
-
-    double time = 0;
-
-    for (int i=0; i<10; i++) {
-        // Initialize the Lace framework for <n_workers> workers.
-        lace_start(n_workers, 0, 0);
-        lace_suspend();
-
-        pfib(30);
-        sfib(30);
-        pfib(30);
-        sfib(30);
-        pfib(30);
-        sfib(30);
-        pfib(30);
-
-        lace_resume();
-        lace_stop();
-    }
-}
-
 int
 main (int argc, char *argv[])
 {
@@ -101,10 +75,21 @@ main (int argc, char *argv[])
     printf("Time to lace_stop():   %f sec\n", part2);
     printf("Time per cycle:        %f sec\n", (part1+part2)/1600.0);
 
-    printf("Test 2: 10 iterations of suspend/resume mixed with a small load\n");
+    printf("Test 2: 1000 tasks, with/without suspension\n");
 
-    for (int i=0; i<=n_workers; i++) {
-        runtests(i);
+    {
+        lace_start(n_workers, 0, 0);
+        for (int i=0; i<100; i++) pfib(10);
+        double before_1 = wctime();
+        for (int i=0; i<1000; i++) pfib(10);
+        double after_1 = wctime();
+        lace_suspend();
+        double before_2 = wctime();
+        for (int i=0; i<1000; i++) pfib(10);
+        double after_2 = wctime();
+        lace_stop();
+        printf("Time without suspend: %f sec\n", (after_1-before_1));
+        printf("Time with suspend:    %f sec\n", (after_2-before_2));
     }
 
     return 0;
