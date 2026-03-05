@@ -294,8 +294,6 @@ typedef struct _lace_task lace_task;
  * Lifecycle functions
  * - lace_set_verbosity
  * - lace_start
- * - lace_suspend
- * - lace_resume
  * - lace_stop
  **************************************/
 
@@ -312,16 +310,6 @@ void lace_set_verbosity(int level);
  * If <stacksize> is set to 0, uses the minimum of 16M and the stack size of the calling thread.
  */
 void lace_start(unsigned int n_workers, size_t dqsize, size_t stacksize);
-
-/**
- * Suspend all workers. Do not call this from inside Lace threads.
- */
-void lace_suspend(void);
-
-/**
- * Resume all workers. Do not call this from inside Lace threads.
- */
-void lace_resume(void);
 
 /**
  * Stop Lace. Do not call this from inside Lace threads.

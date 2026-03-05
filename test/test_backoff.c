@@ -81,36 +81,27 @@ main (int argc, char *argv[])
     lace_set_verbosity(1);
     lace_start(n_workers, 0, 0);
 
-    for (int sus=0; sus<=1; sus++) {
-        if (sus) lace_suspend();
+    for (int zzz=0; zzz<=1; zzz++) {
         for (int i=0; i<10; i++) pfib(20); // some startup workload
-        for (int zzz=0; zzz<=1; zzz++) {
-            double cpu_before_1 = cpu_time_seconds();
-            double before_1 = wctime();
-            double sleep_1 = 0;
-            for (int i=0; i<200; i++) {
-                pfib(10);
-                double bef = wctime();
-                if (zzz) lace_sleep_us(10000);
-                double aft = wctime();
-                sleep_1 += (aft-bef);
-            }
-            double after_1 = wctime();
-            double cpu_after_1 = cpu_time_seconds();
-
-            if (sus) {
-                if (zzz) printf("\nWITH suspend WITH sleep\n");
-                else printf("\nWITH suspend WITHOUT sleep\n");
-            } else {
-                if (zzz) printf("\nWITHOUT suspend WITH sleep\n");
-                else printf("\nWITHOUT suspend WITHOUT sleep\n");
-            }
-            printf("WC time:     %f sec\n", (after_1-before_1));
-            printf("Sleep time:  %f sec\n", sleep_1);
-            printf("Wake time:   %f sec\n", (after_1-before_1-sleep_1));
-            printf("CPU time:    %f sec\n", (cpu_after_1-cpu_before_1));
+        double cpu_before_1 = cpu_time_seconds();
+        double before_1 = wctime();
+        double sleep_1 = 0;
+        for (int i=0; i<200; i++) {
+            pfib(10);
+            double bef = wctime();
+            if (zzz) lace_sleep_us(10000);
+            double aft = wctime();
+            sleep_1 += (aft-bef);
         }
-        if (sus) lace_resume();
+        double after_1 = wctime();
+        double cpu_after_1 = cpu_time_seconds();
+
+        if (zzz) printf("\nWITH sleep\n");
+        else printf("\nWITHOUT sleep\n");
+        printf("WC time:     %f sec\n", (after_1-before_1));
+        printf("Sleep time:  %f sec\n", sleep_1);
+        printf("Wake time:   %f sec\n", (after_1-before_1-sleep_1));
+        printf("CPU time:    %f sec\n", (cpu_after_1-cpu_before_1));
     }
 
     lace_stop();

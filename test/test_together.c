@@ -101,7 +101,6 @@ runtests(int n_workers)
 {
     // Initialize the Lace framework for <n_workers> workers.
     lace_start(n_workers, 0, 0);
-    lace_suspend();  // actually start suspended, Lace autoresumes.
 
     worker_counter = (int*)malloc(lace_worker_count() * sizeof(int));
 
@@ -154,7 +153,7 @@ main (int argc, char *argv[])
 
     lace_set_verbosity(0);
 
-#define EXECUTIONS 3
+#define EXECUTIONS 5
 
     for (int i=0; i<EXECUTIONS; i++) {
         printf("### RUNNING TEST %d OF %d ###\n", i+1, EXECUTIONS);

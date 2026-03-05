@@ -8,11 +8,6 @@ set_source_files_properties(test_together.c PROPERTIES LANGUAGE C)
 target_link_libraries(test_together PRIVATE lace::lace)
 add_test(NAME test_together COMMAND test_together)
 
-add_executable(test_suspend test_suspend.c)
-set_source_files_properties(test_suspend.c PROPERTIES LANGUAGE C)
-target_link_libraries(test_suspend PRIVATE lace::lace)
-add_test(NAME test_suspend COMMAND test_suspend)
-
 add_executable(test_backoff test_backoff.c)
 set_source_files_properties(test_backoff.c PROPERTIES LANGUAGE C)
 target_link_libraries(test_backoff PRIVATE lace::lace)
