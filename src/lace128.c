@@ -549,12 +549,12 @@ lace_resume()
 /**
  * Global "external" task
  */
-typedef struct _Extlace_task {
+typedef struct _ext_lace_task {
     lace_task *task;
     lace_sem_t sem;
-} Extlace_task;
+} ext_lace_task;
 
-static _Atomic(Extlace_task*) external_task = NULL;
+static _Atomic(ext_lace_task*) external_task = NULL;
 
 static lace_mutex_t external_task_lock;
 static lace_cond_t  external_task_cond;
@@ -573,7 +573,7 @@ lace_run_task(lace_task *task)
         // if needed, wake up the workers
         lace_resume();
 
-        Extlace_task et;
+        ext_lace_task et;
         et.task = task;
         atomic_store_explicit(&et.task->thief, 0, memory_order_relaxed);
         lace_sem_init(&et.sem, 0);
@@ -586,7 +586,7 @@ lace_run_task(lace_task *task)
         external_task_counter++;
         lace_mutex_unlock(&external_task_lock);
 
-        Extlace_task *exp = 0;
+        ext_lace_task *exp = 0;
         while (atomic_compare_exchange_weak(&external_task, &exp, &et) != 1) {}
 
         lace_sem_wait(&et.sem);
@@ -616,7 +616,7 @@ lace_run_task_exclusive(lace_task *task)
         // if needed, wake up the workers
         lace_resume();
 
-        Extlace_task et;
+        ext_lace_task et;
         et.task = task;
         atomic_store_explicit(&et.task->thief, 0, memory_order_relaxed);
         lace_sem_init(&et.sem, 0);
@@ -633,7 +633,7 @@ lace_run_task_exclusive(lace_task *task)
         }
         lace_mutex_unlock(&external_task_lock);
 
-        Extlace_task *exp = 0;
+        ext_lace_task *exp = 0;
         while (atomic_compare_exchange_weak(&external_task, &exp, &et) != 1) {}
 
         lace_sem_wait(&et.sem);
@@ -653,7 +653,7 @@ lace_run_task_exclusive(lace_task *task)
 static inline void
 lace_steal_external(lace_worker *self) 
 {
-    Extlace_task *stolen_task = atomic_exchange(&external_task, NULL);
+    ext_lace_task *stolen_task = atomic_exchange(&external_task, NULL);
     if (stolen_task != 0) {
         // execute task
         stolen_task->task->thief = self->_public;
