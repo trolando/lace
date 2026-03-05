@@ -81,23 +81,28 @@ main (int argc, char *argv[])
     lace_set_verbosity(1);
     lace_start(n_workers, 0, 0);
 
-    for (int zzz=0; zzz<=1; zzz++) {
-        for (int i=0; i<10; i++) pfib(20); // some startup workload
+    for (int i=0; i<10; i++) pfib(20); // some startup workload
+
+    for (int zzz=0; zzz<=2; zzz++) {
+        if (zzz==1) lace_sleep_us(1e6);
         double cpu_before_1 = cpu_time_seconds();
         double before_1 = wctime();
         double sleep_1 = 0;
         for (int i=0; i<200; i++) {
             pfib(10);
-            double bef = wctime();
-            if (zzz) lace_sleep_us(10000);
-            double aft = wctime();
-            sleep_1 += (aft-bef);
+            if (zzz==2) {
+                double bef = wctime();
+                lace_sleep_us(10000);
+                double aft = wctime();
+                sleep_1 += (aft-bef);
+            }
         }
         double after_1 = wctime();
         double cpu_after_1 = cpu_time_seconds();
 
-        if (zzz) printf("\nWITH sleep\n");
-        else printf("\nWITHOUT sleep\n");
+        if (zzz==0) printf("\nWITHOUT sleep\n");
+        else if (zzz==1) printf("\nAFTER sleep\n");
+        else if (zzz==2) printf("\nWITH sleep\n");
         printf("WC time:     %f sec\n", (after_1-before_1));
         printf("Sleep time:  %f sec\n", sleep_1);
         printf("Wake time:   %f sec\n", (after_1-before_1-sleep_1));
