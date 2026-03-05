@@ -29,7 +29,7 @@ echo '
 
 // Lace version
 #define LACE_VERSION_MAJOR 2
-#define LACE_VERSION_MINOR 1
+#define LACE_VERSION_MINOR 2
 #define LACE_VERSION_PATCH 0
 
 #if defined(_MSC_VER) && !defined(__clang__)
