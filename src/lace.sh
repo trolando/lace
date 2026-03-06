@@ -1092,6 +1092,13 @@ $RTYPE NAME##_SYNC(lace_worker* _lace_worker)
     }
 }
 
+LACE_NO_SANITIZE_THREAD
+static inline LACE_UNUSED
+void NAME##_DROP(lace_worker* _lace_worker)
+{
+    lace_drop(_lace_worker);
+}
+
 " \
 ) | awk '{printf "%-86s\\\n", $0 }'
 

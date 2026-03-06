@@ -1023,6 +1023,13 @@ RTYPE NAME##_SYNC(lace_worker* _lace_worker)                                    
     }                                                                                 \
 }                                                                                     \
                                                                                       \
+LACE_NO_SANITIZE_THREAD                                                               \
+static inline LACE_UNUSED                                                             \
+void NAME##_DROP(lace_worker* _lace_worker)                                           \
+{                                                                                     \
+    lace_drop(_lace_worker);                                                          \
+}                                                                                     \
+                                                                                      \
                                                                                       \
 
 #define VOID_TASK_0(NAME)                                                             \
@@ -1152,6 +1159,13 @@ void NAME##_SYNC(lace_worker* _lace_worker)                                     
         atomic_store_explicit(&t->thief, THIEF_EMPTY, memory_order_relaxed);          \
         NAME##_CALL(_lace_worker);                                                    \
     }                                                                                 \
+}                                                                                     \
+                                                                                      \
+LACE_NO_SANITIZE_THREAD                                                               \
+static inline LACE_UNUSED                                                             \
+void NAME##_DROP(lace_worker* _lace_worker)                                           \
+{                                                                                     \
+    lace_drop(_lace_worker);                                                          \
 }                                                                                     \
                                                                                       \
                                                                                       \
@@ -1288,6 +1302,13 @@ RTYPE NAME##_SYNC(lace_worker* _lace_worker)                                    
     }                                                                                 \
 }                                                                                     \
                                                                                       \
+LACE_NO_SANITIZE_THREAD                                                               \
+static inline LACE_UNUSED                                                             \
+void NAME##_DROP(lace_worker* _lace_worker)                                           \
+{                                                                                     \
+    lace_drop(_lace_worker);                                                          \
+}                                                                                     \
+                                                                                      \
                                                                                       \
 
 #define VOID_TASK_1(NAME, ATYPE_1, ARG_1)                                             \
@@ -1417,6 +1438,13 @@ void NAME##_SYNC(lace_worker* _lace_worker)                                     
         atomic_store_explicit(&t->thief, THIEF_EMPTY, memory_order_relaxed);          \
         NAME##_CALL(_lace_worker, ((TD_##NAME*)t)->d.args.arg_1);                     \
     }                                                                                 \
+}                                                                                     \
+                                                                                      \
+LACE_NO_SANITIZE_THREAD                                                               \
+static inline LACE_UNUSED                                                             \
+void NAME##_DROP(lace_worker* _lace_worker)                                           \
+{                                                                                     \
+    lace_drop(_lace_worker);                                                          \
 }                                                                                     \
                                                                                       \
                                                                                       \
@@ -1553,6 +1581,13 @@ RTYPE NAME##_SYNC(lace_worker* _lace_worker)                                    
     }                                                                                 \
 }                                                                                     \
                                                                                       \
+LACE_NO_SANITIZE_THREAD                                                               \
+static inline LACE_UNUSED                                                             \
+void NAME##_DROP(lace_worker* _lace_worker)                                           \
+{                                                                                     \
+    lace_drop(_lace_worker);                                                          \
+}                                                                                     \
+                                                                                      \
                                                                                       \
 
 #define VOID_TASK_2(NAME, ATYPE_1, ARG_1, ATYPE_2, ARG_2)                             \
@@ -1682,6 +1717,13 @@ void NAME##_SYNC(lace_worker* _lace_worker)                                     
         atomic_store_explicit(&t->thief, THIEF_EMPTY, memory_order_relaxed);          \
         NAME##_CALL(_lace_worker, ((TD_##NAME*)t)->d.args.arg_1, ((TD_##NAME*)t)->d.args.arg_2);\
     }                                                                                 \
+}                                                                                     \
+                                                                                      \
+LACE_NO_SANITIZE_THREAD                                                               \
+static inline LACE_UNUSED                                                             \
+void NAME##_DROP(lace_worker* _lace_worker)                                           \
+{                                                                                     \
+    lace_drop(_lace_worker);                                                          \
 }                                                                                     \
                                                                                       \
                                                                                       \
@@ -1818,6 +1860,13 @@ RTYPE NAME##_SYNC(lace_worker* _lace_worker)                                    
     }                                                                                 \
 }                                                                                     \
                                                                                       \
+LACE_NO_SANITIZE_THREAD                                                               \
+static inline LACE_UNUSED                                                             \
+void NAME##_DROP(lace_worker* _lace_worker)                                           \
+{                                                                                     \
+    lace_drop(_lace_worker);                                                          \
+}                                                                                     \
+                                                                                      \
                                                                                       \
 
 #define VOID_TASK_3(NAME, ATYPE_1, ARG_1, ATYPE_2, ARG_2, ATYPE_3, ARG_3)             \
@@ -1947,6 +1996,13 @@ void NAME##_SYNC(lace_worker* _lace_worker)                                     
         atomic_store_explicit(&t->thief, THIEF_EMPTY, memory_order_relaxed);          \
         NAME##_CALL(_lace_worker, ((TD_##NAME*)t)->d.args.arg_1, ((TD_##NAME*)t)->d.args.arg_2, ((TD_##NAME*)t)->d.args.arg_3);\
     }                                                                                 \
+}                                                                                     \
+                                                                                      \
+LACE_NO_SANITIZE_THREAD                                                               \
+static inline LACE_UNUSED                                                             \
+void NAME##_DROP(lace_worker* _lace_worker)                                           \
+{                                                                                     \
+    lace_drop(_lace_worker);                                                          \
 }                                                                                     \
                                                                                       \
                                                                                       \
@@ -2083,6 +2139,13 @@ RTYPE NAME##_SYNC(lace_worker* _lace_worker)                                    
     }                                                                                 \
 }                                                                                     \
                                                                                       \
+LACE_NO_SANITIZE_THREAD                                                               \
+static inline LACE_UNUSED                                                             \
+void NAME##_DROP(lace_worker* _lace_worker)                                           \
+{                                                                                     \
+    lace_drop(_lace_worker);                                                          \
+}                                                                                     \
+                                                                                      \
                                                                                       \
 
 #define VOID_TASK_4(NAME, ATYPE_1, ARG_1, ATYPE_2, ARG_2, ATYPE_3, ARG_3, ATYPE_4, ARG_4)\
@@ -2212,6 +2275,13 @@ void NAME##_SYNC(lace_worker* _lace_worker)                                     
         atomic_store_explicit(&t->thief, THIEF_EMPTY, memory_order_relaxed);          \
         NAME##_CALL(_lace_worker, ((TD_##NAME*)t)->d.args.arg_1, ((TD_##NAME*)t)->d.args.arg_2, ((TD_##NAME*)t)->d.args.arg_3, ((TD_##NAME*)t)->d.args.arg_4);\
     }                                                                                 \
+}                                                                                     \
+                                                                                      \
+LACE_NO_SANITIZE_THREAD                                                               \
+static inline LACE_UNUSED                                                             \
+void NAME##_DROP(lace_worker* _lace_worker)                                           \
+{                                                                                     \
+    lace_drop(_lace_worker);                                                          \
 }                                                                                     \
                                                                                       \
                                                                                       \
@@ -2348,6 +2418,13 @@ RTYPE NAME##_SYNC(lace_worker* _lace_worker)                                    
     }                                                                                 \
 }                                                                                     \
                                                                                       \
+LACE_NO_SANITIZE_THREAD                                                               \
+static inline LACE_UNUSED                                                             \
+void NAME##_DROP(lace_worker* _lace_worker)                                           \
+{                                                                                     \
+    lace_drop(_lace_worker);                                                          \
+}                                                                                     \
+                                                                                      \
                                                                                       \
 
 #define VOID_TASK_5(NAME, ATYPE_1, ARG_1, ATYPE_2, ARG_2, ATYPE_3, ARG_3, ATYPE_4, ARG_4, ATYPE_5, ARG_5)\
@@ -2477,6 +2554,13 @@ void NAME##_SYNC(lace_worker* _lace_worker)                                     
         atomic_store_explicit(&t->thief, THIEF_EMPTY, memory_order_relaxed);          \
         NAME##_CALL(_lace_worker, ((TD_##NAME*)t)->d.args.arg_1, ((TD_##NAME*)t)->d.args.arg_2, ((TD_##NAME*)t)->d.args.arg_3, ((TD_##NAME*)t)->d.args.arg_4, ((TD_##NAME*)t)->d.args.arg_5);\
     }                                                                                 \
+}                                                                                     \
+                                                                                      \
+LACE_NO_SANITIZE_THREAD                                                               \
+static inline LACE_UNUSED                                                             \
+void NAME##_DROP(lace_worker* _lace_worker)                                           \
+{                                                                                     \
+    lace_drop(_lace_worker);                                                          \
 }                                                                                     \
                                                                                       \
                                                                                       \
@@ -2613,6 +2697,13 @@ RTYPE NAME##_SYNC(lace_worker* _lace_worker)                                    
     }                                                                                 \
 }                                                                                     \
                                                                                       \
+LACE_NO_SANITIZE_THREAD                                                               \
+static inline LACE_UNUSED                                                             \
+void NAME##_DROP(lace_worker* _lace_worker)                                           \
+{                                                                                     \
+    lace_drop(_lace_worker);                                                          \
+}                                                                                     \
+                                                                                      \
                                                                                       \
 
 #define VOID_TASK_6(NAME, ATYPE_1, ARG_1, ATYPE_2, ARG_2, ATYPE_3, ARG_3, ATYPE_4, ARG_4, ATYPE_5, ARG_5, ATYPE_6, ARG_6)\
@@ -2742,6 +2833,13 @@ void NAME##_SYNC(lace_worker* _lace_worker)                                     
         atomic_store_explicit(&t->thief, THIEF_EMPTY, memory_order_relaxed);          \
         NAME##_CALL(_lace_worker, ((TD_##NAME*)t)->d.args.arg_1, ((TD_##NAME*)t)->d.args.arg_2, ((TD_##NAME*)t)->d.args.arg_3, ((TD_##NAME*)t)->d.args.arg_4, ((TD_##NAME*)t)->d.args.arg_5, ((TD_##NAME*)t)->d.args.arg_6);\
     }                                                                                 \
+}                                                                                     \
+                                                                                      \
+LACE_NO_SANITIZE_THREAD                                                               \
+static inline LACE_UNUSED                                                             \
+void NAME##_DROP(lace_worker* _lace_worker)                                           \
+{                                                                                     \
+    lace_drop(_lace_worker);                                                          \
 }                                                                                     \
                                                                                       \
                                                                                       \
@@ -2878,6 +2976,13 @@ RTYPE NAME##_SYNC(lace_worker* _lace_worker)                                    
     }                                                                                 \
 }                                                                                     \
                                                                                       \
+LACE_NO_SANITIZE_THREAD                                                               \
+static inline LACE_UNUSED                                                             \
+void NAME##_DROP(lace_worker* _lace_worker)                                           \
+{                                                                                     \
+    lace_drop(_lace_worker);                                                          \
+}                                                                                     \
+                                                                                      \
                                                                                       \
 
 #define VOID_TASK_7(NAME, ATYPE_1, ARG_1, ATYPE_2, ARG_2, ATYPE_3, ARG_3, ATYPE_4, ARG_4, ATYPE_5, ARG_5, ATYPE_6, ARG_6, ATYPE_7, ARG_7)\
@@ -3007,6 +3112,13 @@ void NAME##_SYNC(lace_worker* _lace_worker)                                     
         atomic_store_explicit(&t->thief, THIEF_EMPTY, memory_order_relaxed);          \
         NAME##_CALL(_lace_worker, ((TD_##NAME*)t)->d.args.arg_1, ((TD_##NAME*)t)->d.args.arg_2, ((TD_##NAME*)t)->d.args.arg_3, ((TD_##NAME*)t)->d.args.arg_4, ((TD_##NAME*)t)->d.args.arg_5, ((TD_##NAME*)t)->d.args.arg_6, ((TD_##NAME*)t)->d.args.arg_7);\
     }                                                                                 \
+}                                                                                     \
+                                                                                      \
+LACE_NO_SANITIZE_THREAD                                                               \
+static inline LACE_UNUSED                                                             \
+void NAME##_DROP(lace_worker* _lace_worker)                                           \
+{                                                                                     \
+    lace_drop(_lace_worker);                                                          \
 }                                                                                     \
                                                                                       \
                                                                                       \
@@ -3143,6 +3255,13 @@ RTYPE NAME##_SYNC(lace_worker* _lace_worker)                                    
     }                                                                                 \
 }                                                                                     \
                                                                                       \
+LACE_NO_SANITIZE_THREAD                                                               \
+static inline LACE_UNUSED                                                             \
+void NAME##_DROP(lace_worker* _lace_worker)                                           \
+{                                                                                     \
+    lace_drop(_lace_worker);                                                          \
+}                                                                                     \
+                                                                                      \
                                                                                       \
 
 #define VOID_TASK_8(NAME, ATYPE_1, ARG_1, ATYPE_2, ARG_2, ATYPE_3, ARG_3, ATYPE_4, ARG_4, ATYPE_5, ARG_5, ATYPE_6, ARG_6, ATYPE_7, ARG_7, ATYPE_8, ARG_8)\
@@ -3272,6 +3391,13 @@ void NAME##_SYNC(lace_worker* _lace_worker)                                     
         atomic_store_explicit(&t->thief, THIEF_EMPTY, memory_order_relaxed);          \
         NAME##_CALL(_lace_worker, ((TD_##NAME*)t)->d.args.arg_1, ((TD_##NAME*)t)->d.args.arg_2, ((TD_##NAME*)t)->d.args.arg_3, ((TD_##NAME*)t)->d.args.arg_4, ((TD_##NAME*)t)->d.args.arg_5, ((TD_##NAME*)t)->d.args.arg_6, ((TD_##NAME*)t)->d.args.arg_7, ((TD_##NAME*)t)->d.args.arg_8);\
     }                                                                                 \
+}                                                                                     \
+                                                                                      \
+LACE_NO_SANITIZE_THREAD                                                               \
+static inline LACE_UNUSED                                                             \
+void NAME##_DROP(lace_worker* _lace_worker)                                           \
+{                                                                                     \
+    lace_drop(_lace_worker);                                                          \
 }                                                                                     \
                                                                                       \
                                                                                       \
@@ -3408,6 +3534,13 @@ RTYPE NAME##_SYNC(lace_worker* _lace_worker)                                    
     }                                                                                 \
 }                                                                                     \
                                                                                       \
+LACE_NO_SANITIZE_THREAD                                                               \
+static inline LACE_UNUSED                                                             \
+void NAME##_DROP(lace_worker* _lace_worker)                                           \
+{                                                                                     \
+    lace_drop(_lace_worker);                                                          \
+}                                                                                     \
+                                                                                      \
                                                                                       \
 
 #define VOID_TASK_9(NAME, ATYPE_1, ARG_1, ATYPE_2, ARG_2, ATYPE_3, ARG_3, ATYPE_4, ARG_4, ATYPE_5, ARG_5, ATYPE_6, ARG_6, ATYPE_7, ARG_7, ATYPE_8, ARG_8, ATYPE_9, ARG_9)\
@@ -3537,6 +3670,13 @@ void NAME##_SYNC(lace_worker* _lace_worker)                                     
         atomic_store_explicit(&t->thief, THIEF_EMPTY, memory_order_relaxed);          \
         NAME##_CALL(_lace_worker, ((TD_##NAME*)t)->d.args.arg_1, ((TD_##NAME*)t)->d.args.arg_2, ((TD_##NAME*)t)->d.args.arg_3, ((TD_##NAME*)t)->d.args.arg_4, ((TD_##NAME*)t)->d.args.arg_5, ((TD_##NAME*)t)->d.args.arg_6, ((TD_##NAME*)t)->d.args.arg_7, ((TD_##NAME*)t)->d.args.arg_8, ((TD_##NAME*)t)->d.args.arg_9);\
     }                                                                                 \
+}                                                                                     \
+                                                                                      \
+LACE_NO_SANITIZE_THREAD                                                               \
+static inline LACE_UNUSED                                                             \
+void NAME##_DROP(lace_worker* _lace_worker)                                           \
+{                                                                                     \
+    lace_drop(_lace_worker);                                                          \
 }                                                                                     \
                                                                                       \
                                                                                       \
@@ -3673,6 +3813,13 @@ RTYPE NAME##_SYNC(lace_worker* _lace_worker)                                    
     }                                                                                 \
 }                                                                                     \
                                                                                       \
+LACE_NO_SANITIZE_THREAD                                                               \
+static inline LACE_UNUSED                                                             \
+void NAME##_DROP(lace_worker* _lace_worker)                                           \
+{                                                                                     \
+    lace_drop(_lace_worker);                                                          \
+}                                                                                     \
+                                                                                      \
                                                                                       \
 
 #define VOID_TASK_10(NAME, ATYPE_1, ARG_1, ATYPE_2, ARG_2, ATYPE_3, ARG_3, ATYPE_4, ARG_4, ATYPE_5, ARG_5, ATYPE_6, ARG_6, ATYPE_7, ARG_7, ATYPE_8, ARG_8, ATYPE_9, ARG_9, ATYPE_10, ARG_10)\
@@ -3802,6 +3949,13 @@ void NAME##_SYNC(lace_worker* _lace_worker)                                     
         atomic_store_explicit(&t->thief, THIEF_EMPTY, memory_order_relaxed);          \
         NAME##_CALL(_lace_worker, ((TD_##NAME*)t)->d.args.arg_1, ((TD_##NAME*)t)->d.args.arg_2, ((TD_##NAME*)t)->d.args.arg_3, ((TD_##NAME*)t)->d.args.arg_4, ((TD_##NAME*)t)->d.args.arg_5, ((TD_##NAME*)t)->d.args.arg_6, ((TD_##NAME*)t)->d.args.arg_7, ((TD_##NAME*)t)->d.args.arg_8, ((TD_##NAME*)t)->d.args.arg_9, ((TD_##NAME*)t)->d.args.arg_10);\
     }                                                                                 \
+}                                                                                     \
+                                                                                      \
+LACE_NO_SANITIZE_THREAD                                                               \
+static inline LACE_UNUSED                                                             \
+void NAME##_DROP(lace_worker* _lace_worker)                                           \
+{                                                                                     \
+    lace_drop(_lace_worker);                                                          \
 }                                                                                     \
                                                                                       \
                                                                                       \
@@ -3938,6 +4092,13 @@ RTYPE NAME##_SYNC(lace_worker* _lace_worker)                                    
     }                                                                                 \
 }                                                                                     \
                                                                                       \
+LACE_NO_SANITIZE_THREAD                                                               \
+static inline LACE_UNUSED                                                             \
+void NAME##_DROP(lace_worker* _lace_worker)                                           \
+{                                                                                     \
+    lace_drop(_lace_worker);                                                          \
+}                                                                                     \
+                                                                                      \
                                                                                       \
 
 #define VOID_TASK_11(NAME, ATYPE_1, ARG_1, ATYPE_2, ARG_2, ATYPE_3, ARG_3, ATYPE_4, ARG_4, ATYPE_5, ARG_5, ATYPE_6, ARG_6, ATYPE_7, ARG_7, ATYPE_8, ARG_8, ATYPE_9, ARG_9, ATYPE_10, ARG_10, ATYPE_11, ARG_11)\
@@ -4067,6 +4228,13 @@ void NAME##_SYNC(lace_worker* _lace_worker)                                     
         atomic_store_explicit(&t->thief, THIEF_EMPTY, memory_order_relaxed);          \
         NAME##_CALL(_lace_worker, ((TD_##NAME*)t)->d.args.arg_1, ((TD_##NAME*)t)->d.args.arg_2, ((TD_##NAME*)t)->d.args.arg_3, ((TD_##NAME*)t)->d.args.arg_4, ((TD_##NAME*)t)->d.args.arg_5, ((TD_##NAME*)t)->d.args.arg_6, ((TD_##NAME*)t)->d.args.arg_7, ((TD_##NAME*)t)->d.args.arg_8, ((TD_##NAME*)t)->d.args.arg_9, ((TD_##NAME*)t)->d.args.arg_10, ((TD_##NAME*)t)->d.args.arg_11);\
     }                                                                                 \
+}                                                                                     \
+                                                                                      \
+LACE_NO_SANITIZE_THREAD                                                               \
+static inline LACE_UNUSED                                                             \
+void NAME##_DROP(lace_worker* _lace_worker)                                           \
+{                                                                                     \
+    lace_drop(_lace_worker);                                                          \
 }                                                                                     \
                                                                                       \
                                                                                       \
@@ -4203,6 +4371,13 @@ RTYPE NAME##_SYNC(lace_worker* _lace_worker)                                    
     }                                                                                 \
 }                                                                                     \
                                                                                       \
+LACE_NO_SANITIZE_THREAD                                                               \
+static inline LACE_UNUSED                                                             \
+void NAME##_DROP(lace_worker* _lace_worker)                                           \
+{                                                                                     \
+    lace_drop(_lace_worker);                                                          \
+}                                                                                     \
+                                                                                      \
                                                                                       \
 
 #define VOID_TASK_12(NAME, ATYPE_1, ARG_1, ATYPE_2, ARG_2, ATYPE_3, ARG_3, ATYPE_4, ARG_4, ATYPE_5, ARG_5, ATYPE_6, ARG_6, ATYPE_7, ARG_7, ATYPE_8, ARG_8, ATYPE_9, ARG_9, ATYPE_10, ARG_10, ATYPE_11, ARG_11, ATYPE_12, ARG_12)\
@@ -4332,6 +4507,13 @@ void NAME##_SYNC(lace_worker* _lace_worker)                                     
         atomic_store_explicit(&t->thief, THIEF_EMPTY, memory_order_relaxed);          \
         NAME##_CALL(_lace_worker, ((TD_##NAME*)t)->d.args.arg_1, ((TD_##NAME*)t)->d.args.arg_2, ((TD_##NAME*)t)->d.args.arg_3, ((TD_##NAME*)t)->d.args.arg_4, ((TD_##NAME*)t)->d.args.arg_5, ((TD_##NAME*)t)->d.args.arg_6, ((TD_##NAME*)t)->d.args.arg_7, ((TD_##NAME*)t)->d.args.arg_8, ((TD_##NAME*)t)->d.args.arg_9, ((TD_##NAME*)t)->d.args.arg_10, ((TD_##NAME*)t)->d.args.arg_11, ((TD_##NAME*)t)->d.args.arg_12);\
     }                                                                                 \
+}                                                                                     \
+                                                                                      \
+LACE_NO_SANITIZE_THREAD                                                               \
+static inline LACE_UNUSED                                                             \
+void NAME##_DROP(lace_worker* _lace_worker)                                           \
+{                                                                                     \
+    lace_drop(_lace_worker);                                                          \
 }                                                                                     \
                                                                                       \
                                                                                       \
@@ -4468,6 +4650,13 @@ RTYPE NAME##_SYNC(lace_worker* _lace_worker)                                    
     }                                                                                 \
 }                                                                                     \
                                                                                       \
+LACE_NO_SANITIZE_THREAD                                                               \
+static inline LACE_UNUSED                                                             \
+void NAME##_DROP(lace_worker* _lace_worker)                                           \
+{                                                                                     \
+    lace_drop(_lace_worker);                                                          \
+}                                                                                     \
+                                                                                      \
                                                                                       \
 
 #define VOID_TASK_13(NAME, ATYPE_1, ARG_1, ATYPE_2, ARG_2, ATYPE_3, ARG_3, ATYPE_4, ARG_4, ATYPE_5, ARG_5, ATYPE_6, ARG_6, ATYPE_7, ARG_7, ATYPE_8, ARG_8, ATYPE_9, ARG_9, ATYPE_10, ARG_10, ATYPE_11, ARG_11, ATYPE_12, ARG_12, ATYPE_13, ARG_13)\
@@ -4597,6 +4786,13 @@ void NAME##_SYNC(lace_worker* _lace_worker)                                     
         atomic_store_explicit(&t->thief, THIEF_EMPTY, memory_order_relaxed);          \
         NAME##_CALL(_lace_worker, ((TD_##NAME*)t)->d.args.arg_1, ((TD_##NAME*)t)->d.args.arg_2, ((TD_##NAME*)t)->d.args.arg_3, ((TD_##NAME*)t)->d.args.arg_4, ((TD_##NAME*)t)->d.args.arg_5, ((TD_##NAME*)t)->d.args.arg_6, ((TD_##NAME*)t)->d.args.arg_7, ((TD_##NAME*)t)->d.args.arg_8, ((TD_##NAME*)t)->d.args.arg_9, ((TD_##NAME*)t)->d.args.arg_10, ((TD_##NAME*)t)->d.args.arg_11, ((TD_##NAME*)t)->d.args.arg_12, ((TD_##NAME*)t)->d.args.arg_13);\
     }                                                                                 \
+}                                                                                     \
+                                                                                      \
+LACE_NO_SANITIZE_THREAD                                                               \
+static inline LACE_UNUSED                                                             \
+void NAME##_DROP(lace_worker* _lace_worker)                                           \
+{                                                                                     \
+    lace_drop(_lace_worker);                                                          \
 }                                                                                     \
                                                                                       \
                                                                                       \
@@ -4733,6 +4929,13 @@ RTYPE NAME##_SYNC(lace_worker* _lace_worker)                                    
     }                                                                                 \
 }                                                                                     \
                                                                                       \
+LACE_NO_SANITIZE_THREAD                                                               \
+static inline LACE_UNUSED                                                             \
+void NAME##_DROP(lace_worker* _lace_worker)                                           \
+{                                                                                     \
+    lace_drop(_lace_worker);                                                          \
+}                                                                                     \
+                                                                                      \
                                                                                       \
 
 #define VOID_TASK_14(NAME, ATYPE_1, ARG_1, ATYPE_2, ARG_2, ATYPE_3, ARG_3, ATYPE_4, ARG_4, ATYPE_5, ARG_5, ATYPE_6, ARG_6, ATYPE_7, ARG_7, ATYPE_8, ARG_8, ATYPE_9, ARG_9, ATYPE_10, ARG_10, ATYPE_11, ARG_11, ATYPE_12, ARG_12, ATYPE_13, ARG_13, ATYPE_14, ARG_14)\
@@ -4862,6 +5065,13 @@ void NAME##_SYNC(lace_worker* _lace_worker)                                     
         atomic_store_explicit(&t->thief, THIEF_EMPTY, memory_order_relaxed);          \
         NAME##_CALL(_lace_worker, ((TD_##NAME*)t)->d.args.arg_1, ((TD_##NAME*)t)->d.args.arg_2, ((TD_##NAME*)t)->d.args.arg_3, ((TD_##NAME*)t)->d.args.arg_4, ((TD_##NAME*)t)->d.args.arg_5, ((TD_##NAME*)t)->d.args.arg_6, ((TD_##NAME*)t)->d.args.arg_7, ((TD_##NAME*)t)->d.args.arg_8, ((TD_##NAME*)t)->d.args.arg_9, ((TD_##NAME*)t)->d.args.arg_10, ((TD_##NAME*)t)->d.args.arg_11, ((TD_##NAME*)t)->d.args.arg_12, ((TD_##NAME*)t)->d.args.arg_13, ((TD_##NAME*)t)->d.args.arg_14);\
     }                                                                                 \
+}                                                                                     \
+                                                                                      \
+LACE_NO_SANITIZE_THREAD                                                               \
+static inline LACE_UNUSED                                                             \
+void NAME##_DROP(lace_worker* _lace_worker)                                           \
+{                                                                                     \
+    lace_drop(_lace_worker);                                                          \
 }                                                                                     \
                                                                                       \
                                                                                       \
