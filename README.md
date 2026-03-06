@@ -11,7 +11,7 @@ Lace is a C framework for fine-grained fork-join parallelism on multi-core compu
 TASK_1(int, fibonacci, int, n)  // declare a Lace task (place in header or source)
 
 int fibonacci_CALL(lace_worker* lw, int n) {
-    if(n < 2) return n;
+    if (n < 2) return n;
     fibonacci_SPAWN(lw, n-1);         // fork: push task onto deque
     int a = fibonacci_CALL(lw, n-2);  // run another instance directly
     int b = fibonacci_SYNC(lw);       // join: retrieve result of spawned task
@@ -31,7 +31,7 @@ int main(int argc, char** argv)
 }
 ```
 
-For more examples and a full API reference, see [DOCS.md](./DOCS.md) and the [benchmarks](./benchmarks/) folder.
+For more examples and the full API reference, see [DOCS.md](./DOCS.md) and the [benchmarks](./benchmarks/) folder.
 
 ## Table of Contents
 
@@ -40,6 +40,7 @@ For more examples and a full API reference, see [DOCS.md](./DOCS.md) and the [be
 - [Building](#building)
 - [Configuration Options](#configuration-options)
 - [Usage](#usage)
+- [Migrating from Lace v1](#migrating-from-lace-v1)
 - [Benchmarking](#benchmarking)
 - [Academic publications](#academic-publications)
 - [License](#license)
@@ -52,7 +53,7 @@ For more examples and a full API reference, see [DOCS.md](./DOCS.md) and the [be
 - 📈 Low-overhead statistics per worker
 - ⛔ Interrupt support for coordinating all workers to a safe point (e.g. stop-the-world GC)
 
-Lace uses a **scalable** double-ended queue for work-stealing. The owner thread pushes and pops tasks from its own deque in a **wait-free** manner. Thief threads steal from the other end in a **lock_free** manner. The design minimizes cache line contention between workers.
+Lace uses a **scalable** double-ended queue for work-stealing. The owner thread pushes and pops tasks from its own deque in a **wait-free** manner. Thief threads steal from the other end in a **lock-free** manner. The design minimizes cache line contention between workers.
 
 Lace can report the number of tasks, steals and queue splits per worker. It can also report time spent in startup/shutdown, stolen work, steal overhead and idle search time per worker. Gathering these statistics is done with virtually no overhead.
 
@@ -90,7 +91,7 @@ endif()
 ```
 
 This example first tests if Lace is already a target in the project, for example
-when included as a submodule.  Otherwise it tries to find an installed version,
+when included as a submodule. Otherwise it tries to find an installed version,
 or fetch it from GitHub.
 </details>
 
@@ -179,7 +180,42 @@ int result = fibonacci(42);
 lace_stop();
 ```
 
+If `fibonacci()` is called from inside a Lace worker thread (e.g. from within another task), it automatically detects this and calls `fibonacci_CALL` directly instead of submitting a task to the framework. This means you can safely call `NAME()` from both Lace and non-Lace contexts without branching in your own code.
+
 See [DOCS.md](./DOCS.md) for the full API, including interrupts, worker queries, and advanced usage.
+
+## Migrating from Lace v1
+
+Lace v2 changes how task bodies are written. In v1, the task body was placed directly inside the `TASK_N` macro and `SPAWN`/`CALL`/`SYNC` were macros that hid the worker pointer. In v2, the body is a regular C function (`TASKNAME_CALL`) and the worker pointer is explicit.
+
+**v1:**
+```c
+TASK_1(int, fibonacci, int, n)
+{
+    if (n < 2) return n;
+    int m, k;
+    SPAWN(fibonacci, n-1);
+    k = CALL(fibonacci, n-2);
+    m = SYNC(fibonacci);
+    return m + k;
+}
+```
+
+**v2:**
+```c
+TASK_1(int, fibonacci, int, n)
+
+int fibonacci_CALL(lace_worker* lw, int n)
+{
+    if (n < 2) return n;
+    fibonacci_SPAWN(lw, n-1);
+    int k = fibonacci_CALL(lw, n-2);
+    int m = fibonacci_SYNC(lw);
+    return m + k;
+}
+```
+
+The v2 task body is a plain C function, which means it is visible to debuggers, can be stepped through in GDB, and can call non-Lace helper functions while still propagating the worker pointer. The old `RUN(task, args...)` macro is replaced by simply calling the task by name as a regular function: `fibonacci(42)`.
 
 ## Benchmarking
 
@@ -195,7 +231,7 @@ cmake --build build
 ```
 
 The compiled benchmarks will be placed in `build/benchmarks/`, along with the
-`bench.py` script for running them.
+`bench.py` script for running them. Pass `-w 0` to use all available cores.
 
 ## Academic publications
 
@@ -207,5 +243,4 @@ T. van Dijk and J.C. van de Pol (2014) [Lace: Non-blocking Split Deque for Work-
 
 ## License
 
-Lace is licensed with the [Apache 2.0 license](https://opensource.org/licenses/Apache-2.0). 
-
+Lace is licensed with the [Apache 2.0 license](https://opensource.org/licenses/Apache-2.0).

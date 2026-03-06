@@ -56,9 +56,9 @@ Each `TASK_N(RTYPE, NAME, ...)` macro generates the following functions:
 | Function | Description |
 |----------|-------------|
 | `NAME_CALL(lw, ...)` | Your task body — implement this |
-| `NAME(...)` | Run the task from outside Lace (blocks until done) |
-| `NAME_SPAWN(lw, ...)` | Fork: push a task onto the deque so it can be stolen |
-| `NAME_SYNC(lw)` | Join: retrieve the result of the last spawned task |
+| `NAME(...)` | Run the task, blocking until done; works from inside or outside a Lace worker |
+| `NAME_SPAWN(lw, ...)` | Fork: push a task onto the deque so it can be stolen; returns a pointer to the task |
+| `NAME_SYNC(lw)` | Join: retrieve the result of the last spawned task (LIFO order) |
 | `NAME_DROP(lw)` | Drop: cancel the last spawned task if not yet stolen, or discard its result if already stolen |
 | `NAME_NEWFRAME(...)` | Interrupt all workers and run this task (see below) |
 | `NAME_TOGETHER(...)` | Interrupt all workers and run a copy on each worker (see below) |
@@ -68,9 +68,9 @@ required by `SPAWN`, `SYNC`, and other Lace operations.
 
 ### SPAWN and SYNC
 
-`SPAWN` and `SYNC` must be matched. Each `SPAWN` pushes a task onto the deque
-where it can be stolen by another worker. `SYNC` retrieves the result of the
-last spawned task, waiting for it if stolen, or executing it directly if not.
+`SPAWN` and `SYNC` must be matched and used in **LIFO order**: if you spawn A then B, you must sync B before A. Syncing out of order is undefined behavior.
+
+Each `SPAWN` pushes a task onto the deque where it can be stolen by another worker. `SYNC` retrieves the result of the last spawned task — waiting for it if stolen, or executing it directly if not.
 
 ```c
 int fibonacci_CALL(lace_worker* lw, int n)
@@ -83,12 +83,13 @@ int fibonacci_CALL(lace_worker* lw, int n)
 }
 ```
 
+### Calling NAME() from any context
+
+`NAME(...)` can be called from both inside and outside a Lace worker thread. If called from inside a worker, it detects this automatically and calls `NAME_CALL` directly, skipping task submission entirely. This means you can write library code that calls `NAME()` without knowing whether the caller is a Lace worker.
+
 ### Dropping a spawned task
 
-Instead of `SYNC`, you can drop the last spawned task with `lace_drop`. If the
-task has not yet been stolen, it is cancelled and never executed. If it has
-already been stolen, the thief will still complete it, but the result is
-discarded.
+Instead of `SYNC`, use `NAME_DROP(lw)` to abandon the last spawned task. If the task has not yet been stolen, it is cancelled and never executed. If it has already been stolen, the thief will still complete it but the result is discarded. Like `SYNC`, `DROP` must follow LIFO order relative to other `SPAWN`/`SYNC`/`DROP` calls.
 
 ```c
 my_task_SPAWN(lw, arg);
@@ -157,8 +158,10 @@ within a Lace worker thread.
 Start Lace and spawn worker threads.
 
 - `n_workers`: number of worker threads; `0` auto-detects available cores
-- `dqsize`: task deque size per worker; `0` uses a default of 100K tasks
+- `dqsize`: task deque size per worker in number of tasks; `0` uses a default of 100K tasks
 - `stacksize`: worker thread stack size; `0` uses the minimum of 16 MB and the calling thread's stack size
+
+The deque size limits recursion depth in work-stealing terms: each live `SPAWN` that has not yet been `SYNC`ed occupies one slot. For algorithms with very deep recursion and little stealing (e.g. branch-and-bound on a single worker), increase `dqsize` accordingly. When `LACE_USE_MMAP` is enabled, deques are allocated as virtual memory and physical pages are committed lazily — so a large `dqsize` has no upfront memory cost and it is safe to be generous.
 
 Workers begin busy-waiting for tasks immediately. If `LACE_BACKOFF` is enabled
 (the default), CPU usage drops to near 0% after roughly one second of
@@ -172,7 +175,7 @@ threads are pinned to CPU cores.
 
 ### `void lace_stop(void)`
 
-Stop all workers and free resources. Do not call from inside a Lace task.
+Stop all workers and free resources. May be called from any thread that is not a Lace worker. Do not call from a signal handler — the implementation calls `free`, `munmap`, or `VirtualFree` depending on platform and build configuration, none of which are async-signal-safe.
 
 ---
 
@@ -230,8 +233,15 @@ avoiding contention on a shared RNG.
 
 ### `void lace_barrier(void)`
 
-Collective barrier: all workers block until every worker has reached this call.
-Must be called from inside a Lace task.
+Collective barrier: all workers block until every worker has reached this call. Must be called from inside a Lace task.
+
+> **Important:** `lace_barrier` requires that every worker will reach the barrier. If any worker is blocked waiting on a `SYNC` for a task that has not yet been stolen, and the other workers are all inside `lace_barrier`, the system will deadlock. Only use `lace_barrier` when you can guarantee all workers are free to reach it — typically after all outstanding spawns have been synced.
+
+---
+
+### `NAME_DROP(lw)`
+
+Drop the last spawned `NAME` task without retrieving its result. If the task has not been stolen, it is cancelled and never executed. If it has already been stolen, the result is discarded once the thief completes it. Must be paired with a prior `NAME_SPAWN` and follows the same LIFO ordering requirement as `NAME_SYNC`.
 
 ---
 
@@ -256,8 +266,7 @@ The result is available after `lace_is_completed_task` returns `1`.
 
 ### `void lace_steal_random(lace_worker* lw)`
 
-Attempt to steal and execute a task from a randomly chosen worker. Useful
-inside long-running tasks to avoid starving other workers.
+Attempt to steal and execute a task from a randomly chosen worker. This is a low-level function intended for the uncommon case where a Lace task needs to block on an external condition (e.g. waiting for I/O or a lock) and wants to keep its worker productive in the meantime. In normal fork-join code you should not need to call this — the framework handles work distribution automatically through `SYNC`.
 
 ---
 
