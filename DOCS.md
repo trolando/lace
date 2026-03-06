@@ -1,307 +1,316 @@
-# Lace API
+# Lace API Reference
 
-`lace.h` provides the public API for initializing, controlling, and interacting
-with the Lace framework for fine-grained fork-join parallelism.
+`lace.h` provides the public API for defining tasks and controlling the Lace
+work-stealing framework.
 
-There are three versions of Lace. The standard version uses 64 bytes per task
-and allows up to 10 parameters. The "32" version uses 32 bytes per task and
-also allows up to 10 parameters. The "128" version uses 128 bytes per task and
-allows up to 14 parameters.
+---
 
-The "32" version is mainly intended for computers with a 32-byte cache line.
-For most modern computers, the standard version should be sufficient. In some
-cases, even 64 bytes is insufficient for tasks with many parameters and then
-the "128" version should be used.
+## Choosing a Lace variant
 
-- To use the default version, include `lace.h` and add the library `lace::lace`
-  to your targets in CMakeLists.txt.
-- To use the "32" version, include `lace32.h` and add the library
-  `lace::lace32` to your targets.
-- To use the "128" version, include `lace128.h` and add the library
-  `lace::lace128` to your targets.
+Lace comes in three variants that trade task struct size against available
+parameter space:
+
+| Header | CMake target | Task size | Space for parameters + result |
+|--------|-------------|-----------|-------------------------------|
+| `lace32.h` | `lace::lace32` | 32 bytes | 16 bytes |
+| `lace.h` | `lace::lace` | 64 bytes | 48 bytes |
+| `lace128.h` | `lace::lace128` | 128 bytes | 112 bytes |
+
+The 16-byte overhead is fixed (function pointer and thief status field). A
+`static_assert` in the generated code will catch it at compile time if a
+task's parameters and return type exceed the available space.
+
+The standard `lace.h` variant supports up to 10 parameters. The `lace128.h`
+variant supports up to 14 parameters. The `lace32.h` variant is primarily
+intended for architectures with 32-byte cache lines.
 
 ---
 
 ## Defining Tasks
 
-To define tasks, Lace offers the following macros:
-- `TASK_1(return_type, name, type_1, name_1)`
-- `TASK_2(return_type, name, type_1, name_1, type_2, name_2)`
-- `TASK_3(return_type, name, type_1, name_1, type_2, name_2, type_3, name_3)`
-- etc.
+Tasks are declared with the `TASK_N` family of macros, where `N` is the number
+of parameters. Place the macro in a header or at the top of a source file; it
+generates the task descriptor and all associated functions. Then provide the
+task body as a regular C function named `NAME_CALL`.
 
-This defines a task with the given name, return type, parameter types and
-parameter names. The macro defines a number of functions:
-- `lace_task* <name>_SPAWN(lace_worker* lw, <type_1> <name_1>, ...)` to spawn a new
-  task which can then be stolen by other workers.
-- `<return_type> <name>(<type_1> <name_1>, ...)` to create a task and run it
-  on a Lace worker.
-- `<return_type> <name>_SYNC(lace_worker* lw)` to get the result of the last
-  spawned task (LIFO order). This either waits for the result of the stolen task
-or if not stolen, executes the task.
-- `<return_type> <name>_NEWFRAME(...)` is a version of `<name>_RUN` that halts
-  all workers (between tasks) and runs the `<name>` task on the Lace workers.
-One use case is stop-the-world garbage collection.
-- `void <name>_TOGETHER(...)` is a version of `<name>_RUN` that lets all workers
-  run the same task concurrently. One use case is initialization of thread local
-storage of the program on every Lace worker.
+```c
+TASK_0(int, my_task)
+int my_task_CALL(lace_worker* lw) { ... }
 
-Use the `SPAWN` and `SYNC` methods to create tasks that can be stolen and to
-obtain the result of the last spawned tasks. The number of `SPAWN` and `SYNC`
-calls should match.
+TASK_1(int, fibonacci, int, n)
+int fibonacci_CALL(lace_worker* lw, int n) { ... }
+```
 
-For defining tasks with no return type (`void`), use these macros:
-- `VOID_TASK_1(name, type_1, name_1)`
-- `VOID_TASK_2(name, type_1, name_1, type_2, name_2)`
-- `VOID_TASK_3(name, type_1, name_1, type_2, name_2, type_3, name_3)`
-- etc.
+For `void` return types, use the `VOID_TASK_N` variants:
 
-**Important**: the actual task must be a function with a signature like:
-- `<return_type> <name>_CALL(lace_worker*, <type_1>, <type_2>, ...)`
-- `void <name>_CALL(lace_worker*, <type_1>, <type_2>, ...)`
+```c
+VOID_TASK_1(my_void_task, int, n)
+void my_void_task_CALL(lace_worker* lw, int n) { ... }
 
-The tasks are given the `lace_worker*` pointer that corresponds to the worker
-that the task is currently running in. This pointer and its contents must not be
-changed and the pointer is necessary for a number of function calls such as
-`SPAWN`, `SYNC`, etc.
+VOID_TASK_2(process, int*, data, int, size)
+void process_CALL(lace_worker* lw, int* data, int size) { ... }
+```
+
+Each `TASK_N(RTYPE, NAME, ...)` macro generates the following functions:
+
+| Function | Description |
+|----------|-------------|
+| `NAME_CALL(lw, ...)` | Your task body — implement this |
+| `NAME(...)` | Run the task from outside Lace (blocks until done) |
+| `NAME_SPAWN(lw, ...)` | Fork: push a task onto the deque so it can be stolen |
+| `NAME_SYNC(lw)` | Join: retrieve the result of the last spawned task |
+| `NAME_DROP(lw)` | Drop: cancel the last spawned task if not yet stolen, or discard its result if already stolen |
+| `NAME_NEWFRAME(...)` | Interrupt all workers and run this task (see below) |
+| `NAME_TOGETHER(...)` | Interrupt all workers and run a copy on each worker (see below) |
+
+The `lace_worker*` pointer passed to `_CALL` must not be modified. It is
+required by `SPAWN`, `SYNC`, and other Lace operations.
+
+### SPAWN and SYNC
+
+`SPAWN` and `SYNC` must be matched. Each `SPAWN` pushes a task onto the deque
+where it can be stolen by another worker. `SYNC` retrieves the result of the
+last spawned task, waiting for it if stolen, or executing it directly if not.
+
+```c
+int fibonacci_CALL(lace_worker* lw, int n)
+{
+    if (n < 2) return n;
+    fibonacci_SPAWN(lw, n-1);         // push onto deque (may be stolen)
+    int a = fibonacci_CALL(lw, n-2);  // execute directly
+    int b = fibonacci_SYNC(lw);       // retrieve spawned result
+    return a + b;
+}
+```
+
+### Dropping a spawned task
+
+Instead of `SYNC`, you can drop the last spawned task with `lace_drop`. If the
+task has not yet been stolen, it is cancelled and never executed. If it has
+already been stolen, the thief will still complete it, but the result is
+discarded.
+
+```c
+my_task_SPAWN(lw, arg);
+// ... decide we don't need the result
+my_task_DROP(lw);
+```
+
+### Interrupting workers
+
+Two special run modes interrupt currently executing tasks at the next steal
+point (i.e. at `SYNC` or when idle):
+
+**`NAME_NEWFRAME(...)`** — halts all workers and runs the given task on the
+worker pool. The current task frame is suspended and resumed after the new
+task completes. Typical use: stop-the-world garbage collection.
+
+**`NAME_TOGETHER(...)`** — halts all workers and runs a copy of the given task
+on *every* worker simultaneously. All workers start together and all complete
+together (barrier semantics). Typical use: per-worker initialization of
+thread-local state.
+
+Long-running tasks should call `lace_check_yield(lw)` periodically to
+cooperate with interruptions.
 
 ### Example
 
-Typically a recursive function with two 'child tasks' is parallelized as follows:
-
 ```c
-TASK_1(int, fibonacci, int, n)  // macro to create Lace functions (can be in header file)
+#include <lace.h>
+#include <stdio.h>
 
-int fibonacci_CALL(lace_worker* lw, int n) {
-    if(n < 2) return n;
-    fibonacci_SPAWN(lw, n-1);         // SPAWN a task (fork)
-    int a = fibonacci_CALL(lw, n-2);  // run another task in parallel
-    int b = fibonacci_SYNC(lw);       // SYNC the spawned task (join)
+TASK_1(int, fibonacci, int, n)
+
+int fibonacci_CALL(lace_worker* lw, int n)
+{
+    if (n < 2) return n;
+    fibonacci_SPAWN(lw, n-1);
+    int a = fibonacci_CALL(lw, n-2);
+    int b = fibonacci_SYNC(lw);
     return a + b;
 }
 
-int main(int argc, char** argv)
+int main(void)
 {
-    int n_workers = 4;  // create 4 workers
-                        // use 0 to automatically use all available cores
+    int n_workers = 0;  // 0 workers = use all available cores
     int dqsize = 0;     // use default task deque size
     int stacksize = 0;  // use default program stack size
 
     lace_start(n_workers, dqsize, stacksize);
-    int result = fibonacci(42);
+    int result = fibonacci(42);   // run from outside Lace
     printf("fibonacci(42) = %d\n", result);
     lace_stop();
 }
 ```
 
-See further the [benchmarks](benchmarks/) directory for more examples.
-
-### Interrupting
-
-Lace offers two methods to interrupt currently running tasks and run something else:
-- the `fib_NEWFRAME(40)` function halts current tasks and offers the `fib(40)`
-  task to the framework.
-- the `fib_TOGETHER(40)` function halts current tasks and lets **all Lace
-  workers** execute a copy of the given `fib(40)` task.
-
-The `NEWFRAME` functions are used for example to implement stop-the-world
-garbage collection, interrupting current tasks in order to run a more important
-task first.
-The `TOGETHER` functions are typically used to initialize thread-local variables
-on each worker, or to perform some other operation on each individual worker
-thread.
-
-Interrupting is cooperative. Lace checks for interrupting tasks when stealing
-work, i.e., during `SYNC` or when idle.  Long-running tasks should use
-`lace_check_yield` to manually check if an interruption is occuring.
+See the [benchmarks](benchmarks/) directory for more examples.
 
 ---
 
 ## Lifecycle
 
-These methods control the Lace workers, starting and stopping the workers, and
-suspending and resuming them. These methods must be called from outside the Lace
-framework, i.e., not from a Lace worker thread.
+These functions must be called from outside the Lace framework, i.e. not from
+within a Lace worker thread.
 
-A typical Lace program starts with `lace_start` and ends with `lace_stop`, and
-uses `<task>(...)` to let the Lace worker threads execute tasks.
+### `void lace_start(unsigned int n_workers, size_t dqsize, size_t stacksize)`
 
-When Lace is started, worker threads are created and immediately start
-busy-waiting for work.  Each thread allocates its own task queue of the
-requested size.
+Start Lace and spawn worker threads.
 
-If `LACE_USE_MMAP` is set, then the queue is preallocated in virtual memory, and
-real memory is allocated by the OS on demand.  If `LACE_USE_HWLOC` is set, the
-worker threads will pin to a CPU core.
+- `n_workers`: number of worker threads; `0` auto-detects available cores
+- `dqsize`: task deque size per worker; `0` uses a default of 100K tasks
+- `stacksize`: worker thread stack size; `0` uses the minimum of 16 MB and the calling thread's stack size
 
-Lace workers busy-wait for tasks to steal, increasing the CPU load to 100%.
-Use `lace_suspend` and `lace_resume` (in a non-Lace thread) to temporarily stop
-the work-stealing framework.  If Lace is suspended and a task is offered to the
-framework, e.g. by calling `fib(40)`, then Lace is automatically resumed and
-suspended before and after execution of this task.  Suspending and resuming
-typically requires less than 1 ms. If `LACE_BACKOFF` is `ON`, then the CPU load
-typically drops to 0% after roughly one second of no work, and `lace_suspend`
-and `lace_resume` may not be needed.
+Workers begin busy-waiting for tasks immediately. If `LACE_BACKOFF` is enabled
+(the default), CPU usage drops to near 0% after roughly one second of
+inactivity.
+
+If `LACE_USE_MMAP` is set, deques are allocated in virtual memory and physical
+pages are committed lazily by the OS. If `LACE_USE_HWLOC` is set, worker
+threads are pinned to CPU cores.
 
 ---
 
-### `void lace_start(unsigned int n_workers, size_t dqsize, size_t stacksize);`
+### `void lace_stop(void)`
 
-Start Lace workers, allowing tasks to be run.
-
-- `n_workers`: number of worker threads (0 = auto-detect)
-- `dqsize`: size of each task deque (0 = default size, i.e., 100K tasks)
-- `stacksize`: worker thread stack size (0 = min of 16MB and current thread stack)
+Stop all workers and free resources. Do not call from inside a Lace task.
 
 ---
 
-### `void lace_suspend(void);`  
+### `int lace_is_running(void)`
 
-Suspend all workers.
-
----
-
-### `void lace_resume(void);`
-
-Resume all workers.
+Returns `1` if Lace is currently running, `0` otherwise.
 
 ---
 
-### `void lace_stop(void);`
+### `void lace_set_verbosity(int level)`
 
-Stop the Lace runtime.
+Set the verbosity level. Call this before `lace_start`.
 
----
-
-### `int lace_is_running(void);`
-
-Returns 1 if Lace is running, 0 otherwise.
-
----
-
-### `void lace_set_verbosity(int level);`
-
-Set verbosity level for Lace runtime. This should be set *before* calling `lace_start`.
-
-- `level = 0`: no startup messages (default)
-- `level = 1`: show startup messages
+- `0`: no output (default)
+- `1`: print startup information
 
 ---
 
 ## Worker Context
 
-### `unsigned int lace_worker_count(void);`
+### `unsigned int lace_worker_count(void)`
 
 Returns the number of Lace worker threads.
 
 ---
 
-### `int lace_is_worker(void);`
+### `int lace_is_worker(void)`
 
-Returns 1 if called from a Lace worker thread, 0 otherwise.
-
----
-
-### `lace_worker* lace_get_worker(void);`  
-
-Returns a pointer to the current worker’s data (or `NULL` if not a worker).
+Returns `1` if called from a Lace worker thread, `0` otherwise.
 
 ---
 
-### `int lace_worker_id(void);`
+### `lace_worker* lace_get_worker(void)`
 
-Returns the worker ID (or `-1` if not in a Lace thread).
+Returns a pointer to the current worker's private data, or `NULL` if not called
+from a Lace worker thread.
 
 ---
 
-### `uint64_t lace_rng(lace_worker* worker);`
+### `int lace_worker_id(void)`
 
-Thread-local pseudo-random number generator. Each Lace worker has its own thread-local RNG state. The purpose is to avoid contention on a shared RNG.
+Returns the current worker's integer ID (0-based), or `-1` if not called from
+a Lace worker thread.
+
+---
+
+### `uint64_t lace_rng(lace_worker* lw)`
+
+Thread-local pseudo-random number generator. Each worker has its own RNG state,
+avoiding contention on a shared RNG.
 
 ---
 
 ## Task Operations
 
-### `void lace_barrier(void);`
+### `void lace_barrier(void)`
 
-Barrier synchronization for Lace tasks.
-All workers block until all have reached the barrier.
-**Must be called from inside a Lace task.**
-
----
-
-### `void lace_drop(lace_worker* worker);`
-
-Instead of `<name>_SYNC`, if `lace_drop` is used this drops the last spawned task. Effectively this means that if the task was already stolen, it is still executed, but if it was not yet stolen, then it is not executed.
+Collective barrier: all workers block until every worker has reached this call.
+Must be called from inside a Lace task.
 
 ---
 
-### `int lace_is_stolen_task(lace_task* t);`  
+### `int lace_is_stolen_task(lace_task* t)`
 
-Returns 1 if the given task is stolen.
-
----
-
-### `int lace_is_completed_task(lace_task* t);`
-
-Returns 1 if the given task is completed.
+Returns `1` if the given task has been stolen by another worker.
 
 ---
 
-### `<return_type>* lace_task_result(lace_task* t);`
+### `int lace_is_completed_task(lace_task* t)`
 
-Returns a pointer to where the result of a task will be stored after its completion. This is a pointer in the `lace_task*` struct of the given task.
-
----
-
-### `void lace_steal_random(lace_worker* worker);`
-
-Try to steal and execute a task from a random worker.
+Returns `1` if the given task has been completed.
 
 ---
 
-### `void lace_check_yield(lace_worker* worker);`
+### `lace_task_result(t)`
 
-Checks if the current task should yield to a `TOGETHER` or `NEWFRAME` interruption, and yields if necessary. Useful in long-running tasks.
-
----
-
-### `void lace_make_all_shared(void);`
-
-Mark all tasks in the current worker’s deque as shared.
+Macro that returns a pointer to the result storage inside the given `lace_task`.
+The result is available after `lace_is_completed_task` returns `1`.
 
 ---
 
-### `lace_task* lace_get_head(void);`
+### `void lace_steal_random(lace_worker* lw)`
 
-Returns the current head of the worker's deque.
+Attempt to steal and execute a task from a randomly chosen worker. Useful
+inside long-running tasks to avoid starving other workers.
+
+---
+
+### `void lace_check_yield(lace_worker* lw)`
+
+Check whether a `NEWFRAME` or `TOGETHER` interruption is pending, and yield
+if so. Call periodically from long-running tasks to cooperate with
+interruptions.
+
+---
+
+### `void lace_make_all_shared(void)`
+
+Mark all tasks on the current worker's deque as shared (stealable). Normally
+only tasks up to the split point are stealable; this moves the split to the
+head, making everything available to thieves.
+
+---
+
+### `lace_task* lace_get_head(void)`
+
+Returns the current head pointer of the calling worker's deque.
 
 ---
 
 ## Statistics
 
-### `void lace_count_reset(void);`
+Statistics functions report data collected by the optional `LACE_COUNT_*` and
+`LACE_PIE_TIMES` build options. If none of these are enabled, the report will
+be empty.
 
-Reset all internal counters.
+### `void lace_count_reset(void)`
 
----
-
-### `void lace_count_report_file(FILE* file);`
-
-Print current Lace statistics to the given `FILE*`.
+Reset all internal statistics counters.
 
 ---
 
-### `void lace_count_report(void);`
+### `void lace_count_report_file(FILE* file)`
 
-Shortcut to print statistics to `stdout`.
+Write a statistics report to the given `FILE*`.
+
+---
+
+### `void lace_count_report(void)`
+
+Write a statistics report to `stdout`.
 
 ---
 
 ## Miscellaneous
 
-### `void lace_sleep_us(int microseconds);`
+### `void lace_sleep_us(int64_t microseconds)`
 
-Let the current thread sleep for the given number of microseconds. Only works
-properly on Linux and macOS, and will round up to whole milliseconds on
-Windows.
+Sleep for the given number of microseconds. On Linux and macOS this uses
+`nanosleep` and is precise to the microsecond. On Windows, resolution is
+limited to whole milliseconds.

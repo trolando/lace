@@ -8,20 +8,19 @@
 Lace is a C framework for fine-grained fork-join parallelism on multi-core computers.
 
 ```c
-TASK_1(int, fibonacci, int, n)  // macro to create Lace functions (can be in header file)
+TASK_1(int, fibonacci, int, n)  // declare a Lace task (place in header or source)
 
 int fibonacci_CALL(lace_worker* lw, int n) {
     if(n < 2) return n;
-    fibonacci_SPAWN(lw, n-1);         // SPAWN a task (fork)
-    int a = fibonacci_CALL(lw, n-2);  // run another task in parallel
-    int b = fibonacci_SYNC(lw);       // SYNC the spawned task (join)
+    fibonacci_SPAWN(lw, n-1);         // fork: push task onto deque
+    int a = fibonacci_CALL(lw, n-2);  // run another instance directly
+    int b = fibonacci_SYNC(lw);       // join: retrieve result of spawned task
     return a + b;
 }
 
 int main(int argc, char** argv)
 {
-    int n_workers = 4;  // create 4 workers
-                        // use 0 to automatically use all available cores
+    int n_workers = 0;  // 0 workers = use all available cores
     int dqsize = 0;     // use default task deque size
     int stacksize = 0;  // use default program stack size
 
@@ -32,7 +31,7 @@ int main(int argc, char** argv)
 }
 ```
 
-For more examples, see [DOCS.md](./DOCS.md) and the contents of the [benchmarks](./benchmarks/) folder.
+For more examples and a full API reference, see [DOCS.md](./DOCS.md) and the [benchmarks](./benchmarks/) folder.
 
 ## Table of Contents
 
@@ -48,14 +47,14 @@ For more examples, see [DOCS.md](./DOCS.md) and the contents of the [benchmarks]
 ## Features
 
 - ⚡ Low-overhead, lock-free work-stealing
-- 💤 Suspend and resume workers to save CPU time
-- 🕒 Exponential backoff to save CPU time
+- 💤 Sleeps when idle (exponential backoff) to save CPU time
 - 📌 Optional thread pinning with `hwloc`
 - 📈 Low-overhead statistics per worker
-- ⛔ Interrupt support (e.g. for garbage collection, or initialisation)
+- ⛔ Interrupt support for coordinating all workers to a safe point (e.g. stop-the-world GC)
 
-Lace uses a **scalable** double-ended queue for its implementation of work-stealing, which is **wait-free** for the thread spawning tasks and **lock-free** for the threads stealing tasks. The design of the datastructure minimizes interaction between CPUs.
-Lace can report the number of tasks, steals and queue splits per Lace worker. It can also report the amount of time spent in startup/shutdown, performing stolen work, overhead of stealing and of searching for work, per worker. Gathering these statistics is done with virtually no overhead.
+Lace uses a **scalable** double-ended queue for work-stealing. The owner thread pushes and pops tasks from its own deque in a **wait-free** manner. Thief threads steal from the other end in a **lock_free** manner. The design minimizes cache line contention between workers.
+
+Lace can report the number of tasks, steals and queue splits per worker. It can also report time spent in startup/shutdown, stolen work, steal overhead and idle search time per worker. Gathering these statistics is done with virtually no overhead.
 
 Please [let us know](https://github.com/trolando/lace/issues) if you need features that are currently not implemented in Lace.
 
@@ -75,14 +74,15 @@ You can install Lace via `make install`, or integrate it into your project via C
   <summary>Example for CMake with FetchContent</summary>
 
 ```cmake
-if(NOT TARGET lace)
-  find_package(lace QUIET)
+if(NOT TARGET lace::lace)
+  find_package(lace 2.2 CONFIG QUIET)
   if(NOT lace_FOUND)
     include(FetchContent)
     FetchContent_Declare(
         lace
         GIT_REPOSITORY https://github.com/trolando/lace.git
-        GIT_TAG        v2.0.0
+        GIT_TAG        v2.2.0
+        GIT_SHALLOW    TRUE
     )
     FetchContent_MakeAvailable(lace)
   endif()
@@ -106,29 +106,80 @@ cmake --build build
 
 Lace can be configured with the following CMake options:
 
-Setting | Description
---------|------------
-`LACE_BUILD_TESTS` | Build the testing programs (not when subproject)
-`LACE_BUILD_BENCHMARKS` | Build the included set of benchmark programs (not when subproject)
-`LACE_USE_MMAP` | Use `mmap` to allocate memory instead of `aligned_alloc`
-`LACE_USE_HWLOC` | Use the `hwloc` library to pin threads to CPUs
-`LACE_COUNT_TASKS` | Let Lace record the number of executed tasks
-`LACE_COUNT_STEALS` | Let Lace count how often tasks were stolen
-`LACE_COUNT_SPLITS` | Let Lace count how often the queue split point was moved
-`LACE_PIE_TIMES` | Let Lace record precise overhead times
-`LACE_BACKOFF` | Let Lace workers sleep when there is no work to steal
+Setting | Description | Default
+--------|-------------|--------
+`LACE_BUILD_TESTS` | Build the testing programs (disabled when used as a subproject) | OFF
+`LACE_BUILD_BENCHMARKS` | Build the included benchmark programs (disabled when used as a subproject) | OFF
+`LACE_USE_MMAP` | Use `mmap` to allocate task deques instead of `aligned_alloc`. Physical pages are lazily allocated by the OS, which reduces startup memory usage. | ON
+`LACE_USE_HWLOC` | Use the `hwloc` library to pin worker threads to CPU cores. Important for NUMA systems where memory locality affects performance. | OFF
+`LACE_COUNT_TASKS` | Record the number of tasks executed per worker | OFF
+`LACE_COUNT_STEALS` | Record the number of successful steals per worker | OFF
+`LACE_COUNT_SPLITS` | Record the number of deque split-point adjustments per worker | OFF
+`LACE_PIE_TIMES` | Record precise overhead times per worker (startup, steal overhead, idle search) | OFF
+`LACE_BACKOFF` | Workers sleep with exponential backoff when no work is available, reducing CPU usage without affecting throughput | ON
+`LACE_ENABLE_PIC` | Compile Lace with position-independent code (`-fPIC`). Required when embedding Lace inside a shared library. | OFF
+`LACE_NATIVE_OPT` | Optimize for the host CPU architecture (`-march=native`). Improves performance on the build machine but produces binaries that may not run on other CPUs. | OFF
+`LACE_SANITIZE_ADDRESS` | Build with AddressSanitizer to detect memory errors. For development and testing only. | OFF
+`LACE_SANITIZE_THREAD` | Build with ThreadSanitizer to detect data races. For development and testing only. | OFF
+`LACE_SANITIZE_UB` | Build with UndefinedBehaviorSanitizer to detect undefined behavior. For development and testing only. | OFF
 
 **Recommendations**:
 
-- Use `LACE_USE_MMAP` to reduce physical memory usage. Memory is allocated 
-  lazily by the OS.
-- Use `LACE_USE_HWLOC` to ensure threads are pinned to CPU cores appropriately.
-- Leave `LACE_BACKOFF` on as benchmarks show that this does not affect
-  performance.
+- Enable `LACE_USE_MMAP` to let the OS lazily allocate physical memory for task deques.
+- Enable `LACE_USE_HWLOC` to pin threads to cores, especially on NUMA systems.
+- Leave `LACE_BACKOFF` on. Benchmarks show it does not affect throughput.
+- Use `LACE_NATIVE_OPT` for local benchmarking, but not for distributed or portable builds.
+- The sanitizer options are mutually exclusive. Use them individually during development.
 
 ## Usage
 
-See the [documentation](DOCS.md) for more details.
+Lace comes in three variants that differ in the size of the task struct allocated on the deque:
+
+Variant | Task size | Available for parameters and result
+--------|-----------|------------------------------------
+`lace32` | 32 bytes | 16 bytes
+`lace` | 64 bytes | 48 bytes
+`lace128` | 128 bytes | 112 bytes
+
+The 16-byte overhead is fixed (function pointer and thief status). Choose the variant based on how much data your tasks need to store — parameters and return value must fit in the available space. The default `lace` variant (48 bytes usable) is sufficient for most use cases. A `static_assert` in the generated code will catch it at compile time if your task's parameters and return type exceed the available space.
+
+Lace tasks are declared with the `TASK_N` family of macros, where `N` is the number of parameters. The macro generates the task descriptor and function signatures; you provide the body as a regular C function named `TASKNAME_CALL`.
+
+```c
+// No parameters
+TASK_0(int, compute)
+int compute_CALL(lace_worker* lw) { ... }
+
+// One parameter
+TASK_1(int, fibonacci, int, n)
+int fibonacci_CALL(lace_worker* lw, int n) { ... }
+
+// Two parameters
+VOID_TASK_2(process, int*, data, int, size)
+void process_CALL(lace_worker* lw, int* data, int size) { ... }
+```
+
+Inside a `_CALL` function, use `SPAWN`, `CALL`, and `SYNC` to fork and join work:
+
+```c
+int fibonacci_CALL(lace_worker* lw, int n) {
+    if (n < 2) return n;
+    fibonacci_SPAWN(lw, n-1);         // push onto deque (may be stolen)
+    int a = fibonacci_CALL(lw, n-2);  // execute directly
+    int b = fibonacci_SYNC(lw);       // retrieve spawned result
+    return a + b;
+}
+```
+
+To start Lace and run a top-level task from outside a worker thread, call the task by name as a regular function:
+
+```c
+lace_start(0, 0, 0);   // (n_workers, dqsize, stacksize), 0 = use defaults
+int result = fibonacci(42);
+lace_stop();
+```
+
+See [DOCS.md](./DOCS.md) for the full API, including interrupts, worker queries, and advanced usage.
 
 ## Benchmarking
 
