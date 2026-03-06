@@ -506,12 +506,6 @@ typedef struct _ext_lace_task {
 
 static _Atomic(ext_lace_task*) external_task = NULL;
 
-static lace_mutex_t external_task_lock;
-static lace_cond_t  external_task_cond;
-
-static int external_task_counter = 0;
-static int external_task_exclusive = 0;
-
 void
 lace_run_task(lace_task *task)
 {
@@ -525,66 +519,13 @@ lace_run_task(lace_task *task)
         atomic_store_explicit(&et.task->thief, 0, memory_order_relaxed);
         lace_sem_init(&et.sem, 0);
 
-        lace_mutex_lock(&external_task_lock);
-        while (external_task_exclusive) {
-            // if "exclusive" is set, then we wait until we can continue
-            lace_cond_wait(&external_task_cond, &external_task_lock);
-        }
-        external_task_counter++;
-        lace_mutex_unlock(&external_task_lock);
-
         ext_lace_task *exp = 0;
-        while (atomic_compare_exchange_weak(&external_task, &exp, &et) != 1) {}
+        while (atomic_compare_exchange_weak(&external_task, &exp, &et) != 1) {
+            exp = 0; // keep expecting 0!
+        }
 
         lace_sem_wait(&et.sem);
         lace_sem_destroy(&et.sem);
-
-        lace_mutex_lock(&external_task_lock);
-        external_task_counter--;
-        if (external_task_exclusive && external_task_counter == 0) {
-            // if counter is 0 and exclusive is set, then we should wake up the threads
-            lace_cond_broadcast(&external_task_cond);
-        }
-        lace_mutex_unlock(&external_task_lock);
-    }
-}
-
-void
-lace_run_task_exclusive(lace_task *task)
-{
-    // check if we are really not in a Lace thread
-    lace_worker* self = lace_get_worker();
-    if (self != 0) {
-        task->f(self, task);
-    } else {
-        ext_lace_task et;
-        et.task = task;
-        atomic_store_explicit(&et.task->thief, 0, memory_order_relaxed);
-        lace_sem_init(&et.sem, 0);
-
-        lace_mutex_lock(&external_task_lock);
-        while (external_task_exclusive) {
-            // if "exclusive" is set, then we wait until we can continue
-            lace_cond_wait(&external_task_cond, &external_task_lock);
-        }
-        external_task_exclusive = 1;
-        while (external_task_counter > 0) {
-            // wait until all other tasks are done
-            lace_cond_wait(&external_task_cond, &external_task_lock);
-        }
-        lace_mutex_unlock(&external_task_lock);
-
-        ext_lace_task *exp = 0;
-        while (atomic_compare_exchange_weak(&external_task, &exp, &et) != 1) {}
-
-        lace_sem_wait(&et.sem);
-        lace_sem_destroy(&et.sem);
-
-        lace_mutex_lock(&external_task_lock);
-        external_task_exclusive = 0;
-        // wake up any waiters
-        lace_cond_broadcast(&external_task_cond);
-        lace_mutex_unlock(&external_task_lock);
     }
 }
 
@@ -880,9 +821,6 @@ lace_start(unsigned int _n_workers, size_t dequesize, size_t stacksize)
 
     // Initialize Lace barrier
     lace_barrier_init();
-
-    lace_mutex_init(&external_task_lock);
-    lace_cond_init(&external_task_cond);
 
     // Allocate array with all workers
     // first make sure that the amount to allocate (n_workers times pointer) is a multiple of cache_line_size

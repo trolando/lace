@@ -298,6 +298,7 @@ typedef struct _lace_task lace_task;
  * - lace_set_verbosity
  * - lace_start
  * - lace_stop
+ * - lace_is_running
  **************************************/
 
 /**
@@ -597,11 +598,6 @@ static inline lace_task *lace_get_head(void)
  * Helper function to call from outside Lace threads.
  */
 void lace_run_task(lace_task *task);
-
-/**
- * Helper function to call from outside Lace threads.
- */
-void lace_run_task_exclusive(lace_task *task);
 
 /**
  * Helper function to start a new task execution (task frame) on a given task.
@@ -1001,18 +997,6 @@ RTYPE NAME(void)                                                                
     }                                                                                 \
 }                                                                                     \
                                                                                       \
-static inline LACE_UNUSED                                                             \
-RTYPE NAME##_RUNEX(void)                                                              \
-{                                                                                     \
-    lace_task _t;                                                                     \
-    TD_##NAME *t = (TD_##NAME *)&_t;                                                  \
-    t->f = &NAME##_WRAP;                                                              \
-    atomic_store_explicit(&t->thief, THIEF_TASK, memory_order_relaxed);               \
-                                                                                      \
-    lace_run_task_exclusive(&_t);                                                     \
-    return ((TD_##NAME *)t)->d.res;                                                   \
-}                                                                                     \
-                                                                                      \
 LACE_NO_SANITIZE_THREAD                                                               \
 static inline LACE_UNUSED                                                             \
 RTYPE NAME##_SYNC(lace_worker* _lace_worker)                                          \
@@ -1142,18 +1126,6 @@ void NAME(void)                                                                 
         lace_run_task(&_t);                                                           \
         return ;                                                                      \
     }                                                                                 \
-}                                                                                     \
-                                                                                      \
-static inline LACE_UNUSED                                                             \
-void NAME##_RUNEX(void)                                                               \
-{                                                                                     \
-    lace_task _t;                                                                     \
-    TD_##NAME *t = (TD_##NAME *)&_t;                                                  \
-    t->f = &NAME##_WRAP;                                                              \
-    atomic_store_explicit(&t->thief, THIEF_TASK, memory_order_relaxed);               \
-                                                                                      \
-    lace_run_task_exclusive(&_t);                                                     \
-    return ;                                                                          \
 }                                                                                     \
                                                                                       \
 LACE_NO_SANITIZE_THREAD                                                               \
@@ -1290,18 +1262,6 @@ RTYPE NAME(ATYPE_1 arg_1)                                                       
     }                                                                                 \
 }                                                                                     \
                                                                                       \
-static inline LACE_UNUSED                                                             \
-RTYPE NAME##_RUNEX(ATYPE_1 arg_1)                                                     \
-{                                                                                     \
-    lace_task _t;                                                                     \
-    TD_##NAME *t = (TD_##NAME *)&_t;                                                  \
-    t->f = &NAME##_WRAP;                                                              \
-    atomic_store_explicit(&t->thief, THIEF_TASK, memory_order_relaxed);               \
-     t->d.args.arg_1 = arg_1;                                                         \
-    lace_run_task_exclusive(&_t);                                                     \
-    return ((TD_##NAME *)t)->d.res;                                                   \
-}                                                                                     \
-                                                                                      \
 LACE_NO_SANITIZE_THREAD                                                               \
 static inline LACE_UNUSED                                                             \
 RTYPE NAME##_SYNC(lace_worker* _lace_worker)                                          \
@@ -1431,18 +1391,6 @@ void NAME(ATYPE_1 arg_1)                                                        
         lace_run_task(&_t);                                                           \
         return ;                                                                      \
     }                                                                                 \
-}                                                                                     \
-                                                                                      \
-static inline LACE_UNUSED                                                             \
-void NAME##_RUNEX(ATYPE_1 arg_1)                                                      \
-{                                                                                     \
-    lace_task _t;                                                                     \
-    TD_##NAME *t = (TD_##NAME *)&_t;                                                  \
-    t->f = &NAME##_WRAP;                                                              \
-    atomic_store_explicit(&t->thief, THIEF_TASK, memory_order_relaxed);               \
-     t->d.args.arg_1 = arg_1;                                                         \
-    lace_run_task_exclusive(&_t);                                                     \
-    return ;                                                                          \
 }                                                                                     \
                                                                                       \
 LACE_NO_SANITIZE_THREAD                                                               \
@@ -1579,18 +1527,6 @@ RTYPE NAME(ATYPE_1 arg_1, ATYPE_2 arg_2)                                        
     }                                                                                 \
 }                                                                                     \
                                                                                       \
-static inline LACE_UNUSED                                                             \
-RTYPE NAME##_RUNEX(ATYPE_1 arg_1, ATYPE_2 arg_2)                                      \
-{                                                                                     \
-    lace_task _t;                                                                     \
-    TD_##NAME *t = (TD_##NAME *)&_t;                                                  \
-    t->f = &NAME##_WRAP;                                                              \
-    atomic_store_explicit(&t->thief, THIEF_TASK, memory_order_relaxed);               \
-     t->d.args.arg_1 = arg_1; t->d.args.arg_2 = arg_2;                                \
-    lace_run_task_exclusive(&_t);                                                     \
-    return ((TD_##NAME *)t)->d.res;                                                   \
-}                                                                                     \
-                                                                                      \
 LACE_NO_SANITIZE_THREAD                                                               \
 static inline LACE_UNUSED                                                             \
 RTYPE NAME##_SYNC(lace_worker* _lace_worker)                                          \
@@ -1720,18 +1656,6 @@ void NAME(ATYPE_1 arg_1, ATYPE_2 arg_2)                                         
         lace_run_task(&_t);                                                           \
         return ;                                                                      \
     }                                                                                 \
-}                                                                                     \
-                                                                                      \
-static inline LACE_UNUSED                                                             \
-void NAME##_RUNEX(ATYPE_1 arg_1, ATYPE_2 arg_2)                                       \
-{                                                                                     \
-    lace_task _t;                                                                     \
-    TD_##NAME *t = (TD_##NAME *)&_t;                                                  \
-    t->f = &NAME##_WRAP;                                                              \
-    atomic_store_explicit(&t->thief, THIEF_TASK, memory_order_relaxed);               \
-     t->d.args.arg_1 = arg_1; t->d.args.arg_2 = arg_2;                                \
-    lace_run_task_exclusive(&_t);                                                     \
-    return ;                                                                          \
 }                                                                                     \
                                                                                       \
 LACE_NO_SANITIZE_THREAD                                                               \
@@ -1868,18 +1792,6 @@ RTYPE NAME(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3)                         
     }                                                                                 \
 }                                                                                     \
                                                                                       \
-static inline LACE_UNUSED                                                             \
-RTYPE NAME##_RUNEX(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3)                       \
-{                                                                                     \
-    lace_task _t;                                                                     \
-    TD_##NAME *t = (TD_##NAME *)&_t;                                                  \
-    t->f = &NAME##_WRAP;                                                              \
-    atomic_store_explicit(&t->thief, THIEF_TASK, memory_order_relaxed);               \
-     t->d.args.arg_1 = arg_1; t->d.args.arg_2 = arg_2; t->d.args.arg_3 = arg_3;       \
-    lace_run_task_exclusive(&_t);                                                     \
-    return ((TD_##NAME *)t)->d.res;                                                   \
-}                                                                                     \
-                                                                                      \
 LACE_NO_SANITIZE_THREAD                                                               \
 static inline LACE_UNUSED                                                             \
 RTYPE NAME##_SYNC(lace_worker* _lace_worker)                                          \
@@ -2009,18 +1921,6 @@ void NAME(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3)                          
         lace_run_task(&_t);                                                           \
         return ;                                                                      \
     }                                                                                 \
-}                                                                                     \
-                                                                                      \
-static inline LACE_UNUSED                                                             \
-void NAME##_RUNEX(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3)                        \
-{                                                                                     \
-    lace_task _t;                                                                     \
-    TD_##NAME *t = (TD_##NAME *)&_t;                                                  \
-    t->f = &NAME##_WRAP;                                                              \
-    atomic_store_explicit(&t->thief, THIEF_TASK, memory_order_relaxed);               \
-     t->d.args.arg_1 = arg_1; t->d.args.arg_2 = arg_2; t->d.args.arg_3 = arg_3;       \
-    lace_run_task_exclusive(&_t);                                                     \
-    return ;                                                                          \
 }                                                                                     \
                                                                                       \
 LACE_NO_SANITIZE_THREAD                                                               \
@@ -2157,18 +2057,6 @@ RTYPE NAME(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4)          
     }                                                                                 \
 }                                                                                     \
                                                                                       \
-static inline LACE_UNUSED                                                             \
-RTYPE NAME##_RUNEX(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4)        \
-{                                                                                     \
-    lace_task _t;                                                                     \
-    TD_##NAME *t = (TD_##NAME *)&_t;                                                  \
-    t->f = &NAME##_WRAP;                                                              \
-    atomic_store_explicit(&t->thief, THIEF_TASK, memory_order_relaxed);               \
-     t->d.args.arg_1 = arg_1; t->d.args.arg_2 = arg_2; t->d.args.arg_3 = arg_3; t->d.args.arg_4 = arg_4;\
-    lace_run_task_exclusive(&_t);                                                     \
-    return ((TD_##NAME *)t)->d.res;                                                   \
-}                                                                                     \
-                                                                                      \
 LACE_NO_SANITIZE_THREAD                                                               \
 static inline LACE_UNUSED                                                             \
 RTYPE NAME##_SYNC(lace_worker* _lace_worker)                                          \
@@ -2298,18 +2186,6 @@ void NAME(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4)           
         lace_run_task(&_t);                                                           \
         return ;                                                                      \
     }                                                                                 \
-}                                                                                     \
-                                                                                      \
-static inline LACE_UNUSED                                                             \
-void NAME##_RUNEX(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4)         \
-{                                                                                     \
-    lace_task _t;                                                                     \
-    TD_##NAME *t = (TD_##NAME *)&_t;                                                  \
-    t->f = &NAME##_WRAP;                                                              \
-    atomic_store_explicit(&t->thief, THIEF_TASK, memory_order_relaxed);               \
-     t->d.args.arg_1 = arg_1; t->d.args.arg_2 = arg_2; t->d.args.arg_3 = arg_3; t->d.args.arg_4 = arg_4;\
-    lace_run_task_exclusive(&_t);                                                     \
-    return ;                                                                          \
 }                                                                                     \
                                                                                       \
 LACE_NO_SANITIZE_THREAD                                                               \
@@ -2446,18 +2322,6 @@ RTYPE NAME(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, ATYPE_5 a
     }                                                                                 \
 }                                                                                     \
                                                                                       \
-static inline LACE_UNUSED                                                             \
-RTYPE NAME##_RUNEX(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, ATYPE_5 arg_5)\
-{                                                                                     \
-    lace_task _t;                                                                     \
-    TD_##NAME *t = (TD_##NAME *)&_t;                                                  \
-    t->f = &NAME##_WRAP;                                                              \
-    atomic_store_explicit(&t->thief, THIEF_TASK, memory_order_relaxed);               \
-     t->d.args.arg_1 = arg_1; t->d.args.arg_2 = arg_2; t->d.args.arg_3 = arg_3; t->d.args.arg_4 = arg_4; t->d.args.arg_5 = arg_5;\
-    lace_run_task_exclusive(&_t);                                                     \
-    return ((TD_##NAME *)t)->d.res;                                                   \
-}                                                                                     \
-                                                                                      \
 LACE_NO_SANITIZE_THREAD                                                               \
 static inline LACE_UNUSED                                                             \
 RTYPE NAME##_SYNC(lace_worker* _lace_worker)                                          \
@@ -2587,18 +2451,6 @@ void NAME(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, ATYPE_5 ar
         lace_run_task(&_t);                                                           \
         return ;                                                                      \
     }                                                                                 \
-}                                                                                     \
-                                                                                      \
-static inline LACE_UNUSED                                                             \
-void NAME##_RUNEX(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, ATYPE_5 arg_5)\
-{                                                                                     \
-    lace_task _t;                                                                     \
-    TD_##NAME *t = (TD_##NAME *)&_t;                                                  \
-    t->f = &NAME##_WRAP;                                                              \
-    atomic_store_explicit(&t->thief, THIEF_TASK, memory_order_relaxed);               \
-     t->d.args.arg_1 = arg_1; t->d.args.arg_2 = arg_2; t->d.args.arg_3 = arg_3; t->d.args.arg_4 = arg_4; t->d.args.arg_5 = arg_5;\
-    lace_run_task_exclusive(&_t);                                                     \
-    return ;                                                                          \
 }                                                                                     \
                                                                                       \
 LACE_NO_SANITIZE_THREAD                                                               \
@@ -2735,18 +2587,6 @@ RTYPE NAME(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, ATYPE_5 a
     }                                                                                 \
 }                                                                                     \
                                                                                       \
-static inline LACE_UNUSED                                                             \
-RTYPE NAME##_RUNEX(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, ATYPE_5 arg_5, ATYPE_6 arg_6)\
-{                                                                                     \
-    lace_task _t;                                                                     \
-    TD_##NAME *t = (TD_##NAME *)&_t;                                                  \
-    t->f = &NAME##_WRAP;                                                              \
-    atomic_store_explicit(&t->thief, THIEF_TASK, memory_order_relaxed);               \
-     t->d.args.arg_1 = arg_1; t->d.args.arg_2 = arg_2; t->d.args.arg_3 = arg_3; t->d.args.arg_4 = arg_4; t->d.args.arg_5 = arg_5; t->d.args.arg_6 = arg_6;\
-    lace_run_task_exclusive(&_t);                                                     \
-    return ((TD_##NAME *)t)->d.res;                                                   \
-}                                                                                     \
-                                                                                      \
 LACE_NO_SANITIZE_THREAD                                                               \
 static inline LACE_UNUSED                                                             \
 RTYPE NAME##_SYNC(lace_worker* _lace_worker)                                          \
@@ -2876,18 +2716,6 @@ void NAME(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, ATYPE_5 ar
         lace_run_task(&_t);                                                           \
         return ;                                                                      \
     }                                                                                 \
-}                                                                                     \
-                                                                                      \
-static inline LACE_UNUSED                                                             \
-void NAME##_RUNEX(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, ATYPE_5 arg_5, ATYPE_6 arg_6)\
-{                                                                                     \
-    lace_task _t;                                                                     \
-    TD_##NAME *t = (TD_##NAME *)&_t;                                                  \
-    t->f = &NAME##_WRAP;                                                              \
-    atomic_store_explicit(&t->thief, THIEF_TASK, memory_order_relaxed);               \
-     t->d.args.arg_1 = arg_1; t->d.args.arg_2 = arg_2; t->d.args.arg_3 = arg_3; t->d.args.arg_4 = arg_4; t->d.args.arg_5 = arg_5; t->d.args.arg_6 = arg_6;\
-    lace_run_task_exclusive(&_t);                                                     \
-    return ;                                                                          \
 }                                                                                     \
                                                                                       \
 LACE_NO_SANITIZE_THREAD                                                               \
@@ -3024,18 +2852,6 @@ RTYPE NAME(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, ATYPE_5 a
     }                                                                                 \
 }                                                                                     \
                                                                                       \
-static inline LACE_UNUSED                                                             \
-RTYPE NAME##_RUNEX(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, ATYPE_5 arg_5, ATYPE_6 arg_6, ATYPE_7 arg_7)\
-{                                                                                     \
-    lace_task _t;                                                                     \
-    TD_##NAME *t = (TD_##NAME *)&_t;                                                  \
-    t->f = &NAME##_WRAP;                                                              \
-    atomic_store_explicit(&t->thief, THIEF_TASK, memory_order_relaxed);               \
-     t->d.args.arg_1 = arg_1; t->d.args.arg_2 = arg_2; t->d.args.arg_3 = arg_3; t->d.args.arg_4 = arg_4; t->d.args.arg_5 = arg_5; t->d.args.arg_6 = arg_6; t->d.args.arg_7 = arg_7;\
-    lace_run_task_exclusive(&_t);                                                     \
-    return ((TD_##NAME *)t)->d.res;                                                   \
-}                                                                                     \
-                                                                                      \
 LACE_NO_SANITIZE_THREAD                                                               \
 static inline LACE_UNUSED                                                             \
 RTYPE NAME##_SYNC(lace_worker* _lace_worker)                                          \
@@ -3165,18 +2981,6 @@ void NAME(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, ATYPE_5 ar
         lace_run_task(&_t);                                                           \
         return ;                                                                      \
     }                                                                                 \
-}                                                                                     \
-                                                                                      \
-static inline LACE_UNUSED                                                             \
-void NAME##_RUNEX(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, ATYPE_5 arg_5, ATYPE_6 arg_6, ATYPE_7 arg_7)\
-{                                                                                     \
-    lace_task _t;                                                                     \
-    TD_##NAME *t = (TD_##NAME *)&_t;                                                  \
-    t->f = &NAME##_WRAP;                                                              \
-    atomic_store_explicit(&t->thief, THIEF_TASK, memory_order_relaxed);               \
-     t->d.args.arg_1 = arg_1; t->d.args.arg_2 = arg_2; t->d.args.arg_3 = arg_3; t->d.args.arg_4 = arg_4; t->d.args.arg_5 = arg_5; t->d.args.arg_6 = arg_6; t->d.args.arg_7 = arg_7;\
-    lace_run_task_exclusive(&_t);                                                     \
-    return ;                                                                          \
 }                                                                                     \
                                                                                       \
 LACE_NO_SANITIZE_THREAD                                                               \
@@ -3313,18 +3117,6 @@ RTYPE NAME(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, ATYPE_5 a
     }                                                                                 \
 }                                                                                     \
                                                                                       \
-static inline LACE_UNUSED                                                             \
-RTYPE NAME##_RUNEX(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, ATYPE_5 arg_5, ATYPE_6 arg_6, ATYPE_7 arg_7, ATYPE_8 arg_8)\
-{                                                                                     \
-    lace_task _t;                                                                     \
-    TD_##NAME *t = (TD_##NAME *)&_t;                                                  \
-    t->f = &NAME##_WRAP;                                                              \
-    atomic_store_explicit(&t->thief, THIEF_TASK, memory_order_relaxed);               \
-     t->d.args.arg_1 = arg_1; t->d.args.arg_2 = arg_2; t->d.args.arg_3 = arg_3; t->d.args.arg_4 = arg_4; t->d.args.arg_5 = arg_5; t->d.args.arg_6 = arg_6; t->d.args.arg_7 = arg_7; t->d.args.arg_8 = arg_8;\
-    lace_run_task_exclusive(&_t);                                                     \
-    return ((TD_##NAME *)t)->d.res;                                                   \
-}                                                                                     \
-                                                                                      \
 LACE_NO_SANITIZE_THREAD                                                               \
 static inline LACE_UNUSED                                                             \
 RTYPE NAME##_SYNC(lace_worker* _lace_worker)                                          \
@@ -3454,18 +3246,6 @@ void NAME(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, ATYPE_5 ar
         lace_run_task(&_t);                                                           \
         return ;                                                                      \
     }                                                                                 \
-}                                                                                     \
-                                                                                      \
-static inline LACE_UNUSED                                                             \
-void NAME##_RUNEX(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, ATYPE_5 arg_5, ATYPE_6 arg_6, ATYPE_7 arg_7, ATYPE_8 arg_8)\
-{                                                                                     \
-    lace_task _t;                                                                     \
-    TD_##NAME *t = (TD_##NAME *)&_t;                                                  \
-    t->f = &NAME##_WRAP;                                                              \
-    atomic_store_explicit(&t->thief, THIEF_TASK, memory_order_relaxed);               \
-     t->d.args.arg_1 = arg_1; t->d.args.arg_2 = arg_2; t->d.args.arg_3 = arg_3; t->d.args.arg_4 = arg_4; t->d.args.arg_5 = arg_5; t->d.args.arg_6 = arg_6; t->d.args.arg_7 = arg_7; t->d.args.arg_8 = arg_8;\
-    lace_run_task_exclusive(&_t);                                                     \
-    return ;                                                                          \
 }                                                                                     \
                                                                                       \
 LACE_NO_SANITIZE_THREAD                                                               \
@@ -3602,18 +3382,6 @@ RTYPE NAME(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, ATYPE_5 a
     }                                                                                 \
 }                                                                                     \
                                                                                       \
-static inline LACE_UNUSED                                                             \
-RTYPE NAME##_RUNEX(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, ATYPE_5 arg_5, ATYPE_6 arg_6, ATYPE_7 arg_7, ATYPE_8 arg_8, ATYPE_9 arg_9)\
-{                                                                                     \
-    lace_task _t;                                                                     \
-    TD_##NAME *t = (TD_##NAME *)&_t;                                                  \
-    t->f = &NAME##_WRAP;                                                              \
-    atomic_store_explicit(&t->thief, THIEF_TASK, memory_order_relaxed);               \
-     t->d.args.arg_1 = arg_1; t->d.args.arg_2 = arg_2; t->d.args.arg_3 = arg_3; t->d.args.arg_4 = arg_4; t->d.args.arg_5 = arg_5; t->d.args.arg_6 = arg_6; t->d.args.arg_7 = arg_7; t->d.args.arg_8 = arg_8; t->d.args.arg_9 = arg_9;\
-    lace_run_task_exclusive(&_t);                                                     \
-    return ((TD_##NAME *)t)->d.res;                                                   \
-}                                                                                     \
-                                                                                      \
 LACE_NO_SANITIZE_THREAD                                                               \
 static inline LACE_UNUSED                                                             \
 RTYPE NAME##_SYNC(lace_worker* _lace_worker)                                          \
@@ -3743,18 +3511,6 @@ void NAME(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, ATYPE_5 ar
         lace_run_task(&_t);                                                           \
         return ;                                                                      \
     }                                                                                 \
-}                                                                                     \
-                                                                                      \
-static inline LACE_UNUSED                                                             \
-void NAME##_RUNEX(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, ATYPE_5 arg_5, ATYPE_6 arg_6, ATYPE_7 arg_7, ATYPE_8 arg_8, ATYPE_9 arg_9)\
-{                                                                                     \
-    lace_task _t;                                                                     \
-    TD_##NAME *t = (TD_##NAME *)&_t;                                                  \
-    t->f = &NAME##_WRAP;                                                              \
-    atomic_store_explicit(&t->thief, THIEF_TASK, memory_order_relaxed);               \
-     t->d.args.arg_1 = arg_1; t->d.args.arg_2 = arg_2; t->d.args.arg_3 = arg_3; t->d.args.arg_4 = arg_4; t->d.args.arg_5 = arg_5; t->d.args.arg_6 = arg_6; t->d.args.arg_7 = arg_7; t->d.args.arg_8 = arg_8; t->d.args.arg_9 = arg_9;\
-    lace_run_task_exclusive(&_t);                                                     \
-    return ;                                                                          \
 }                                                                                     \
                                                                                       \
 LACE_NO_SANITIZE_THREAD                                                               \
@@ -3891,18 +3647,6 @@ RTYPE NAME(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, ATYPE_5 a
     }                                                                                 \
 }                                                                                     \
                                                                                       \
-static inline LACE_UNUSED                                                             \
-RTYPE NAME##_RUNEX(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, ATYPE_5 arg_5, ATYPE_6 arg_6, ATYPE_7 arg_7, ATYPE_8 arg_8, ATYPE_9 arg_9, ATYPE_10 arg_10)\
-{                                                                                     \
-    lace_task _t;                                                                     \
-    TD_##NAME *t = (TD_##NAME *)&_t;                                                  \
-    t->f = &NAME##_WRAP;                                                              \
-    atomic_store_explicit(&t->thief, THIEF_TASK, memory_order_relaxed);               \
-     t->d.args.arg_1 = arg_1; t->d.args.arg_2 = arg_2; t->d.args.arg_3 = arg_3; t->d.args.arg_4 = arg_4; t->d.args.arg_5 = arg_5; t->d.args.arg_6 = arg_6; t->d.args.arg_7 = arg_7; t->d.args.arg_8 = arg_8; t->d.args.arg_9 = arg_9; t->d.args.arg_10 = arg_10;\
-    lace_run_task_exclusive(&_t);                                                     \
-    return ((TD_##NAME *)t)->d.res;                                                   \
-}                                                                                     \
-                                                                                      \
 LACE_NO_SANITIZE_THREAD                                                               \
 static inline LACE_UNUSED                                                             \
 RTYPE NAME##_SYNC(lace_worker* _lace_worker)                                          \
@@ -4032,18 +3776,6 @@ void NAME(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, ATYPE_5 ar
         lace_run_task(&_t);                                                           \
         return ;                                                                      \
     }                                                                                 \
-}                                                                                     \
-                                                                                      \
-static inline LACE_UNUSED                                                             \
-void NAME##_RUNEX(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, ATYPE_5 arg_5, ATYPE_6 arg_6, ATYPE_7 arg_7, ATYPE_8 arg_8, ATYPE_9 arg_9, ATYPE_10 arg_10)\
-{                                                                                     \
-    lace_task _t;                                                                     \
-    TD_##NAME *t = (TD_##NAME *)&_t;                                                  \
-    t->f = &NAME##_WRAP;                                                              \
-    atomic_store_explicit(&t->thief, THIEF_TASK, memory_order_relaxed);               \
-     t->d.args.arg_1 = arg_1; t->d.args.arg_2 = arg_2; t->d.args.arg_3 = arg_3; t->d.args.arg_4 = arg_4; t->d.args.arg_5 = arg_5; t->d.args.arg_6 = arg_6; t->d.args.arg_7 = arg_7; t->d.args.arg_8 = arg_8; t->d.args.arg_9 = arg_9; t->d.args.arg_10 = arg_10;\
-    lace_run_task_exclusive(&_t);                                                     \
-    return ;                                                                          \
 }                                                                                     \
                                                                                       \
 LACE_NO_SANITIZE_THREAD                                                               \

@@ -305,6 +305,7 @@ typedef struct _lace_task lace_task;
  * - lace_set_verbosity
  * - lace_start
  * - lace_stop
+ * - lace_is_running
  **************************************/
 
 /**
@@ -604,11 +605,6 @@ static inline lace_task *lace_get_head(void)
  * Helper function to call from outside Lace threads.
  */
 void lace_run_task(lace_task *task);
-
-/**
- * Helper function to call from outside Lace threads.
- */
-void lace_run_task_exclusive(lace_task *task);
 
 /**
  * Helper function to start a new task execution (task frame) on a given task.
@@ -1068,18 +1064,6 @@ $RTYPE NAME($RUN_ARGS)
         lace_run_task(&_t);
         return $RETURN_RES;
     }
-}
-
-static inline LACE_UNUSED
-$RTYPE NAME##_RUNEX($RUN_ARGS)
-{
-    lace_task _t;
-    TD_##NAME *t = (TD_##NAME *)&_t;
-    t->f = &NAME##_WRAP;
-    atomic_store_explicit(&t->thief, THIEF_TASK, memory_order_relaxed);
-    $TASK_INIT
-    lace_run_task_exclusive(&_t);
-    return $RETURN_RES;
 }
 
 LACE_NO_SANITIZE_THREAD
