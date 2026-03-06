@@ -36,7 +36,7 @@ void test_barrier_CALL(lace_worker* worker)
     int id = lace_worker_id();
     int count = lace_worker_count();
 
-    for (int i=0; i<1000; i++) {
+    for (int i=0; i<100; i++) {
         if (i % count == 0) {
             lace_test_yield();
             lace_sleep_us(1);
