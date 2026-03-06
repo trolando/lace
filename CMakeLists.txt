@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.13)
 
 project(lace
-    VERSION 2.2.0
+    VERSION 2.2.1
     DESCRIPTION "Lace, a work-stealing framework for multi-core fork-join parallelism"
     HOMEPAGE_URL "https://github.com/trolando/lace"
     LANGUAGES C

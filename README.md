@@ -76,13 +76,13 @@ You can install Lace via `make install`, or integrate it into your project via C
 
 ```cmake
 if(NOT TARGET lace::lace)
-  find_package(lace 2.2 CONFIG QUIET)
+  find_package(lace 2.2.1 CONFIG QUIET)
   if(NOT lace_FOUND)
     include(FetchContent)
     FetchContent_Declare(
         lace
         GIT_REPOSITORY https://github.com/trolando/lace.git
-        GIT_TAG        v2.2.0
+        GIT_TAG        v2.2.1
         GIT_SHALLOW    TRUE
     )
     FetchContent_MakeAvailable(lace)

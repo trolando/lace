@@ -2,6 +2,23 @@
 
 All notable changes to Lace will be documented in this file.
 
+## [2.2.1] - 2026-03-06
+
+### Added
+
+- Every task now comes with a `_DROP` function that discards the result of a stolen task
+  or skips executing the task if it is not yet stolen (instead of `_SYNC`).
+
+### Removed
+
+- Removed the undocumented run-exclusive feature.
+
+### Changed
+
+- Minor changes to the core algorithm to bring it in line with earlier descriptions.
+- Improvements to atomic memory ordering in the core algorithm.
+
+
 ## [2.2.0] - 2026-03-05
 
 ### Added
