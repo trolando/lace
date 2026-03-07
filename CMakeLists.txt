@@ -10,6 +10,8 @@ project(lace
 # if we ever go to 3.21, use PROJECT_IS_TOP_LEVEL
 string(COMPARE EQUAL "${CMAKE_SOURCE_DIR}" "${CMAKE_CURRENT_SOURCE_DIR}" lace_is_top_level)
 
+set(lace_VERSION ${PROJECT_VERSION} CACHE INTERNAL "Lace version")
+
 if(lace_is_top_level AND NOT CMAKE_CONFIGURATION_TYPES)
     # Default to Release when building as top project
     if(NOT CMAKE_BUILD_TYPE)
