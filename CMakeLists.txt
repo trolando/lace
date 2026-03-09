@@ -1,4 +1,5 @@
-cmake_minimum_required(VERSION 3.13)
+cmake_minimum_required(VERSION 3.15)
+cmake_policy(SET CMP0092 NEW) # do not automatically add /W3 for MSVC
 
 project(lace
     VERSION 2.2.1
@@ -107,16 +108,47 @@ foreach(_target lace lace32 lace128)
 
     set_target_properties(${_target} PROPERTIES POSITION_INDEPENDENT_CODE ${LACE_ENABLE_PIC})
 
-    if(CMAKE_C_COMPILER_ID MATCHES "Clang|GNU")
+    # we're adding quite a few extra warnings, to ensure Lace as a library is compliant with the 
+    # C standard and won't trigger warnings or errors when included in a stricter project
+
+    if(CMAKE_C_COMPILER_ID MATCHES "GNU")
         target_compile_options(${_target} PRIVATE
             -pipe
-            $<$<CONFIG:Debug>:-O0 -Wall -Wextra -Wpedantic>
+            -Wall -Wextra -Wpedantic -Werror
+            -Wshadow # avoid potential shadowing bugs
+            -Wnull-dereference # warn when we could null dereference
+            -Wformat=2 # improve format string checking for logging
+            -Wstrict-prototypes # functions without parameters must be void
+            -Wmissing-prototypes # enforce non-static functions have prior declarations
+            -Wconversion # catch implicit narrowing conversions
+            -Wsign-conversion # catch implicit changes to signed/unsigned
+            $<$<CONFIG:Debug>:-O0>
+            $<$<BOOL:${LACE_NATIVE_OPT}>:-march=native>
+        )
+    elseif(CMAKE_C_COMPILER_ID MATCHES "Clang")
+        target_compile_options(${_target} PRIVATE
+            -pipe
+            -Wall -Wextra -Wpedantic -Werror
+            -Wshadow # avoid potential shadowing bugs
+            -Wnull-dereference # warn when we could null dereference
+            -Wformat=2 # improve format string checking for logging
+            -Wstrict-prototypes # functions without parameters must be void
+            -Wmissing-prototypes # enforce non-static functions have prior declarations
+            -Wconversion # catch implicit narrowing conversions
+            -Wsign-conversion # catch implicit changes to signed/unsigned
+            -Watomic-implicit-seq-cst # ensure all atomic load/store are explicit
+            $<$<CONFIG:Debug>:-O0>
             $<$<BOOL:${LACE_NATIVE_OPT}>:-march=native>
         )
     elseif(MSVC)
         target_compile_options(${_target} PUBLIC
             /Zc:__STDC__
             /experimental:c11atomics
+        )
+        target_compile_options(${_target} PRIVATE
+            /W4
+            /WX
+            /wd4200 # Stop MSVC from complaining about standard C99/C11 code
         )
     endif()
 
