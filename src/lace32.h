@@ -17,8 +17,6 @@
  */
 
 #pragma once
-#ifndef __LACE_H__
-#define __LACE_H__
 
 // Lace version
 #define LACE_VERSION_MAJOR 2
@@ -290,8 +288,8 @@ extern "C" {
 #endif /* __cplusplus */
 
 // Forward declarations
-typedef struct _lace_worker lace_worker;
-typedef struct _lace_task lace_task;
+typedef struct lace_worker lace_worker;
+typedef struct lace_task lace_task;
 
 /**************************************
  * Lifecycle functions
@@ -357,7 +355,7 @@ static inline int lace_worker_id(void) LACE_UNUSED;
 /**
  * Thread-local pseudo-random number generator for Lace workers.
  */
-static inline uint64_t lace_rng(lace_worker *lace_worker) LACE_UNUSED;
+static inline uint64_t lace_rng(lace_worker *lw) LACE_UNUSED;
 
 /**************************************
  * lace_task operations
@@ -381,7 +379,7 @@ void lace_barrier(void);
 /**
  * Instead of SYNCing on the next task, drop the task (unless stolen already)
  */
-void lace_drop(lace_worker *lace_worker);
+void lace_drop(lace_worker *lw);
 
 /**
  * Returns 1 if the given task is stolen, 0 otherwise.
@@ -502,15 +500,15 @@ typedef enum {
     CTR_MAX
 } CTR_index;
 
-typedef struct _lace_worker_public lace_worker_public;
+typedef struct lace_worker_public lace_worker_public;
 
 #define TASK_COMMON_FIELDS                      \
     void (*f)(lace_worker *, lace_task *);      \
-    _Atomic(struct _lace_worker_public*) thief;
+    _Atomic(struct lace_worker_public*) thief;
 
-typedef struct _lace_task {
+typedef struct lace_task {
     TASK_COMMON_FIELDS
-    char d[LACE_TASKSIZE-sizeof(void*)-sizeof(struct _lace_worker_public*)];
+    char d[LACE_TASKSIZE-sizeof(void*)-sizeof(struct lace_worker_public*)];
 } lace_task;
 
 static_assert(LACE_PADDING_TARGET % 32 == 0, "LACE_PADDING_TARGET must be a multiple of 32");
@@ -540,7 +538,7 @@ static_assert(sizeof(TailSplitNA) == 8, "TailSplit size should be 8 bytes");
 #pragma warning(disable: 4324)
 #endif
 
-typedef struct _lace_worker_public {
+typedef struct lace_worker_public {
     lace_task *dq;
     TailSplit ts;
     uint8_t allstolen;
@@ -554,7 +552,7 @@ typedef struct _lace_worker_public {
 
 typedef struct { uint64_t s0, s1; } lace_rng_state;
 
-typedef struct _lace_worker {
+typedef struct lace_worker {
     lace_task *head;                 // my head
     lace_task *split;                // same as dq+ts.ts.split
     lace_task *end;                  // dq+dq_size
@@ -627,7 +625,7 @@ static inline int lace_worker_id(void)
  */
 static inline int lace_is_stolen_task(lace_task* t)
 {
-    return ((size_t)(lace_worker_public*)t->thief > 1) ? 1 : 0;
+    return ((size_t)(lace_worker_public*)atomic_load_explicit(&t->thief, memory_order_relaxed) > 1) ? 1 : 0;
 }
 
 /**
@@ -635,7 +633,7 @@ static inline int lace_is_stolen_task(lace_task* t)
  */
 static inline int lace_is_completed_task(lace_task* t)
 {
-    return ((size_t)(lace_worker_public*)t->thief == 2) ? 1 : 0;
+    return ((size_t)(lace_worker_public*)atomic_load_explicit(&t->thief, memory_order_relaxed) == 2) ? 1 : 0;
 }
 
 /**
@@ -743,9 +741,9 @@ static inline uint64_t lace_gethrtime(void)
 #endif
 #define PR_INC(s,i) PR_ADD(s,i,1)
 
-#define THIEF_EMPTY     ((struct _lace_worker_public*)0x0)
-#define THIEF_TASK      ((struct _lace_worker_public*)0x1)
-#define THIEF_COMPLETED ((struct _lace_worker_public*)0x2)
+#define THIEF_EMPTY     ((struct lace_worker_public*)0x0)
+#define THIEF_TASK      ((struct lace_worker_public*)0x1)
+#define THIEF_COMPLETED ((struct lace_worker_public*)0x2)
 
 #define LACE_STOLEN   ((lace_worker_public*)0)
 #define LACE_BUSY     ((lace_worker_public*)1)
@@ -870,6 +868,7 @@ void lace_yield(lace_worker*);
 static inline void lace_check_yield(lace_worker *w)
 {
     if (LACE_UNLIKELY(atomic_load_explicit(&lace_newframe.t, memory_order_relaxed) != NULL)) {
+        atomic_thread_fence(memory_order_acquire);
         lace_yield(w);
     }
 }
@@ -882,7 +881,7 @@ static inline void lace_make_all_shared(void)
     lace_worker* w = lace_get_worker();
     if (w->split != w->head) {
         w->split = w->head;
-        w->_public->ts.ts.split = (uint32_t)(w->head - w->dq);
+        atomic_store_explicit(&w->_public->ts.ts.split, (uint32_t)(w->head - w->dq), memory_order_relaxed);
     }
 }
 
@@ -896,19 +895,20 @@ int lace_sync(lace_worker *w, lace_task *head);
 
 #define TASK_0(RTYPE, NAME)                                                           \
                                                                                       \
-typedef struct _TD_##NAME {                                                           \
+typedef struct task_##NAME {                                                          \
   TASK_COMMON_FIELDS                                                                  \
   union {  RTYPE res; } d;                                                            \
-} TD_##NAME;                                                                          \
+} task_##NAME;                                                                        \
                                                                                       \
-static_assert(sizeof(TD_##NAME) <= sizeof(lace_task), "TD_" #NAME " is too large to fit in the lace_task struct!");\
+static_assert(sizeof(task_##NAME) <= sizeof(lace_task), "task_" #NAME " is too large to fit in the lace_task struct!");\
                                                                                       \
 RTYPE NAME##_CALL(lace_worker*);                                                      \
                                                                                       \
 LACE_NO_SANITIZE_THREAD                                                               \
-static void NAME##_WRAP(lace_worker* lace_worker, lace_task* t LACE_UNUSED)           \
+static void NAME##_WRAP(lace_worker* lw, lace_task* t)                                \
 {                                                                                     \
-    ((TD_##NAME*)t)->d.res = NAME##_CALL(lace_worker);                                \
+    (void)t;                                                                          \
+    ((task_##NAME*)t)->d.res = NAME##_CALL(lw);                                       \
 }                                                                                     \
                                                                                       \
 LACE_NO_SANITIZE_THREAD                                                               \
@@ -920,11 +920,11 @@ lace_task* NAME##_SPAWN(lace_worker* _lace_worker)                              
     lace_task *lace_head = _lace_worker->head;                                        \
     if (lace_head == _lace_worker->end) lace_abort_stack_overflow();                  \
                                                                                       \
-    TD_##NAME *t;                                                                     \
+    task_##NAME *t;                                                                   \
     TailSplitNA ts;                                                                   \
     uint32_t head, split, newsplit;                                                   \
                                                                                       \
-    t = (TD_##NAME *)lace_head;                                                       \
+    t = (task_##NAME *)lace_head;                                                     \
     t->f = &NAME##_WRAP;                                                              \
     atomic_store_explicit(&t->thief, THIEF_TASK, memory_order_relaxed);               \
                                                                                       \
@@ -960,12 +960,12 @@ static inline LACE_UNUSED                                                       
 RTYPE NAME##_NEWFRAME(void)                                                           \
 {                                                                                     \
     lace_task _t;                                                                     \
-    TD_##NAME *t = (TD_##NAME *)&_t;                                                  \
+    task_##NAME *t = (task_##NAME *)&_t;                                              \
     t->f = &NAME##_WRAP;                                                              \
     atomic_store_explicit(&t->thief, THIEF_TASK, memory_order_relaxed);               \
                                                                                       \
     lace_run_newframe(&_t);                                                           \
-    return ((TD_##NAME *)t)->d.res;                                                   \
+    return ((task_##NAME *)t)->d.res;                                                 \
 }                                                                                     \
                                                                                       \
 LACE_NO_SANITIZE_THREAD                                                               \
@@ -973,7 +973,7 @@ static inline LACE_UNUSED                                                       
 void NAME##_TOGETHER(void)                                                            \
 {                                                                                     \
     lace_task _t;                                                                     \
-    TD_##NAME *t = (TD_##NAME *)&_t;                                                  \
+    task_##NAME *t = (task_##NAME *)&_t;                                              \
     t->f = &NAME##_WRAP;                                                              \
     atomic_store_explicit(&t->thief, THIEF_TASK, memory_order_relaxed);               \
                                                                                       \
@@ -988,12 +988,12 @@ RTYPE NAME(void)                                                                
         return NAME##_CALL(worker);                                                   \
     } else {                                                                          \
         lace_task _t;                                                                 \
-        TD_##NAME *t = (TD_##NAME *)&_t;                                              \
+        task_##NAME *t = (task_##NAME *)&_t;                                          \
         t->f = &NAME##_WRAP;                                                          \
         atomic_store_explicit(&t->thief, THIEF_TASK, memory_order_relaxed);           \
                                                                                       \
         lace_run_task(&_t);                                                           \
-        return ((TD_##NAME *)t)->d.res;                                               \
+        return ((task_##NAME *)t)->d.res;                                             \
     }                                                                                 \
 }                                                                                     \
                                                                                       \
@@ -1005,7 +1005,7 @@ RTYPE NAME##_SYNC(lace_worker* _lace_worker)                                    
     _lace_worker->head = head;                                                        \
                                                                                       \
     /* assert (__dq_head > 0); */  /* Commented out because we assume contract */     \
-    TD_##NAME *t = (TD_##NAME *)head;                                                 \
+    task_##NAME *t = (task_##NAME *)head;                                             \
                                                                                       \
     if (LACE_LIKELY(0 == _lace_worker->_public->movesplit)) {                         \
         if (LACE_LIKELY(_lace_worker->split <= head)) {                               \
@@ -1016,7 +1016,7 @@ RTYPE NAME##_SYNC(lace_worker* _lace_worker)                                    
     }                                                                                 \
                                                                                       \
     if (lace_sync(_lace_worker, head)) {                                              \
-        return ((TD_##NAME *)t)->d.res;                                               \
+        return ((task_##NAME *)t)->d.res;                                             \
     } else {                                                                          \
         atomic_store_explicit(&t->thief, THIEF_EMPTY, memory_order_relaxed);          \
         return NAME##_CALL(_lace_worker);                                             \
@@ -1034,19 +1034,20 @@ void NAME##_DROP(lace_worker* _lace_worker)                                     
 
 #define VOID_TASK_0(NAME)                                                             \
                                                                                       \
-typedef struct _TD_##NAME {                                                           \
+typedef struct task_##NAME {                                                          \
   TASK_COMMON_FIELDS                                                                  \
                                                                                       \
-} TD_##NAME;                                                                          \
+} task_##NAME;                                                                        \
                                                                                       \
-static_assert(sizeof(TD_##NAME) <= sizeof(lace_task), "TD_" #NAME " is too large to fit in the lace_task struct!");\
+static_assert(sizeof(task_##NAME) <= sizeof(lace_task), "task_" #NAME " is too large to fit in the lace_task struct!");\
                                                                                       \
 void NAME##_CALL(lace_worker*);                                                       \
                                                                                       \
 LACE_NO_SANITIZE_THREAD                                                               \
-static void NAME##_WRAP(lace_worker* lace_worker, lace_task* t LACE_UNUSED)           \
+static void NAME##_WRAP(lace_worker* lw, lace_task* t)                                \
 {                                                                                     \
-     NAME##_CALL(lace_worker);                                                        \
+    (void)t;                                                                          \
+     NAME##_CALL(lw);                                                                 \
 }                                                                                     \
                                                                                       \
 LACE_NO_SANITIZE_THREAD                                                               \
@@ -1058,11 +1059,11 @@ lace_task* NAME##_SPAWN(lace_worker* _lace_worker)                              
     lace_task *lace_head = _lace_worker->head;                                        \
     if (lace_head == _lace_worker->end) lace_abort_stack_overflow();                  \
                                                                                       \
-    TD_##NAME *t;                                                                     \
+    task_##NAME *t;                                                                   \
     TailSplitNA ts;                                                                   \
     uint32_t head, split, newsplit;                                                   \
                                                                                       \
-    t = (TD_##NAME *)lace_head;                                                       \
+    t = (task_##NAME *)lace_head;                                                     \
     t->f = &NAME##_WRAP;                                                              \
     atomic_store_explicit(&t->thief, THIEF_TASK, memory_order_relaxed);               \
                                                                                       \
@@ -1098,7 +1099,7 @@ static inline LACE_UNUSED                                                       
 void NAME##_NEWFRAME(void)                                                            \
 {                                                                                     \
     lace_task _t;                                                                     \
-    TD_##NAME *t = (TD_##NAME *)&_t;                                                  \
+    task_##NAME *t = (task_##NAME *)&_t;                                              \
     t->f = &NAME##_WRAP;                                                              \
     atomic_store_explicit(&t->thief, THIEF_TASK, memory_order_relaxed);               \
                                                                                       \
@@ -1111,7 +1112,7 @@ static inline LACE_UNUSED                                                       
 void NAME##_TOGETHER(void)                                                            \
 {                                                                                     \
     lace_task _t;                                                                     \
-    TD_##NAME *t = (TD_##NAME *)&_t;                                                  \
+    task_##NAME *t = (task_##NAME *)&_t;                                              \
     t->f = &NAME##_WRAP;                                                              \
     atomic_store_explicit(&t->thief, THIEF_TASK, memory_order_relaxed);               \
                                                                                       \
@@ -1126,7 +1127,7 @@ void NAME(void)                                                                 
         NAME##_CALL(worker);                                                          \
     } else {                                                                          \
         lace_task _t;                                                                 \
-        TD_##NAME *t = (TD_##NAME *)&_t;                                              \
+        task_##NAME *t = (task_##NAME *)&_t;                                          \
         t->f = &NAME##_WRAP;                                                          \
         atomic_store_explicit(&t->thief, THIEF_TASK, memory_order_relaxed);           \
                                                                                       \
@@ -1143,7 +1144,7 @@ void NAME##_SYNC(lace_worker* _lace_worker)                                     
     _lace_worker->head = head;                                                        \
                                                                                       \
     /* assert (__dq_head > 0); */  /* Commented out because we assume contract */     \
-    TD_##NAME *t = (TD_##NAME *)head;                                                 \
+    task_##NAME *t = (task_##NAME *)head;                                             \
                                                                                       \
     if (LACE_LIKELY(0 == _lace_worker->_public->movesplit)) {                         \
         if (LACE_LIKELY(_lace_worker->split <= head)) {                               \
@@ -1175,19 +1176,20 @@ void NAME##_DROP(lace_worker* _lace_worker)                                     
 
 #define TASK_1(RTYPE, NAME, ATYPE_1, ARG_1)                                           \
                                                                                       \
-typedef struct _TD_##NAME {                                                           \
+typedef struct task_##NAME {                                                          \
   TASK_COMMON_FIELDS                                                                  \
   union { struct {  ATYPE_1 arg_1; } args; RTYPE res; } d;                            \
-} TD_##NAME;                                                                          \
+} task_##NAME;                                                                        \
                                                                                       \
-static_assert(sizeof(TD_##NAME) <= sizeof(lace_task), "TD_" #NAME " is too large to fit in the lace_task struct!");\
+static_assert(sizeof(task_##NAME) <= sizeof(lace_task), "task_" #NAME " is too large to fit in the lace_task struct!");\
                                                                                       \
 RTYPE NAME##_CALL(lace_worker*, ATYPE_1);                                             \
                                                                                       \
 LACE_NO_SANITIZE_THREAD                                                               \
-static void NAME##_WRAP(lace_worker* lace_worker, lace_task* t LACE_UNUSED)           \
+static void NAME##_WRAP(lace_worker* lw, lace_task* t)                                \
 {                                                                                     \
-    ((TD_##NAME*)t)->d.res = NAME##_CALL(lace_worker, ((TD_##NAME*)t)->d.args.arg_1); \
+    (void)t;                                                                          \
+    ((task_##NAME*)t)->d.res = NAME##_CALL(lw, ((task_##NAME*)t)->d.args.arg_1);      \
 }                                                                                     \
                                                                                       \
 LACE_NO_SANITIZE_THREAD                                                               \
@@ -1199,11 +1201,11 @@ lace_task* NAME##_SPAWN(lace_worker* _lace_worker, ATYPE_1 arg_1)               
     lace_task *lace_head = _lace_worker->head;                                        \
     if (lace_head == _lace_worker->end) lace_abort_stack_overflow();                  \
                                                                                       \
-    TD_##NAME *t;                                                                     \
+    task_##NAME *t;                                                                   \
     TailSplitNA ts;                                                                   \
     uint32_t head, split, newsplit;                                                   \
                                                                                       \
-    t = (TD_##NAME *)lace_head;                                                       \
+    t = (task_##NAME *)lace_head;                                                     \
     t->f = &NAME##_WRAP;                                                              \
     atomic_store_explicit(&t->thief, THIEF_TASK, memory_order_relaxed);               \
      t->d.args.arg_1 = arg_1;                                                         \
@@ -1239,12 +1241,12 @@ static inline LACE_UNUSED                                                       
 RTYPE NAME##_NEWFRAME(ATYPE_1 arg_1)                                                  \
 {                                                                                     \
     lace_task _t;                                                                     \
-    TD_##NAME *t = (TD_##NAME *)&_t;                                                  \
+    task_##NAME *t = (task_##NAME *)&_t;                                              \
     t->f = &NAME##_WRAP;                                                              \
     atomic_store_explicit(&t->thief, THIEF_TASK, memory_order_relaxed);               \
      t->d.args.arg_1 = arg_1;                                                         \
     lace_run_newframe(&_t);                                                           \
-    return ((TD_##NAME *)t)->d.res;                                                   \
+    return ((task_##NAME *)t)->d.res;                                                 \
 }                                                                                     \
                                                                                       \
 LACE_NO_SANITIZE_THREAD                                                               \
@@ -1252,7 +1254,7 @@ static inline LACE_UNUSED                                                       
 void NAME##_TOGETHER(ATYPE_1 arg_1)                                                   \
 {                                                                                     \
     lace_task _t;                                                                     \
-    TD_##NAME *t = (TD_##NAME *)&_t;                                                  \
+    task_##NAME *t = (task_##NAME *)&_t;                                              \
     t->f = &NAME##_WRAP;                                                              \
     atomic_store_explicit(&t->thief, THIEF_TASK, memory_order_relaxed);               \
      t->d.args.arg_1 = arg_1;                                                         \
@@ -1267,12 +1269,12 @@ RTYPE NAME(ATYPE_1 arg_1)                                                       
         return NAME##_CALL(worker, arg_1);                                            \
     } else {                                                                          \
         lace_task _t;                                                                 \
-        TD_##NAME *t = (TD_##NAME *)&_t;                                              \
+        task_##NAME *t = (task_##NAME *)&_t;                                          \
         t->f = &NAME##_WRAP;                                                          \
         atomic_store_explicit(&t->thief, THIEF_TASK, memory_order_relaxed);           \
          t->d.args.arg_1 = arg_1;                                                     \
         lace_run_task(&_t);                                                           \
-        return ((TD_##NAME *)t)->d.res;                                               \
+        return ((task_##NAME *)t)->d.res;                                             \
     }                                                                                 \
 }                                                                                     \
                                                                                       \
@@ -1284,21 +1286,21 @@ RTYPE NAME##_SYNC(lace_worker* _lace_worker)                                    
     _lace_worker->head = head;                                                        \
                                                                                       \
     /* assert (__dq_head > 0); */  /* Commented out because we assume contract */     \
-    TD_##NAME *t = (TD_##NAME *)head;                                                 \
+    task_##NAME *t = (task_##NAME *)head;                                             \
                                                                                       \
     if (LACE_LIKELY(0 == _lace_worker->_public->movesplit)) {                         \
         if (LACE_LIKELY(_lace_worker->split <= head)) {                               \
             atomic_store_explicit(&t->thief, THIEF_EMPTY, memory_order_relaxed);      \
-            return NAME##_CALL(_lace_worker, ((TD_##NAME*)t)->d.args.arg_1);          \
+            return NAME##_CALL(_lace_worker, ((task_##NAME*)t)->d.args.arg_1);        \
                                                                                       \
         }                                                                             \
     }                                                                                 \
                                                                                       \
     if (lace_sync(_lace_worker, head)) {                                              \
-        return ((TD_##NAME *)t)->d.res;                                               \
+        return ((task_##NAME *)t)->d.res;                                             \
     } else {                                                                          \
         atomic_store_explicit(&t->thief, THIEF_EMPTY, memory_order_relaxed);          \
-        return NAME##_CALL(_lace_worker, ((TD_##NAME*)t)->d.args.arg_1);              \
+        return NAME##_CALL(_lace_worker, ((task_##NAME*)t)->d.args.arg_1);            \
     }                                                                                 \
 }                                                                                     \
                                                                                       \
@@ -1313,19 +1315,20 @@ void NAME##_DROP(lace_worker* _lace_worker)                                     
 
 #define VOID_TASK_1(NAME, ATYPE_1, ARG_1)                                             \
                                                                                       \
-typedef struct _TD_##NAME {                                                           \
+typedef struct task_##NAME {                                                          \
   TASK_COMMON_FIELDS                                                                  \
   union { struct {  ATYPE_1 arg_1; } args; } d;                                       \
-} TD_##NAME;                                                                          \
+} task_##NAME;                                                                        \
                                                                                       \
-static_assert(sizeof(TD_##NAME) <= sizeof(lace_task), "TD_" #NAME " is too large to fit in the lace_task struct!");\
+static_assert(sizeof(task_##NAME) <= sizeof(lace_task), "task_" #NAME " is too large to fit in the lace_task struct!");\
                                                                                       \
 void NAME##_CALL(lace_worker*, ATYPE_1);                                              \
                                                                                       \
 LACE_NO_SANITIZE_THREAD                                                               \
-static void NAME##_WRAP(lace_worker* lace_worker, lace_task* t LACE_UNUSED)           \
+static void NAME##_WRAP(lace_worker* lw, lace_task* t)                                \
 {                                                                                     \
-     NAME##_CALL(lace_worker, ((TD_##NAME*)t)->d.args.arg_1);                         \
+    (void)t;                                                                          \
+     NAME##_CALL(lw, ((task_##NAME*)t)->d.args.arg_1);                                \
 }                                                                                     \
                                                                                       \
 LACE_NO_SANITIZE_THREAD                                                               \
@@ -1337,11 +1340,11 @@ lace_task* NAME##_SPAWN(lace_worker* _lace_worker, ATYPE_1 arg_1)               
     lace_task *lace_head = _lace_worker->head;                                        \
     if (lace_head == _lace_worker->end) lace_abort_stack_overflow();                  \
                                                                                       \
-    TD_##NAME *t;                                                                     \
+    task_##NAME *t;                                                                   \
     TailSplitNA ts;                                                                   \
     uint32_t head, split, newsplit;                                                   \
                                                                                       \
-    t = (TD_##NAME *)lace_head;                                                       \
+    t = (task_##NAME *)lace_head;                                                     \
     t->f = &NAME##_WRAP;                                                              \
     atomic_store_explicit(&t->thief, THIEF_TASK, memory_order_relaxed);               \
      t->d.args.arg_1 = arg_1;                                                         \
@@ -1377,7 +1380,7 @@ static inline LACE_UNUSED                                                       
 void NAME##_NEWFRAME(ATYPE_1 arg_1)                                                   \
 {                                                                                     \
     lace_task _t;                                                                     \
-    TD_##NAME *t = (TD_##NAME *)&_t;                                                  \
+    task_##NAME *t = (task_##NAME *)&_t;                                              \
     t->f = &NAME##_WRAP;                                                              \
     atomic_store_explicit(&t->thief, THIEF_TASK, memory_order_relaxed);               \
      t->d.args.arg_1 = arg_1;                                                         \
@@ -1390,7 +1393,7 @@ static inline LACE_UNUSED                                                       
 void NAME##_TOGETHER(ATYPE_1 arg_1)                                                   \
 {                                                                                     \
     lace_task _t;                                                                     \
-    TD_##NAME *t = (TD_##NAME *)&_t;                                                  \
+    task_##NAME *t = (task_##NAME *)&_t;                                              \
     t->f = &NAME##_WRAP;                                                              \
     atomic_store_explicit(&t->thief, THIEF_TASK, memory_order_relaxed);               \
      t->d.args.arg_1 = arg_1;                                                         \
@@ -1405,7 +1408,7 @@ void NAME(ATYPE_1 arg_1)                                                        
         NAME##_CALL(worker, arg_1);                                                   \
     } else {                                                                          \
         lace_task _t;                                                                 \
-        TD_##NAME *t = (TD_##NAME *)&_t;                                              \
+        task_##NAME *t = (task_##NAME *)&_t;                                          \
         t->f = &NAME##_WRAP;                                                          \
         atomic_store_explicit(&t->thief, THIEF_TASK, memory_order_relaxed);           \
          t->d.args.arg_1 = arg_1;                                                     \
@@ -1422,12 +1425,12 @@ void NAME##_SYNC(lace_worker* _lace_worker)                                     
     _lace_worker->head = head;                                                        \
                                                                                       \
     /* assert (__dq_head > 0); */  /* Commented out because we assume contract */     \
-    TD_##NAME *t = (TD_##NAME *)head;                                                 \
+    task_##NAME *t = (task_##NAME *)head;                                             \
                                                                                       \
     if (LACE_LIKELY(0 == _lace_worker->_public->movesplit)) {                         \
         if (LACE_LIKELY(_lace_worker->split <= head)) {                               \
             atomic_store_explicit(&t->thief, THIEF_EMPTY, memory_order_relaxed);      \
-            NAME##_CALL(_lace_worker, ((TD_##NAME*)t)->d.args.arg_1);                 \
+            NAME##_CALL(_lace_worker, ((task_##NAME*)t)->d.args.arg_1);               \
             return;                                                                   \
         }                                                                             \
     }                                                                                 \
@@ -1436,7 +1439,7 @@ void NAME##_SYNC(lace_worker* _lace_worker)                                     
         ;                                                                             \
     } else {                                                                          \
         atomic_store_explicit(&t->thief, THIEF_EMPTY, memory_order_relaxed);          \
-        NAME##_CALL(_lace_worker, ((TD_##NAME*)t)->d.args.arg_1);                     \
+        NAME##_CALL(_lace_worker, ((task_##NAME*)t)->d.args.arg_1);                   \
     }                                                                                 \
 }                                                                                     \
                                                                                       \
@@ -1454,19 +1457,20 @@ void NAME##_DROP(lace_worker* _lace_worker)                                     
 
 #define TASK_2(RTYPE, NAME, ATYPE_1, ARG_1, ATYPE_2, ARG_2)                           \
                                                                                       \
-typedef struct _TD_##NAME {                                                           \
+typedef struct task_##NAME {                                                          \
   TASK_COMMON_FIELDS                                                                  \
   union { struct {  ATYPE_1 arg_1; ATYPE_2 arg_2; } args; RTYPE res; } d;             \
-} TD_##NAME;                                                                          \
+} task_##NAME;                                                                        \
                                                                                       \
-static_assert(sizeof(TD_##NAME) <= sizeof(lace_task), "TD_" #NAME " is too large to fit in the lace_task struct!");\
+static_assert(sizeof(task_##NAME) <= sizeof(lace_task), "task_" #NAME " is too large to fit in the lace_task struct!");\
                                                                                       \
 RTYPE NAME##_CALL(lace_worker*, ATYPE_1, ATYPE_2);                                    \
                                                                                       \
 LACE_NO_SANITIZE_THREAD                                                               \
-static void NAME##_WRAP(lace_worker* lace_worker, lace_task* t LACE_UNUSED)           \
+static void NAME##_WRAP(lace_worker* lw, lace_task* t)                                \
 {                                                                                     \
-    ((TD_##NAME*)t)->d.res = NAME##_CALL(lace_worker, ((TD_##NAME*)t)->d.args.arg_1, ((TD_##NAME*)t)->d.args.arg_2);\
+    (void)t;                                                                          \
+    ((task_##NAME*)t)->d.res = NAME##_CALL(lw, ((task_##NAME*)t)->d.args.arg_1, ((task_##NAME*)t)->d.args.arg_2);\
 }                                                                                     \
                                                                                       \
 LACE_NO_SANITIZE_THREAD                                                               \
@@ -1478,11 +1482,11 @@ lace_task* NAME##_SPAWN(lace_worker* _lace_worker, ATYPE_1 arg_1, ATYPE_2 arg_2)
     lace_task *lace_head = _lace_worker->head;                                        \
     if (lace_head == _lace_worker->end) lace_abort_stack_overflow();                  \
                                                                                       \
-    TD_##NAME *t;                                                                     \
+    task_##NAME *t;                                                                   \
     TailSplitNA ts;                                                                   \
     uint32_t head, split, newsplit;                                                   \
                                                                                       \
-    t = (TD_##NAME *)lace_head;                                                       \
+    t = (task_##NAME *)lace_head;                                                     \
     t->f = &NAME##_WRAP;                                                              \
     atomic_store_explicit(&t->thief, THIEF_TASK, memory_order_relaxed);               \
      t->d.args.arg_1 = arg_1; t->d.args.arg_2 = arg_2;                                \
@@ -1518,12 +1522,12 @@ static inline LACE_UNUSED                                                       
 RTYPE NAME##_NEWFRAME(ATYPE_1 arg_1, ATYPE_2 arg_2)                                   \
 {                                                                                     \
     lace_task _t;                                                                     \
-    TD_##NAME *t = (TD_##NAME *)&_t;                                                  \
+    task_##NAME *t = (task_##NAME *)&_t;                                              \
     t->f = &NAME##_WRAP;                                                              \
     atomic_store_explicit(&t->thief, THIEF_TASK, memory_order_relaxed);               \
      t->d.args.arg_1 = arg_1; t->d.args.arg_2 = arg_2;                                \
     lace_run_newframe(&_t);                                                           \
-    return ((TD_##NAME *)t)->d.res;                                                   \
+    return ((task_##NAME *)t)->d.res;                                                 \
 }                                                                                     \
                                                                                       \
 LACE_NO_SANITIZE_THREAD                                                               \
@@ -1531,7 +1535,7 @@ static inline LACE_UNUSED                                                       
 void NAME##_TOGETHER(ATYPE_1 arg_1, ATYPE_2 arg_2)                                    \
 {                                                                                     \
     lace_task _t;                                                                     \
-    TD_##NAME *t = (TD_##NAME *)&_t;                                                  \
+    task_##NAME *t = (task_##NAME *)&_t;                                              \
     t->f = &NAME##_WRAP;                                                              \
     atomic_store_explicit(&t->thief, THIEF_TASK, memory_order_relaxed);               \
      t->d.args.arg_1 = arg_1; t->d.args.arg_2 = arg_2;                                \
@@ -1546,12 +1550,12 @@ RTYPE NAME(ATYPE_1 arg_1, ATYPE_2 arg_2)                                        
         return NAME##_CALL(worker, arg_1, arg_2);                                     \
     } else {                                                                          \
         lace_task _t;                                                                 \
-        TD_##NAME *t = (TD_##NAME *)&_t;                                              \
+        task_##NAME *t = (task_##NAME *)&_t;                                          \
         t->f = &NAME##_WRAP;                                                          \
         atomic_store_explicit(&t->thief, THIEF_TASK, memory_order_relaxed);           \
          t->d.args.arg_1 = arg_1; t->d.args.arg_2 = arg_2;                            \
         lace_run_task(&_t);                                                           \
-        return ((TD_##NAME *)t)->d.res;                                               \
+        return ((task_##NAME *)t)->d.res;                                             \
     }                                                                                 \
 }                                                                                     \
                                                                                       \
@@ -1563,21 +1567,21 @@ RTYPE NAME##_SYNC(lace_worker* _lace_worker)                                    
     _lace_worker->head = head;                                                        \
                                                                                       \
     /* assert (__dq_head > 0); */  /* Commented out because we assume contract */     \
-    TD_##NAME *t = (TD_##NAME *)head;                                                 \
+    task_##NAME *t = (task_##NAME *)head;                                             \
                                                                                       \
     if (LACE_LIKELY(0 == _lace_worker->_public->movesplit)) {                         \
         if (LACE_LIKELY(_lace_worker->split <= head)) {                               \
             atomic_store_explicit(&t->thief, THIEF_EMPTY, memory_order_relaxed);      \
-            return NAME##_CALL(_lace_worker, ((TD_##NAME*)t)->d.args.arg_1, ((TD_##NAME*)t)->d.args.arg_2);\
+            return NAME##_CALL(_lace_worker, ((task_##NAME*)t)->d.args.arg_1, ((task_##NAME*)t)->d.args.arg_2);\
                                                                                       \
         }                                                                             \
     }                                                                                 \
                                                                                       \
     if (lace_sync(_lace_worker, head)) {                                              \
-        return ((TD_##NAME *)t)->d.res;                                               \
+        return ((task_##NAME *)t)->d.res;                                             \
     } else {                                                                          \
         atomic_store_explicit(&t->thief, THIEF_EMPTY, memory_order_relaxed);          \
-        return NAME##_CALL(_lace_worker, ((TD_##NAME*)t)->d.args.arg_1, ((TD_##NAME*)t)->d.args.arg_2);\
+        return NAME##_CALL(_lace_worker, ((task_##NAME*)t)->d.args.arg_1, ((task_##NAME*)t)->d.args.arg_2);\
     }                                                                                 \
 }                                                                                     \
                                                                                       \
@@ -1592,19 +1596,20 @@ void NAME##_DROP(lace_worker* _lace_worker)                                     
 
 #define VOID_TASK_2(NAME, ATYPE_1, ARG_1, ATYPE_2, ARG_2)                             \
                                                                                       \
-typedef struct _TD_##NAME {                                                           \
+typedef struct task_##NAME {                                                          \
   TASK_COMMON_FIELDS                                                                  \
   union { struct {  ATYPE_1 arg_1; ATYPE_2 arg_2; } args; } d;                        \
-} TD_##NAME;                                                                          \
+} task_##NAME;                                                                        \
                                                                                       \
-static_assert(sizeof(TD_##NAME) <= sizeof(lace_task), "TD_" #NAME " is too large to fit in the lace_task struct!");\
+static_assert(sizeof(task_##NAME) <= sizeof(lace_task), "task_" #NAME " is too large to fit in the lace_task struct!");\
                                                                                       \
 void NAME##_CALL(lace_worker*, ATYPE_1, ATYPE_2);                                     \
                                                                                       \
 LACE_NO_SANITIZE_THREAD                                                               \
-static void NAME##_WRAP(lace_worker* lace_worker, lace_task* t LACE_UNUSED)           \
+static void NAME##_WRAP(lace_worker* lw, lace_task* t)                                \
 {                                                                                     \
-     NAME##_CALL(lace_worker, ((TD_##NAME*)t)->d.args.arg_1, ((TD_##NAME*)t)->d.args.arg_2);\
+    (void)t;                                                                          \
+     NAME##_CALL(lw, ((task_##NAME*)t)->d.args.arg_1, ((task_##NAME*)t)->d.args.arg_2);\
 }                                                                                     \
                                                                                       \
 LACE_NO_SANITIZE_THREAD                                                               \
@@ -1616,11 +1621,11 @@ lace_task* NAME##_SPAWN(lace_worker* _lace_worker, ATYPE_1 arg_1, ATYPE_2 arg_2)
     lace_task *lace_head = _lace_worker->head;                                        \
     if (lace_head == _lace_worker->end) lace_abort_stack_overflow();                  \
                                                                                       \
-    TD_##NAME *t;                                                                     \
+    task_##NAME *t;                                                                   \
     TailSplitNA ts;                                                                   \
     uint32_t head, split, newsplit;                                                   \
                                                                                       \
-    t = (TD_##NAME *)lace_head;                                                       \
+    t = (task_##NAME *)lace_head;                                                     \
     t->f = &NAME##_WRAP;                                                              \
     atomic_store_explicit(&t->thief, THIEF_TASK, memory_order_relaxed);               \
      t->d.args.arg_1 = arg_1; t->d.args.arg_2 = arg_2;                                \
@@ -1656,7 +1661,7 @@ static inline LACE_UNUSED                                                       
 void NAME##_NEWFRAME(ATYPE_1 arg_1, ATYPE_2 arg_2)                                    \
 {                                                                                     \
     lace_task _t;                                                                     \
-    TD_##NAME *t = (TD_##NAME *)&_t;                                                  \
+    task_##NAME *t = (task_##NAME *)&_t;                                              \
     t->f = &NAME##_WRAP;                                                              \
     atomic_store_explicit(&t->thief, THIEF_TASK, memory_order_relaxed);               \
      t->d.args.arg_1 = arg_1; t->d.args.arg_2 = arg_2;                                \
@@ -1669,7 +1674,7 @@ static inline LACE_UNUSED                                                       
 void NAME##_TOGETHER(ATYPE_1 arg_1, ATYPE_2 arg_2)                                    \
 {                                                                                     \
     lace_task _t;                                                                     \
-    TD_##NAME *t = (TD_##NAME *)&_t;                                                  \
+    task_##NAME *t = (task_##NAME *)&_t;                                              \
     t->f = &NAME##_WRAP;                                                              \
     atomic_store_explicit(&t->thief, THIEF_TASK, memory_order_relaxed);               \
      t->d.args.arg_1 = arg_1; t->d.args.arg_2 = arg_2;                                \
@@ -1684,7 +1689,7 @@ void NAME(ATYPE_1 arg_1, ATYPE_2 arg_2)                                         
         NAME##_CALL(worker, arg_1, arg_2);                                            \
     } else {                                                                          \
         lace_task _t;                                                                 \
-        TD_##NAME *t = (TD_##NAME *)&_t;                                              \
+        task_##NAME *t = (task_##NAME *)&_t;                                          \
         t->f = &NAME##_WRAP;                                                          \
         atomic_store_explicit(&t->thief, THIEF_TASK, memory_order_relaxed);           \
          t->d.args.arg_1 = arg_1; t->d.args.arg_2 = arg_2;                            \
@@ -1701,12 +1706,12 @@ void NAME##_SYNC(lace_worker* _lace_worker)                                     
     _lace_worker->head = head;                                                        \
                                                                                       \
     /* assert (__dq_head > 0); */  /* Commented out because we assume contract */     \
-    TD_##NAME *t = (TD_##NAME *)head;                                                 \
+    task_##NAME *t = (task_##NAME *)head;                                             \
                                                                                       \
     if (LACE_LIKELY(0 == _lace_worker->_public->movesplit)) {                         \
         if (LACE_LIKELY(_lace_worker->split <= head)) {                               \
             atomic_store_explicit(&t->thief, THIEF_EMPTY, memory_order_relaxed);      \
-            NAME##_CALL(_lace_worker, ((TD_##NAME*)t)->d.args.arg_1, ((TD_##NAME*)t)->d.args.arg_2);\
+            NAME##_CALL(_lace_worker, ((task_##NAME*)t)->d.args.arg_1, ((task_##NAME*)t)->d.args.arg_2);\
             return;                                                                   \
         }                                                                             \
     }                                                                                 \
@@ -1715,7 +1720,7 @@ void NAME##_SYNC(lace_worker* _lace_worker)                                     
         ;                                                                             \
     } else {                                                                          \
         atomic_store_explicit(&t->thief, THIEF_EMPTY, memory_order_relaxed);          \
-        NAME##_CALL(_lace_worker, ((TD_##NAME*)t)->d.args.arg_1, ((TD_##NAME*)t)->d.args.arg_2);\
+        NAME##_CALL(_lace_worker, ((task_##NAME*)t)->d.args.arg_1, ((task_##NAME*)t)->d.args.arg_2);\
     }                                                                                 \
 }                                                                                     \
                                                                                       \
@@ -1733,19 +1738,20 @@ void NAME##_DROP(lace_worker* _lace_worker)                                     
 
 #define TASK_3(RTYPE, NAME, ATYPE_1, ARG_1, ATYPE_2, ARG_2, ATYPE_3, ARG_3)           \
                                                                                       \
-typedef struct _TD_##NAME {                                                           \
+typedef struct task_##NAME {                                                          \
   TASK_COMMON_FIELDS                                                                  \
   union { struct {  ATYPE_1 arg_1; ATYPE_2 arg_2; ATYPE_3 arg_3; } args; RTYPE res; } d;\
-} TD_##NAME;                                                                          \
+} task_##NAME;                                                                        \
                                                                                       \
-static_assert(sizeof(TD_##NAME) <= sizeof(lace_task), "TD_" #NAME " is too large to fit in the lace_task struct!");\
+static_assert(sizeof(task_##NAME) <= sizeof(lace_task), "task_" #NAME " is too large to fit in the lace_task struct!");\
                                                                                       \
 RTYPE NAME##_CALL(lace_worker*, ATYPE_1, ATYPE_2, ATYPE_3);                           \
                                                                                       \
 LACE_NO_SANITIZE_THREAD                                                               \
-static void NAME##_WRAP(lace_worker* lace_worker, lace_task* t LACE_UNUSED)           \
+static void NAME##_WRAP(lace_worker* lw, lace_task* t)                                \
 {                                                                                     \
-    ((TD_##NAME*)t)->d.res = NAME##_CALL(lace_worker, ((TD_##NAME*)t)->d.args.arg_1, ((TD_##NAME*)t)->d.args.arg_2, ((TD_##NAME*)t)->d.args.arg_3);\
+    (void)t;                                                                          \
+    ((task_##NAME*)t)->d.res = NAME##_CALL(lw, ((task_##NAME*)t)->d.args.arg_1, ((task_##NAME*)t)->d.args.arg_2, ((task_##NAME*)t)->d.args.arg_3);\
 }                                                                                     \
                                                                                       \
 LACE_NO_SANITIZE_THREAD                                                               \
@@ -1757,11 +1763,11 @@ lace_task* NAME##_SPAWN(lace_worker* _lace_worker, ATYPE_1 arg_1, ATYPE_2 arg_2,
     lace_task *lace_head = _lace_worker->head;                                        \
     if (lace_head == _lace_worker->end) lace_abort_stack_overflow();                  \
                                                                                       \
-    TD_##NAME *t;                                                                     \
+    task_##NAME *t;                                                                   \
     TailSplitNA ts;                                                                   \
     uint32_t head, split, newsplit;                                                   \
                                                                                       \
-    t = (TD_##NAME *)lace_head;                                                       \
+    t = (task_##NAME *)lace_head;                                                     \
     t->f = &NAME##_WRAP;                                                              \
     atomic_store_explicit(&t->thief, THIEF_TASK, memory_order_relaxed);               \
      t->d.args.arg_1 = arg_1; t->d.args.arg_2 = arg_2; t->d.args.arg_3 = arg_3;       \
@@ -1797,12 +1803,12 @@ static inline LACE_UNUSED                                                       
 RTYPE NAME##_NEWFRAME(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3)                    \
 {                                                                                     \
     lace_task _t;                                                                     \
-    TD_##NAME *t = (TD_##NAME *)&_t;                                                  \
+    task_##NAME *t = (task_##NAME *)&_t;                                              \
     t->f = &NAME##_WRAP;                                                              \
     atomic_store_explicit(&t->thief, THIEF_TASK, memory_order_relaxed);               \
      t->d.args.arg_1 = arg_1; t->d.args.arg_2 = arg_2; t->d.args.arg_3 = arg_3;       \
     lace_run_newframe(&_t);                                                           \
-    return ((TD_##NAME *)t)->d.res;                                                   \
+    return ((task_##NAME *)t)->d.res;                                                 \
 }                                                                                     \
                                                                                       \
 LACE_NO_SANITIZE_THREAD                                                               \
@@ -1810,7 +1816,7 @@ static inline LACE_UNUSED                                                       
 void NAME##_TOGETHER(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3)                     \
 {                                                                                     \
     lace_task _t;                                                                     \
-    TD_##NAME *t = (TD_##NAME *)&_t;                                                  \
+    task_##NAME *t = (task_##NAME *)&_t;                                              \
     t->f = &NAME##_WRAP;                                                              \
     atomic_store_explicit(&t->thief, THIEF_TASK, memory_order_relaxed);               \
      t->d.args.arg_1 = arg_1; t->d.args.arg_2 = arg_2; t->d.args.arg_3 = arg_3;       \
@@ -1825,12 +1831,12 @@ RTYPE NAME(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3)                         
         return NAME##_CALL(worker, arg_1, arg_2, arg_3);                              \
     } else {                                                                          \
         lace_task _t;                                                                 \
-        TD_##NAME *t = (TD_##NAME *)&_t;                                              \
+        task_##NAME *t = (task_##NAME *)&_t;                                          \
         t->f = &NAME##_WRAP;                                                          \
         atomic_store_explicit(&t->thief, THIEF_TASK, memory_order_relaxed);           \
          t->d.args.arg_1 = arg_1; t->d.args.arg_2 = arg_2; t->d.args.arg_3 = arg_3;   \
         lace_run_task(&_t);                                                           \
-        return ((TD_##NAME *)t)->d.res;                                               \
+        return ((task_##NAME *)t)->d.res;                                             \
     }                                                                                 \
 }                                                                                     \
                                                                                       \
@@ -1842,21 +1848,21 @@ RTYPE NAME##_SYNC(lace_worker* _lace_worker)                                    
     _lace_worker->head = head;                                                        \
                                                                                       \
     /* assert (__dq_head > 0); */  /* Commented out because we assume contract */     \
-    TD_##NAME *t = (TD_##NAME *)head;                                                 \
+    task_##NAME *t = (task_##NAME *)head;                                             \
                                                                                       \
     if (LACE_LIKELY(0 == _lace_worker->_public->movesplit)) {                         \
         if (LACE_LIKELY(_lace_worker->split <= head)) {                               \
             atomic_store_explicit(&t->thief, THIEF_EMPTY, memory_order_relaxed);      \
-            return NAME##_CALL(_lace_worker, ((TD_##NAME*)t)->d.args.arg_1, ((TD_##NAME*)t)->d.args.arg_2, ((TD_##NAME*)t)->d.args.arg_3);\
+            return NAME##_CALL(_lace_worker, ((task_##NAME*)t)->d.args.arg_1, ((task_##NAME*)t)->d.args.arg_2, ((task_##NAME*)t)->d.args.arg_3);\
                                                                                       \
         }                                                                             \
     }                                                                                 \
                                                                                       \
     if (lace_sync(_lace_worker, head)) {                                              \
-        return ((TD_##NAME *)t)->d.res;                                               \
+        return ((task_##NAME *)t)->d.res;                                             \
     } else {                                                                          \
         atomic_store_explicit(&t->thief, THIEF_EMPTY, memory_order_relaxed);          \
-        return NAME##_CALL(_lace_worker, ((TD_##NAME*)t)->d.args.arg_1, ((TD_##NAME*)t)->d.args.arg_2, ((TD_##NAME*)t)->d.args.arg_3);\
+        return NAME##_CALL(_lace_worker, ((task_##NAME*)t)->d.args.arg_1, ((task_##NAME*)t)->d.args.arg_2, ((task_##NAME*)t)->d.args.arg_3);\
     }                                                                                 \
 }                                                                                     \
                                                                                       \
@@ -1871,19 +1877,20 @@ void NAME##_DROP(lace_worker* _lace_worker)                                     
 
 #define VOID_TASK_3(NAME, ATYPE_1, ARG_1, ATYPE_2, ARG_2, ATYPE_3, ARG_3)             \
                                                                                       \
-typedef struct _TD_##NAME {                                                           \
+typedef struct task_##NAME {                                                          \
   TASK_COMMON_FIELDS                                                                  \
   union { struct {  ATYPE_1 arg_1; ATYPE_2 arg_2; ATYPE_3 arg_3; } args; } d;         \
-} TD_##NAME;                                                                          \
+} task_##NAME;                                                                        \
                                                                                       \
-static_assert(sizeof(TD_##NAME) <= sizeof(lace_task), "TD_" #NAME " is too large to fit in the lace_task struct!");\
+static_assert(sizeof(task_##NAME) <= sizeof(lace_task), "task_" #NAME " is too large to fit in the lace_task struct!");\
                                                                                       \
 void NAME##_CALL(lace_worker*, ATYPE_1, ATYPE_2, ATYPE_3);                            \
                                                                                       \
 LACE_NO_SANITIZE_THREAD                                                               \
-static void NAME##_WRAP(lace_worker* lace_worker, lace_task* t LACE_UNUSED)           \
+static void NAME##_WRAP(lace_worker* lw, lace_task* t)                                \
 {                                                                                     \
-     NAME##_CALL(lace_worker, ((TD_##NAME*)t)->d.args.arg_1, ((TD_##NAME*)t)->d.args.arg_2, ((TD_##NAME*)t)->d.args.arg_3);\
+    (void)t;                                                                          \
+     NAME##_CALL(lw, ((task_##NAME*)t)->d.args.arg_1, ((task_##NAME*)t)->d.args.arg_2, ((task_##NAME*)t)->d.args.arg_3);\
 }                                                                                     \
                                                                                       \
 LACE_NO_SANITIZE_THREAD                                                               \
@@ -1895,11 +1902,11 @@ lace_task* NAME##_SPAWN(lace_worker* _lace_worker, ATYPE_1 arg_1, ATYPE_2 arg_2,
     lace_task *lace_head = _lace_worker->head;                                        \
     if (lace_head == _lace_worker->end) lace_abort_stack_overflow();                  \
                                                                                       \
-    TD_##NAME *t;                                                                     \
+    task_##NAME *t;                                                                   \
     TailSplitNA ts;                                                                   \
     uint32_t head, split, newsplit;                                                   \
                                                                                       \
-    t = (TD_##NAME *)lace_head;                                                       \
+    t = (task_##NAME *)lace_head;                                                     \
     t->f = &NAME##_WRAP;                                                              \
     atomic_store_explicit(&t->thief, THIEF_TASK, memory_order_relaxed);               \
      t->d.args.arg_1 = arg_1; t->d.args.arg_2 = arg_2; t->d.args.arg_3 = arg_3;       \
@@ -1935,7 +1942,7 @@ static inline LACE_UNUSED                                                       
 void NAME##_NEWFRAME(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3)                     \
 {                                                                                     \
     lace_task _t;                                                                     \
-    TD_##NAME *t = (TD_##NAME *)&_t;                                                  \
+    task_##NAME *t = (task_##NAME *)&_t;                                              \
     t->f = &NAME##_WRAP;                                                              \
     atomic_store_explicit(&t->thief, THIEF_TASK, memory_order_relaxed);               \
      t->d.args.arg_1 = arg_1; t->d.args.arg_2 = arg_2; t->d.args.arg_3 = arg_3;       \
@@ -1948,7 +1955,7 @@ static inline LACE_UNUSED                                                       
 void NAME##_TOGETHER(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3)                     \
 {                                                                                     \
     lace_task _t;                                                                     \
-    TD_##NAME *t = (TD_##NAME *)&_t;                                                  \
+    task_##NAME *t = (task_##NAME *)&_t;                                              \
     t->f = &NAME##_WRAP;                                                              \
     atomic_store_explicit(&t->thief, THIEF_TASK, memory_order_relaxed);               \
      t->d.args.arg_1 = arg_1; t->d.args.arg_2 = arg_2; t->d.args.arg_3 = arg_3;       \
@@ -1963,7 +1970,7 @@ void NAME(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3)                          
         NAME##_CALL(worker, arg_1, arg_2, arg_3);                                     \
     } else {                                                                          \
         lace_task _t;                                                                 \
-        TD_##NAME *t = (TD_##NAME *)&_t;                                              \
+        task_##NAME *t = (task_##NAME *)&_t;                                          \
         t->f = &NAME##_WRAP;                                                          \
         atomic_store_explicit(&t->thief, THIEF_TASK, memory_order_relaxed);           \
          t->d.args.arg_1 = arg_1; t->d.args.arg_2 = arg_2; t->d.args.arg_3 = arg_3;   \
@@ -1980,12 +1987,12 @@ void NAME##_SYNC(lace_worker* _lace_worker)                                     
     _lace_worker->head = head;                                                        \
                                                                                       \
     /* assert (__dq_head > 0); */  /* Commented out because we assume contract */     \
-    TD_##NAME *t = (TD_##NAME *)head;                                                 \
+    task_##NAME *t = (task_##NAME *)head;                                             \
                                                                                       \
     if (LACE_LIKELY(0 == _lace_worker->_public->movesplit)) {                         \
         if (LACE_LIKELY(_lace_worker->split <= head)) {                               \
             atomic_store_explicit(&t->thief, THIEF_EMPTY, memory_order_relaxed);      \
-            NAME##_CALL(_lace_worker, ((TD_##NAME*)t)->d.args.arg_1, ((TD_##NAME*)t)->d.args.arg_2, ((TD_##NAME*)t)->d.args.arg_3);\
+            NAME##_CALL(_lace_worker, ((task_##NAME*)t)->d.args.arg_1, ((task_##NAME*)t)->d.args.arg_2, ((task_##NAME*)t)->d.args.arg_3);\
             return;                                                                   \
         }                                                                             \
     }                                                                                 \
@@ -1994,7 +2001,7 @@ void NAME##_SYNC(lace_worker* _lace_worker)                                     
         ;                                                                             \
     } else {                                                                          \
         atomic_store_explicit(&t->thief, THIEF_EMPTY, memory_order_relaxed);          \
-        NAME##_CALL(_lace_worker, ((TD_##NAME*)t)->d.args.arg_1, ((TD_##NAME*)t)->d.args.arg_2, ((TD_##NAME*)t)->d.args.arg_3);\
+        NAME##_CALL(_lace_worker, ((task_##NAME*)t)->d.args.arg_1, ((task_##NAME*)t)->d.args.arg_2, ((task_##NAME*)t)->d.args.arg_3);\
     }                                                                                 \
 }                                                                                     \
                                                                                       \
@@ -2012,19 +2019,20 @@ void NAME##_DROP(lace_worker* _lace_worker)                                     
 
 #define TASK_4(RTYPE, NAME, ATYPE_1, ARG_1, ATYPE_2, ARG_2, ATYPE_3, ARG_3, ATYPE_4, ARG_4)\
                                                                                       \
-typedef struct _TD_##NAME {                                                           \
+typedef struct task_##NAME {                                                          \
   TASK_COMMON_FIELDS                                                                  \
   union { struct {  ATYPE_1 arg_1; ATYPE_2 arg_2; ATYPE_3 arg_3; ATYPE_4 arg_4; } args; RTYPE res; } d;\
-} TD_##NAME;                                                                          \
+} task_##NAME;                                                                        \
                                                                                       \
-static_assert(sizeof(TD_##NAME) <= sizeof(lace_task), "TD_" #NAME " is too large to fit in the lace_task struct!");\
+static_assert(sizeof(task_##NAME) <= sizeof(lace_task), "task_" #NAME " is too large to fit in the lace_task struct!");\
                                                                                       \
 RTYPE NAME##_CALL(lace_worker*, ATYPE_1, ATYPE_2, ATYPE_3, ATYPE_4);                  \
                                                                                       \
 LACE_NO_SANITIZE_THREAD                                                               \
-static void NAME##_WRAP(lace_worker* lace_worker, lace_task* t LACE_UNUSED)           \
+static void NAME##_WRAP(lace_worker* lw, lace_task* t)                                \
 {                                                                                     \
-    ((TD_##NAME*)t)->d.res = NAME##_CALL(lace_worker, ((TD_##NAME*)t)->d.args.arg_1, ((TD_##NAME*)t)->d.args.arg_2, ((TD_##NAME*)t)->d.args.arg_3, ((TD_##NAME*)t)->d.args.arg_4);\
+    (void)t;                                                                          \
+    ((task_##NAME*)t)->d.res = NAME##_CALL(lw, ((task_##NAME*)t)->d.args.arg_1, ((task_##NAME*)t)->d.args.arg_2, ((task_##NAME*)t)->d.args.arg_3, ((task_##NAME*)t)->d.args.arg_4);\
 }                                                                                     \
                                                                                       \
 LACE_NO_SANITIZE_THREAD                                                               \
@@ -2036,11 +2044,11 @@ lace_task* NAME##_SPAWN(lace_worker* _lace_worker, ATYPE_1 arg_1, ATYPE_2 arg_2,
     lace_task *lace_head = _lace_worker->head;                                        \
     if (lace_head == _lace_worker->end) lace_abort_stack_overflow();                  \
                                                                                       \
-    TD_##NAME *t;                                                                     \
+    task_##NAME *t;                                                                   \
     TailSplitNA ts;                                                                   \
     uint32_t head, split, newsplit;                                                   \
                                                                                       \
-    t = (TD_##NAME *)lace_head;                                                       \
+    t = (task_##NAME *)lace_head;                                                     \
     t->f = &NAME##_WRAP;                                                              \
     atomic_store_explicit(&t->thief, THIEF_TASK, memory_order_relaxed);               \
      t->d.args.arg_1 = arg_1; t->d.args.arg_2 = arg_2; t->d.args.arg_3 = arg_3; t->d.args.arg_4 = arg_4;\
@@ -2076,12 +2084,12 @@ static inline LACE_UNUSED                                                       
 RTYPE NAME##_NEWFRAME(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4)     \
 {                                                                                     \
     lace_task _t;                                                                     \
-    TD_##NAME *t = (TD_##NAME *)&_t;                                                  \
+    task_##NAME *t = (task_##NAME *)&_t;                                              \
     t->f = &NAME##_WRAP;                                                              \
     atomic_store_explicit(&t->thief, THIEF_TASK, memory_order_relaxed);               \
      t->d.args.arg_1 = arg_1; t->d.args.arg_2 = arg_2; t->d.args.arg_3 = arg_3; t->d.args.arg_4 = arg_4;\
     lace_run_newframe(&_t);                                                           \
-    return ((TD_##NAME *)t)->d.res;                                                   \
+    return ((task_##NAME *)t)->d.res;                                                 \
 }                                                                                     \
                                                                                       \
 LACE_NO_SANITIZE_THREAD                                                               \
@@ -2089,7 +2097,7 @@ static inline LACE_UNUSED                                                       
 void NAME##_TOGETHER(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4)      \
 {                                                                                     \
     lace_task _t;                                                                     \
-    TD_##NAME *t = (TD_##NAME *)&_t;                                                  \
+    task_##NAME *t = (task_##NAME *)&_t;                                              \
     t->f = &NAME##_WRAP;                                                              \
     atomic_store_explicit(&t->thief, THIEF_TASK, memory_order_relaxed);               \
      t->d.args.arg_1 = arg_1; t->d.args.arg_2 = arg_2; t->d.args.arg_3 = arg_3; t->d.args.arg_4 = arg_4;\
@@ -2104,12 +2112,12 @@ RTYPE NAME(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4)          
         return NAME##_CALL(worker, arg_1, arg_2, arg_3, arg_4);                       \
     } else {                                                                          \
         lace_task _t;                                                                 \
-        TD_##NAME *t = (TD_##NAME *)&_t;                                              \
+        task_##NAME *t = (task_##NAME *)&_t;                                          \
         t->f = &NAME##_WRAP;                                                          \
         atomic_store_explicit(&t->thief, THIEF_TASK, memory_order_relaxed);           \
          t->d.args.arg_1 = arg_1; t->d.args.arg_2 = arg_2; t->d.args.arg_3 = arg_3; t->d.args.arg_4 = arg_4;\
         lace_run_task(&_t);                                                           \
-        return ((TD_##NAME *)t)->d.res;                                               \
+        return ((task_##NAME *)t)->d.res;                                             \
     }                                                                                 \
 }                                                                                     \
                                                                                       \
@@ -2121,21 +2129,21 @@ RTYPE NAME##_SYNC(lace_worker* _lace_worker)                                    
     _lace_worker->head = head;                                                        \
                                                                                       \
     /* assert (__dq_head > 0); */  /* Commented out because we assume contract */     \
-    TD_##NAME *t = (TD_##NAME *)head;                                                 \
+    task_##NAME *t = (task_##NAME *)head;                                             \
                                                                                       \
     if (LACE_LIKELY(0 == _lace_worker->_public->movesplit)) {                         \
         if (LACE_LIKELY(_lace_worker->split <= head)) {                               \
             atomic_store_explicit(&t->thief, THIEF_EMPTY, memory_order_relaxed);      \
-            return NAME##_CALL(_lace_worker, ((TD_##NAME*)t)->d.args.arg_1, ((TD_##NAME*)t)->d.args.arg_2, ((TD_##NAME*)t)->d.args.arg_3, ((TD_##NAME*)t)->d.args.arg_4);\
+            return NAME##_CALL(_lace_worker, ((task_##NAME*)t)->d.args.arg_1, ((task_##NAME*)t)->d.args.arg_2, ((task_##NAME*)t)->d.args.arg_3, ((task_##NAME*)t)->d.args.arg_4);\
                                                                                       \
         }                                                                             \
     }                                                                                 \
                                                                                       \
     if (lace_sync(_lace_worker, head)) {                                              \
-        return ((TD_##NAME *)t)->d.res;                                               \
+        return ((task_##NAME *)t)->d.res;                                             \
     } else {                                                                          \
         atomic_store_explicit(&t->thief, THIEF_EMPTY, memory_order_relaxed);          \
-        return NAME##_CALL(_lace_worker, ((TD_##NAME*)t)->d.args.arg_1, ((TD_##NAME*)t)->d.args.arg_2, ((TD_##NAME*)t)->d.args.arg_3, ((TD_##NAME*)t)->d.args.arg_4);\
+        return NAME##_CALL(_lace_worker, ((task_##NAME*)t)->d.args.arg_1, ((task_##NAME*)t)->d.args.arg_2, ((task_##NAME*)t)->d.args.arg_3, ((task_##NAME*)t)->d.args.arg_4);\
     }                                                                                 \
 }                                                                                     \
                                                                                       \
@@ -2150,19 +2158,20 @@ void NAME##_DROP(lace_worker* _lace_worker)                                     
 
 #define VOID_TASK_4(NAME, ATYPE_1, ARG_1, ATYPE_2, ARG_2, ATYPE_3, ARG_3, ATYPE_4, ARG_4)\
                                                                                       \
-typedef struct _TD_##NAME {                                                           \
+typedef struct task_##NAME {                                                          \
   TASK_COMMON_FIELDS                                                                  \
   union { struct {  ATYPE_1 arg_1; ATYPE_2 arg_2; ATYPE_3 arg_3; ATYPE_4 arg_4; } args; } d;\
-} TD_##NAME;                                                                          \
+} task_##NAME;                                                                        \
                                                                                       \
-static_assert(sizeof(TD_##NAME) <= sizeof(lace_task), "TD_" #NAME " is too large to fit in the lace_task struct!");\
+static_assert(sizeof(task_##NAME) <= sizeof(lace_task), "task_" #NAME " is too large to fit in the lace_task struct!");\
                                                                                       \
 void NAME##_CALL(lace_worker*, ATYPE_1, ATYPE_2, ATYPE_3, ATYPE_4);                   \
                                                                                       \
 LACE_NO_SANITIZE_THREAD                                                               \
-static void NAME##_WRAP(lace_worker* lace_worker, lace_task* t LACE_UNUSED)           \
+static void NAME##_WRAP(lace_worker* lw, lace_task* t)                                \
 {                                                                                     \
-     NAME##_CALL(lace_worker, ((TD_##NAME*)t)->d.args.arg_1, ((TD_##NAME*)t)->d.args.arg_2, ((TD_##NAME*)t)->d.args.arg_3, ((TD_##NAME*)t)->d.args.arg_4);\
+    (void)t;                                                                          \
+     NAME##_CALL(lw, ((task_##NAME*)t)->d.args.arg_1, ((task_##NAME*)t)->d.args.arg_2, ((task_##NAME*)t)->d.args.arg_3, ((task_##NAME*)t)->d.args.arg_4);\
 }                                                                                     \
                                                                                       \
 LACE_NO_SANITIZE_THREAD                                                               \
@@ -2174,11 +2183,11 @@ lace_task* NAME##_SPAWN(lace_worker* _lace_worker, ATYPE_1 arg_1, ATYPE_2 arg_2,
     lace_task *lace_head = _lace_worker->head;                                        \
     if (lace_head == _lace_worker->end) lace_abort_stack_overflow();                  \
                                                                                       \
-    TD_##NAME *t;                                                                     \
+    task_##NAME *t;                                                                   \
     TailSplitNA ts;                                                                   \
     uint32_t head, split, newsplit;                                                   \
                                                                                       \
-    t = (TD_##NAME *)lace_head;                                                       \
+    t = (task_##NAME *)lace_head;                                                     \
     t->f = &NAME##_WRAP;                                                              \
     atomic_store_explicit(&t->thief, THIEF_TASK, memory_order_relaxed);               \
      t->d.args.arg_1 = arg_1; t->d.args.arg_2 = arg_2; t->d.args.arg_3 = arg_3; t->d.args.arg_4 = arg_4;\
@@ -2214,7 +2223,7 @@ static inline LACE_UNUSED                                                       
 void NAME##_NEWFRAME(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4)      \
 {                                                                                     \
     lace_task _t;                                                                     \
-    TD_##NAME *t = (TD_##NAME *)&_t;                                                  \
+    task_##NAME *t = (task_##NAME *)&_t;                                              \
     t->f = &NAME##_WRAP;                                                              \
     atomic_store_explicit(&t->thief, THIEF_TASK, memory_order_relaxed);               \
      t->d.args.arg_1 = arg_1; t->d.args.arg_2 = arg_2; t->d.args.arg_3 = arg_3; t->d.args.arg_4 = arg_4;\
@@ -2227,7 +2236,7 @@ static inline LACE_UNUSED                                                       
 void NAME##_TOGETHER(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4)      \
 {                                                                                     \
     lace_task _t;                                                                     \
-    TD_##NAME *t = (TD_##NAME *)&_t;                                                  \
+    task_##NAME *t = (task_##NAME *)&_t;                                              \
     t->f = &NAME##_WRAP;                                                              \
     atomic_store_explicit(&t->thief, THIEF_TASK, memory_order_relaxed);               \
      t->d.args.arg_1 = arg_1; t->d.args.arg_2 = arg_2; t->d.args.arg_3 = arg_3; t->d.args.arg_4 = arg_4;\
@@ -2242,7 +2251,7 @@ void NAME(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4)           
         NAME##_CALL(worker, arg_1, arg_2, arg_3, arg_4);                              \
     } else {                                                                          \
         lace_task _t;                                                                 \
-        TD_##NAME *t = (TD_##NAME *)&_t;                                              \
+        task_##NAME *t = (task_##NAME *)&_t;                                          \
         t->f = &NAME##_WRAP;                                                          \
         atomic_store_explicit(&t->thief, THIEF_TASK, memory_order_relaxed);           \
          t->d.args.arg_1 = arg_1; t->d.args.arg_2 = arg_2; t->d.args.arg_3 = arg_3; t->d.args.arg_4 = arg_4;\
@@ -2259,12 +2268,12 @@ void NAME##_SYNC(lace_worker* _lace_worker)                                     
     _lace_worker->head = head;                                                        \
                                                                                       \
     /* assert (__dq_head > 0); */  /* Commented out because we assume contract */     \
-    TD_##NAME *t = (TD_##NAME *)head;                                                 \
+    task_##NAME *t = (task_##NAME *)head;                                             \
                                                                                       \
     if (LACE_LIKELY(0 == _lace_worker->_public->movesplit)) {                         \
         if (LACE_LIKELY(_lace_worker->split <= head)) {                               \
             atomic_store_explicit(&t->thief, THIEF_EMPTY, memory_order_relaxed);      \
-            NAME##_CALL(_lace_worker, ((TD_##NAME*)t)->d.args.arg_1, ((TD_##NAME*)t)->d.args.arg_2, ((TD_##NAME*)t)->d.args.arg_3, ((TD_##NAME*)t)->d.args.arg_4);\
+            NAME##_CALL(_lace_worker, ((task_##NAME*)t)->d.args.arg_1, ((task_##NAME*)t)->d.args.arg_2, ((task_##NAME*)t)->d.args.arg_3, ((task_##NAME*)t)->d.args.arg_4);\
             return;                                                                   \
         }                                                                             \
     }                                                                                 \
@@ -2273,7 +2282,7 @@ void NAME##_SYNC(lace_worker* _lace_worker)                                     
         ;                                                                             \
     } else {                                                                          \
         atomic_store_explicit(&t->thief, THIEF_EMPTY, memory_order_relaxed);          \
-        NAME##_CALL(_lace_worker, ((TD_##NAME*)t)->d.args.arg_1, ((TD_##NAME*)t)->d.args.arg_2, ((TD_##NAME*)t)->d.args.arg_3, ((TD_##NAME*)t)->d.args.arg_4);\
+        NAME##_CALL(_lace_worker, ((task_##NAME*)t)->d.args.arg_1, ((task_##NAME*)t)->d.args.arg_2, ((task_##NAME*)t)->d.args.arg_3, ((task_##NAME*)t)->d.args.arg_4);\
     }                                                                                 \
 }                                                                                     \
                                                                                       \
@@ -2291,19 +2300,20 @@ void NAME##_DROP(lace_worker* _lace_worker)                                     
 
 #define TASK_5(RTYPE, NAME, ATYPE_1, ARG_1, ATYPE_2, ARG_2, ATYPE_3, ARG_3, ATYPE_4, ARG_4, ATYPE_5, ARG_5)\
                                                                                       \
-typedef struct _TD_##NAME {                                                           \
+typedef struct task_##NAME {                                                          \
   TASK_COMMON_FIELDS                                                                  \
   union { struct {  ATYPE_1 arg_1; ATYPE_2 arg_2; ATYPE_3 arg_3; ATYPE_4 arg_4; ATYPE_5 arg_5; } args; RTYPE res; } d;\
-} TD_##NAME;                                                                          \
+} task_##NAME;                                                                        \
                                                                                       \
-static_assert(sizeof(TD_##NAME) <= sizeof(lace_task), "TD_" #NAME " is too large to fit in the lace_task struct!");\
+static_assert(sizeof(task_##NAME) <= sizeof(lace_task), "task_" #NAME " is too large to fit in the lace_task struct!");\
                                                                                       \
 RTYPE NAME##_CALL(lace_worker*, ATYPE_1, ATYPE_2, ATYPE_3, ATYPE_4, ATYPE_5);         \
                                                                                       \
 LACE_NO_SANITIZE_THREAD                                                               \
-static void NAME##_WRAP(lace_worker* lace_worker, lace_task* t LACE_UNUSED)           \
+static void NAME##_WRAP(lace_worker* lw, lace_task* t)                                \
 {                                                                                     \
-    ((TD_##NAME*)t)->d.res = NAME##_CALL(lace_worker, ((TD_##NAME*)t)->d.args.arg_1, ((TD_##NAME*)t)->d.args.arg_2, ((TD_##NAME*)t)->d.args.arg_3, ((TD_##NAME*)t)->d.args.arg_4, ((TD_##NAME*)t)->d.args.arg_5);\
+    (void)t;                                                                          \
+    ((task_##NAME*)t)->d.res = NAME##_CALL(lw, ((task_##NAME*)t)->d.args.arg_1, ((task_##NAME*)t)->d.args.arg_2, ((task_##NAME*)t)->d.args.arg_3, ((task_##NAME*)t)->d.args.arg_4, ((task_##NAME*)t)->d.args.arg_5);\
 }                                                                                     \
                                                                                       \
 LACE_NO_SANITIZE_THREAD                                                               \
@@ -2315,11 +2325,11 @@ lace_task* NAME##_SPAWN(lace_worker* _lace_worker, ATYPE_1 arg_1, ATYPE_2 arg_2,
     lace_task *lace_head = _lace_worker->head;                                        \
     if (lace_head == _lace_worker->end) lace_abort_stack_overflow();                  \
                                                                                       \
-    TD_##NAME *t;                                                                     \
+    task_##NAME *t;                                                                   \
     TailSplitNA ts;                                                                   \
     uint32_t head, split, newsplit;                                                   \
                                                                                       \
-    t = (TD_##NAME *)lace_head;                                                       \
+    t = (task_##NAME *)lace_head;                                                     \
     t->f = &NAME##_WRAP;                                                              \
     atomic_store_explicit(&t->thief, THIEF_TASK, memory_order_relaxed);               \
      t->d.args.arg_1 = arg_1; t->d.args.arg_2 = arg_2; t->d.args.arg_3 = arg_3; t->d.args.arg_4 = arg_4; t->d.args.arg_5 = arg_5;\
@@ -2355,12 +2365,12 @@ static inline LACE_UNUSED                                                       
 RTYPE NAME##_NEWFRAME(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, ATYPE_5 arg_5)\
 {                                                                                     \
     lace_task _t;                                                                     \
-    TD_##NAME *t = (TD_##NAME *)&_t;                                                  \
+    task_##NAME *t = (task_##NAME *)&_t;                                              \
     t->f = &NAME##_WRAP;                                                              \
     atomic_store_explicit(&t->thief, THIEF_TASK, memory_order_relaxed);               \
      t->d.args.arg_1 = arg_1; t->d.args.arg_2 = arg_2; t->d.args.arg_3 = arg_3; t->d.args.arg_4 = arg_4; t->d.args.arg_5 = arg_5;\
     lace_run_newframe(&_t);                                                           \
-    return ((TD_##NAME *)t)->d.res;                                                   \
+    return ((task_##NAME *)t)->d.res;                                                 \
 }                                                                                     \
                                                                                       \
 LACE_NO_SANITIZE_THREAD                                                               \
@@ -2368,7 +2378,7 @@ static inline LACE_UNUSED                                                       
 void NAME##_TOGETHER(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, ATYPE_5 arg_5)\
 {                                                                                     \
     lace_task _t;                                                                     \
-    TD_##NAME *t = (TD_##NAME *)&_t;                                                  \
+    task_##NAME *t = (task_##NAME *)&_t;                                              \
     t->f = &NAME##_WRAP;                                                              \
     atomic_store_explicit(&t->thief, THIEF_TASK, memory_order_relaxed);               \
      t->d.args.arg_1 = arg_1; t->d.args.arg_2 = arg_2; t->d.args.arg_3 = arg_3; t->d.args.arg_4 = arg_4; t->d.args.arg_5 = arg_5;\
@@ -2383,12 +2393,12 @@ RTYPE NAME(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, ATYPE_5 a
         return NAME##_CALL(worker, arg_1, arg_2, arg_3, arg_4, arg_5);                \
     } else {                                                                          \
         lace_task _t;                                                                 \
-        TD_##NAME *t = (TD_##NAME *)&_t;                                              \
+        task_##NAME *t = (task_##NAME *)&_t;                                          \
         t->f = &NAME##_WRAP;                                                          \
         atomic_store_explicit(&t->thief, THIEF_TASK, memory_order_relaxed);           \
          t->d.args.arg_1 = arg_1; t->d.args.arg_2 = arg_2; t->d.args.arg_3 = arg_3; t->d.args.arg_4 = arg_4; t->d.args.arg_5 = arg_5;\
         lace_run_task(&_t);                                                           \
-        return ((TD_##NAME *)t)->d.res;                                               \
+        return ((task_##NAME *)t)->d.res;                                             \
     }                                                                                 \
 }                                                                                     \
                                                                                       \
@@ -2400,21 +2410,21 @@ RTYPE NAME##_SYNC(lace_worker* _lace_worker)                                    
     _lace_worker->head = head;                                                        \
                                                                                       \
     /* assert (__dq_head > 0); */  /* Commented out because we assume contract */     \
-    TD_##NAME *t = (TD_##NAME *)head;                                                 \
+    task_##NAME *t = (task_##NAME *)head;                                             \
                                                                                       \
     if (LACE_LIKELY(0 == _lace_worker->_public->movesplit)) {                         \
         if (LACE_LIKELY(_lace_worker->split <= head)) {                               \
             atomic_store_explicit(&t->thief, THIEF_EMPTY, memory_order_relaxed);      \
-            return NAME##_CALL(_lace_worker, ((TD_##NAME*)t)->d.args.arg_1, ((TD_##NAME*)t)->d.args.arg_2, ((TD_##NAME*)t)->d.args.arg_3, ((TD_##NAME*)t)->d.args.arg_4, ((TD_##NAME*)t)->d.args.arg_5);\
+            return NAME##_CALL(_lace_worker, ((task_##NAME*)t)->d.args.arg_1, ((task_##NAME*)t)->d.args.arg_2, ((task_##NAME*)t)->d.args.arg_3, ((task_##NAME*)t)->d.args.arg_4, ((task_##NAME*)t)->d.args.arg_5);\
                                                                                       \
         }                                                                             \
     }                                                                                 \
                                                                                       \
     if (lace_sync(_lace_worker, head)) {                                              \
-        return ((TD_##NAME *)t)->d.res;                                               \
+        return ((task_##NAME *)t)->d.res;                                             \
     } else {                                                                          \
         atomic_store_explicit(&t->thief, THIEF_EMPTY, memory_order_relaxed);          \
-        return NAME##_CALL(_lace_worker, ((TD_##NAME*)t)->d.args.arg_1, ((TD_##NAME*)t)->d.args.arg_2, ((TD_##NAME*)t)->d.args.arg_3, ((TD_##NAME*)t)->d.args.arg_4, ((TD_##NAME*)t)->d.args.arg_5);\
+        return NAME##_CALL(_lace_worker, ((task_##NAME*)t)->d.args.arg_1, ((task_##NAME*)t)->d.args.arg_2, ((task_##NAME*)t)->d.args.arg_3, ((task_##NAME*)t)->d.args.arg_4, ((task_##NAME*)t)->d.args.arg_5);\
     }                                                                                 \
 }                                                                                     \
                                                                                       \
@@ -2429,19 +2439,20 @@ void NAME##_DROP(lace_worker* _lace_worker)                                     
 
 #define VOID_TASK_5(NAME, ATYPE_1, ARG_1, ATYPE_2, ARG_2, ATYPE_3, ARG_3, ATYPE_4, ARG_4, ATYPE_5, ARG_5)\
                                                                                       \
-typedef struct _TD_##NAME {                                                           \
+typedef struct task_##NAME {                                                          \
   TASK_COMMON_FIELDS                                                                  \
   union { struct {  ATYPE_1 arg_1; ATYPE_2 arg_2; ATYPE_3 arg_3; ATYPE_4 arg_4; ATYPE_5 arg_5; } args; } d;\
-} TD_##NAME;                                                                          \
+} task_##NAME;                                                                        \
                                                                                       \
-static_assert(sizeof(TD_##NAME) <= sizeof(lace_task), "TD_" #NAME " is too large to fit in the lace_task struct!");\
+static_assert(sizeof(task_##NAME) <= sizeof(lace_task), "task_" #NAME " is too large to fit in the lace_task struct!");\
                                                                                       \
 void NAME##_CALL(lace_worker*, ATYPE_1, ATYPE_2, ATYPE_3, ATYPE_4, ATYPE_5);          \
                                                                                       \
 LACE_NO_SANITIZE_THREAD                                                               \
-static void NAME##_WRAP(lace_worker* lace_worker, lace_task* t LACE_UNUSED)           \
+static void NAME##_WRAP(lace_worker* lw, lace_task* t)                                \
 {                                                                                     \
-     NAME##_CALL(lace_worker, ((TD_##NAME*)t)->d.args.arg_1, ((TD_##NAME*)t)->d.args.arg_2, ((TD_##NAME*)t)->d.args.arg_3, ((TD_##NAME*)t)->d.args.arg_4, ((TD_##NAME*)t)->d.args.arg_5);\
+    (void)t;                                                                          \
+     NAME##_CALL(lw, ((task_##NAME*)t)->d.args.arg_1, ((task_##NAME*)t)->d.args.arg_2, ((task_##NAME*)t)->d.args.arg_3, ((task_##NAME*)t)->d.args.arg_4, ((task_##NAME*)t)->d.args.arg_5);\
 }                                                                                     \
                                                                                       \
 LACE_NO_SANITIZE_THREAD                                                               \
@@ -2453,11 +2464,11 @@ lace_task* NAME##_SPAWN(lace_worker* _lace_worker, ATYPE_1 arg_1, ATYPE_2 arg_2,
     lace_task *lace_head = _lace_worker->head;                                        \
     if (lace_head == _lace_worker->end) lace_abort_stack_overflow();                  \
                                                                                       \
-    TD_##NAME *t;                                                                     \
+    task_##NAME *t;                                                                   \
     TailSplitNA ts;                                                                   \
     uint32_t head, split, newsplit;                                                   \
                                                                                       \
-    t = (TD_##NAME *)lace_head;                                                       \
+    t = (task_##NAME *)lace_head;                                                     \
     t->f = &NAME##_WRAP;                                                              \
     atomic_store_explicit(&t->thief, THIEF_TASK, memory_order_relaxed);               \
      t->d.args.arg_1 = arg_1; t->d.args.arg_2 = arg_2; t->d.args.arg_3 = arg_3; t->d.args.arg_4 = arg_4; t->d.args.arg_5 = arg_5;\
@@ -2493,7 +2504,7 @@ static inline LACE_UNUSED                                                       
 void NAME##_NEWFRAME(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, ATYPE_5 arg_5)\
 {                                                                                     \
     lace_task _t;                                                                     \
-    TD_##NAME *t = (TD_##NAME *)&_t;                                                  \
+    task_##NAME *t = (task_##NAME *)&_t;                                              \
     t->f = &NAME##_WRAP;                                                              \
     atomic_store_explicit(&t->thief, THIEF_TASK, memory_order_relaxed);               \
      t->d.args.arg_1 = arg_1; t->d.args.arg_2 = arg_2; t->d.args.arg_3 = arg_3; t->d.args.arg_4 = arg_4; t->d.args.arg_5 = arg_5;\
@@ -2506,7 +2517,7 @@ static inline LACE_UNUSED                                                       
 void NAME##_TOGETHER(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, ATYPE_5 arg_5)\
 {                                                                                     \
     lace_task _t;                                                                     \
-    TD_##NAME *t = (TD_##NAME *)&_t;                                                  \
+    task_##NAME *t = (task_##NAME *)&_t;                                              \
     t->f = &NAME##_WRAP;                                                              \
     atomic_store_explicit(&t->thief, THIEF_TASK, memory_order_relaxed);               \
      t->d.args.arg_1 = arg_1; t->d.args.arg_2 = arg_2; t->d.args.arg_3 = arg_3; t->d.args.arg_4 = arg_4; t->d.args.arg_5 = arg_5;\
@@ -2521,7 +2532,7 @@ void NAME(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, ATYPE_5 ar
         NAME##_CALL(worker, arg_1, arg_2, arg_3, arg_4, arg_5);                       \
     } else {                                                                          \
         lace_task _t;                                                                 \
-        TD_##NAME *t = (TD_##NAME *)&_t;                                              \
+        task_##NAME *t = (task_##NAME *)&_t;                                          \
         t->f = &NAME##_WRAP;                                                          \
         atomic_store_explicit(&t->thief, THIEF_TASK, memory_order_relaxed);           \
          t->d.args.arg_1 = arg_1; t->d.args.arg_2 = arg_2; t->d.args.arg_3 = arg_3; t->d.args.arg_4 = arg_4; t->d.args.arg_5 = arg_5;\
@@ -2538,12 +2549,12 @@ void NAME##_SYNC(lace_worker* _lace_worker)                                     
     _lace_worker->head = head;                                                        \
                                                                                       \
     /* assert (__dq_head > 0); */  /* Commented out because we assume contract */     \
-    TD_##NAME *t = (TD_##NAME *)head;                                                 \
+    task_##NAME *t = (task_##NAME *)head;                                             \
                                                                                       \
     if (LACE_LIKELY(0 == _lace_worker->_public->movesplit)) {                         \
         if (LACE_LIKELY(_lace_worker->split <= head)) {                               \
             atomic_store_explicit(&t->thief, THIEF_EMPTY, memory_order_relaxed);      \
-            NAME##_CALL(_lace_worker, ((TD_##NAME*)t)->d.args.arg_1, ((TD_##NAME*)t)->d.args.arg_2, ((TD_##NAME*)t)->d.args.arg_3, ((TD_##NAME*)t)->d.args.arg_4, ((TD_##NAME*)t)->d.args.arg_5);\
+            NAME##_CALL(_lace_worker, ((task_##NAME*)t)->d.args.arg_1, ((task_##NAME*)t)->d.args.arg_2, ((task_##NAME*)t)->d.args.arg_3, ((task_##NAME*)t)->d.args.arg_4, ((task_##NAME*)t)->d.args.arg_5);\
             return;                                                                   \
         }                                                                             \
     }                                                                                 \
@@ -2552,7 +2563,7 @@ void NAME##_SYNC(lace_worker* _lace_worker)                                     
         ;                                                                             \
     } else {                                                                          \
         atomic_store_explicit(&t->thief, THIEF_EMPTY, memory_order_relaxed);          \
-        NAME##_CALL(_lace_worker, ((TD_##NAME*)t)->d.args.arg_1, ((TD_##NAME*)t)->d.args.arg_2, ((TD_##NAME*)t)->d.args.arg_3, ((TD_##NAME*)t)->d.args.arg_4, ((TD_##NAME*)t)->d.args.arg_5);\
+        NAME##_CALL(_lace_worker, ((task_##NAME*)t)->d.args.arg_1, ((task_##NAME*)t)->d.args.arg_2, ((task_##NAME*)t)->d.args.arg_3, ((task_##NAME*)t)->d.args.arg_4, ((task_##NAME*)t)->d.args.arg_5);\
     }                                                                                 \
 }                                                                                     \
                                                                                       \
@@ -2570,19 +2581,20 @@ void NAME##_DROP(lace_worker* _lace_worker)                                     
 
 #define TASK_6(RTYPE, NAME, ATYPE_1, ARG_1, ATYPE_2, ARG_2, ATYPE_3, ARG_3, ATYPE_4, ARG_4, ATYPE_5, ARG_5, ATYPE_6, ARG_6)\
                                                                                       \
-typedef struct _TD_##NAME {                                                           \
+typedef struct task_##NAME {                                                          \
   TASK_COMMON_FIELDS                                                                  \
   union { struct {  ATYPE_1 arg_1; ATYPE_2 arg_2; ATYPE_3 arg_3; ATYPE_4 arg_4; ATYPE_5 arg_5; ATYPE_6 arg_6; } args; RTYPE res; } d;\
-} TD_##NAME;                                                                          \
+} task_##NAME;                                                                        \
                                                                                       \
-static_assert(sizeof(TD_##NAME) <= sizeof(lace_task), "TD_" #NAME " is too large to fit in the lace_task struct!");\
+static_assert(sizeof(task_##NAME) <= sizeof(lace_task), "task_" #NAME " is too large to fit in the lace_task struct!");\
                                                                                       \
 RTYPE NAME##_CALL(lace_worker*, ATYPE_1, ATYPE_2, ATYPE_3, ATYPE_4, ATYPE_5, ATYPE_6);\
                                                                                       \
 LACE_NO_SANITIZE_THREAD                                                               \
-static void NAME##_WRAP(lace_worker* lace_worker, lace_task* t LACE_UNUSED)           \
+static void NAME##_WRAP(lace_worker* lw, lace_task* t)                                \
 {                                                                                     \
-    ((TD_##NAME*)t)->d.res = NAME##_CALL(lace_worker, ((TD_##NAME*)t)->d.args.arg_1, ((TD_##NAME*)t)->d.args.arg_2, ((TD_##NAME*)t)->d.args.arg_3, ((TD_##NAME*)t)->d.args.arg_4, ((TD_##NAME*)t)->d.args.arg_5, ((TD_##NAME*)t)->d.args.arg_6);\
+    (void)t;                                                                          \
+    ((task_##NAME*)t)->d.res = NAME##_CALL(lw, ((task_##NAME*)t)->d.args.arg_1, ((task_##NAME*)t)->d.args.arg_2, ((task_##NAME*)t)->d.args.arg_3, ((task_##NAME*)t)->d.args.arg_4, ((task_##NAME*)t)->d.args.arg_5, ((task_##NAME*)t)->d.args.arg_6);\
 }                                                                                     \
                                                                                       \
 LACE_NO_SANITIZE_THREAD                                                               \
@@ -2594,11 +2606,11 @@ lace_task* NAME##_SPAWN(lace_worker* _lace_worker, ATYPE_1 arg_1, ATYPE_2 arg_2,
     lace_task *lace_head = _lace_worker->head;                                        \
     if (lace_head == _lace_worker->end) lace_abort_stack_overflow();                  \
                                                                                       \
-    TD_##NAME *t;                                                                     \
+    task_##NAME *t;                                                                   \
     TailSplitNA ts;                                                                   \
     uint32_t head, split, newsplit;                                                   \
                                                                                       \
-    t = (TD_##NAME *)lace_head;                                                       \
+    t = (task_##NAME *)lace_head;                                                     \
     t->f = &NAME##_WRAP;                                                              \
     atomic_store_explicit(&t->thief, THIEF_TASK, memory_order_relaxed);               \
      t->d.args.arg_1 = arg_1; t->d.args.arg_2 = arg_2; t->d.args.arg_3 = arg_3; t->d.args.arg_4 = arg_4; t->d.args.arg_5 = arg_5; t->d.args.arg_6 = arg_6;\
@@ -2634,12 +2646,12 @@ static inline LACE_UNUSED                                                       
 RTYPE NAME##_NEWFRAME(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, ATYPE_5 arg_5, ATYPE_6 arg_6)\
 {                                                                                     \
     lace_task _t;                                                                     \
-    TD_##NAME *t = (TD_##NAME *)&_t;                                                  \
+    task_##NAME *t = (task_##NAME *)&_t;                                              \
     t->f = &NAME##_WRAP;                                                              \
     atomic_store_explicit(&t->thief, THIEF_TASK, memory_order_relaxed);               \
      t->d.args.arg_1 = arg_1; t->d.args.arg_2 = arg_2; t->d.args.arg_3 = arg_3; t->d.args.arg_4 = arg_4; t->d.args.arg_5 = arg_5; t->d.args.arg_6 = arg_6;\
     lace_run_newframe(&_t);                                                           \
-    return ((TD_##NAME *)t)->d.res;                                                   \
+    return ((task_##NAME *)t)->d.res;                                                 \
 }                                                                                     \
                                                                                       \
 LACE_NO_SANITIZE_THREAD                                                               \
@@ -2647,7 +2659,7 @@ static inline LACE_UNUSED                                                       
 void NAME##_TOGETHER(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, ATYPE_5 arg_5, ATYPE_6 arg_6)\
 {                                                                                     \
     lace_task _t;                                                                     \
-    TD_##NAME *t = (TD_##NAME *)&_t;                                                  \
+    task_##NAME *t = (task_##NAME *)&_t;                                              \
     t->f = &NAME##_WRAP;                                                              \
     atomic_store_explicit(&t->thief, THIEF_TASK, memory_order_relaxed);               \
      t->d.args.arg_1 = arg_1; t->d.args.arg_2 = arg_2; t->d.args.arg_3 = arg_3; t->d.args.arg_4 = arg_4; t->d.args.arg_5 = arg_5; t->d.args.arg_6 = arg_6;\
@@ -2662,12 +2674,12 @@ RTYPE NAME(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, ATYPE_5 a
         return NAME##_CALL(worker, arg_1, arg_2, arg_3, arg_4, arg_5, arg_6);         \
     } else {                                                                          \
         lace_task _t;                                                                 \
-        TD_##NAME *t = (TD_##NAME *)&_t;                                              \
+        task_##NAME *t = (task_##NAME *)&_t;                                          \
         t->f = &NAME##_WRAP;                                                          \
         atomic_store_explicit(&t->thief, THIEF_TASK, memory_order_relaxed);           \
          t->d.args.arg_1 = arg_1; t->d.args.arg_2 = arg_2; t->d.args.arg_3 = arg_3; t->d.args.arg_4 = arg_4; t->d.args.arg_5 = arg_5; t->d.args.arg_6 = arg_6;\
         lace_run_task(&_t);                                                           \
-        return ((TD_##NAME *)t)->d.res;                                               \
+        return ((task_##NAME *)t)->d.res;                                             \
     }                                                                                 \
 }                                                                                     \
                                                                                       \
@@ -2679,21 +2691,21 @@ RTYPE NAME##_SYNC(lace_worker* _lace_worker)                                    
     _lace_worker->head = head;                                                        \
                                                                                       \
     /* assert (__dq_head > 0); */  /* Commented out because we assume contract */     \
-    TD_##NAME *t = (TD_##NAME *)head;                                                 \
+    task_##NAME *t = (task_##NAME *)head;                                             \
                                                                                       \
     if (LACE_LIKELY(0 == _lace_worker->_public->movesplit)) {                         \
         if (LACE_LIKELY(_lace_worker->split <= head)) {                               \
             atomic_store_explicit(&t->thief, THIEF_EMPTY, memory_order_relaxed);      \
-            return NAME##_CALL(_lace_worker, ((TD_##NAME*)t)->d.args.arg_1, ((TD_##NAME*)t)->d.args.arg_2, ((TD_##NAME*)t)->d.args.arg_3, ((TD_##NAME*)t)->d.args.arg_4, ((TD_##NAME*)t)->d.args.arg_5, ((TD_##NAME*)t)->d.args.arg_6);\
+            return NAME##_CALL(_lace_worker, ((task_##NAME*)t)->d.args.arg_1, ((task_##NAME*)t)->d.args.arg_2, ((task_##NAME*)t)->d.args.arg_3, ((task_##NAME*)t)->d.args.arg_4, ((task_##NAME*)t)->d.args.arg_5, ((task_##NAME*)t)->d.args.arg_6);\
                                                                                       \
         }                                                                             \
     }                                                                                 \
                                                                                       \
     if (lace_sync(_lace_worker, head)) {                                              \
-        return ((TD_##NAME *)t)->d.res;                                               \
+        return ((task_##NAME *)t)->d.res;                                             \
     } else {                                                                          \
         atomic_store_explicit(&t->thief, THIEF_EMPTY, memory_order_relaxed);          \
-        return NAME##_CALL(_lace_worker, ((TD_##NAME*)t)->d.args.arg_1, ((TD_##NAME*)t)->d.args.arg_2, ((TD_##NAME*)t)->d.args.arg_3, ((TD_##NAME*)t)->d.args.arg_4, ((TD_##NAME*)t)->d.args.arg_5, ((TD_##NAME*)t)->d.args.arg_6);\
+        return NAME##_CALL(_lace_worker, ((task_##NAME*)t)->d.args.arg_1, ((task_##NAME*)t)->d.args.arg_2, ((task_##NAME*)t)->d.args.arg_3, ((task_##NAME*)t)->d.args.arg_4, ((task_##NAME*)t)->d.args.arg_5, ((task_##NAME*)t)->d.args.arg_6);\
     }                                                                                 \
 }                                                                                     \
                                                                                       \
@@ -2708,19 +2720,20 @@ void NAME##_DROP(lace_worker* _lace_worker)                                     
 
 #define VOID_TASK_6(NAME, ATYPE_1, ARG_1, ATYPE_2, ARG_2, ATYPE_3, ARG_3, ATYPE_4, ARG_4, ATYPE_5, ARG_5, ATYPE_6, ARG_6)\
                                                                                       \
-typedef struct _TD_##NAME {                                                           \
+typedef struct task_##NAME {                                                          \
   TASK_COMMON_FIELDS                                                                  \
   union { struct {  ATYPE_1 arg_1; ATYPE_2 arg_2; ATYPE_3 arg_3; ATYPE_4 arg_4; ATYPE_5 arg_5; ATYPE_6 arg_6; } args; } d;\
-} TD_##NAME;                                                                          \
+} task_##NAME;                                                                        \
                                                                                       \
-static_assert(sizeof(TD_##NAME) <= sizeof(lace_task), "TD_" #NAME " is too large to fit in the lace_task struct!");\
+static_assert(sizeof(task_##NAME) <= sizeof(lace_task), "task_" #NAME " is too large to fit in the lace_task struct!");\
                                                                                       \
 void NAME##_CALL(lace_worker*, ATYPE_1, ATYPE_2, ATYPE_3, ATYPE_4, ATYPE_5, ATYPE_6); \
                                                                                       \
 LACE_NO_SANITIZE_THREAD                                                               \
-static void NAME##_WRAP(lace_worker* lace_worker, lace_task* t LACE_UNUSED)           \
+static void NAME##_WRAP(lace_worker* lw, lace_task* t)                                \
 {                                                                                     \
-     NAME##_CALL(lace_worker, ((TD_##NAME*)t)->d.args.arg_1, ((TD_##NAME*)t)->d.args.arg_2, ((TD_##NAME*)t)->d.args.arg_3, ((TD_##NAME*)t)->d.args.arg_4, ((TD_##NAME*)t)->d.args.arg_5, ((TD_##NAME*)t)->d.args.arg_6);\
+    (void)t;                                                                          \
+     NAME##_CALL(lw, ((task_##NAME*)t)->d.args.arg_1, ((task_##NAME*)t)->d.args.arg_2, ((task_##NAME*)t)->d.args.arg_3, ((task_##NAME*)t)->d.args.arg_4, ((task_##NAME*)t)->d.args.arg_5, ((task_##NAME*)t)->d.args.arg_6);\
 }                                                                                     \
                                                                                       \
 LACE_NO_SANITIZE_THREAD                                                               \
@@ -2732,11 +2745,11 @@ lace_task* NAME##_SPAWN(lace_worker* _lace_worker, ATYPE_1 arg_1, ATYPE_2 arg_2,
     lace_task *lace_head = _lace_worker->head;                                        \
     if (lace_head == _lace_worker->end) lace_abort_stack_overflow();                  \
                                                                                       \
-    TD_##NAME *t;                                                                     \
+    task_##NAME *t;                                                                   \
     TailSplitNA ts;                                                                   \
     uint32_t head, split, newsplit;                                                   \
                                                                                       \
-    t = (TD_##NAME *)lace_head;                                                       \
+    t = (task_##NAME *)lace_head;                                                     \
     t->f = &NAME##_WRAP;                                                              \
     atomic_store_explicit(&t->thief, THIEF_TASK, memory_order_relaxed);               \
      t->d.args.arg_1 = arg_1; t->d.args.arg_2 = arg_2; t->d.args.arg_3 = arg_3; t->d.args.arg_4 = arg_4; t->d.args.arg_5 = arg_5; t->d.args.arg_6 = arg_6;\
@@ -2772,7 +2785,7 @@ static inline LACE_UNUSED                                                       
 void NAME##_NEWFRAME(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, ATYPE_5 arg_5, ATYPE_6 arg_6)\
 {                                                                                     \
     lace_task _t;                                                                     \
-    TD_##NAME *t = (TD_##NAME *)&_t;                                                  \
+    task_##NAME *t = (task_##NAME *)&_t;                                              \
     t->f = &NAME##_WRAP;                                                              \
     atomic_store_explicit(&t->thief, THIEF_TASK, memory_order_relaxed);               \
      t->d.args.arg_1 = arg_1; t->d.args.arg_2 = arg_2; t->d.args.arg_3 = arg_3; t->d.args.arg_4 = arg_4; t->d.args.arg_5 = arg_5; t->d.args.arg_6 = arg_6;\
@@ -2785,7 +2798,7 @@ static inline LACE_UNUSED                                                       
 void NAME##_TOGETHER(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, ATYPE_5 arg_5, ATYPE_6 arg_6)\
 {                                                                                     \
     lace_task _t;                                                                     \
-    TD_##NAME *t = (TD_##NAME *)&_t;                                                  \
+    task_##NAME *t = (task_##NAME *)&_t;                                              \
     t->f = &NAME##_WRAP;                                                              \
     atomic_store_explicit(&t->thief, THIEF_TASK, memory_order_relaxed);               \
      t->d.args.arg_1 = arg_1; t->d.args.arg_2 = arg_2; t->d.args.arg_3 = arg_3; t->d.args.arg_4 = arg_4; t->d.args.arg_5 = arg_5; t->d.args.arg_6 = arg_6;\
@@ -2800,7 +2813,7 @@ void NAME(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, ATYPE_5 ar
         NAME##_CALL(worker, arg_1, arg_2, arg_3, arg_4, arg_5, arg_6);                \
     } else {                                                                          \
         lace_task _t;                                                                 \
-        TD_##NAME *t = (TD_##NAME *)&_t;                                              \
+        task_##NAME *t = (task_##NAME *)&_t;                                          \
         t->f = &NAME##_WRAP;                                                          \
         atomic_store_explicit(&t->thief, THIEF_TASK, memory_order_relaxed);           \
          t->d.args.arg_1 = arg_1; t->d.args.arg_2 = arg_2; t->d.args.arg_3 = arg_3; t->d.args.arg_4 = arg_4; t->d.args.arg_5 = arg_5; t->d.args.arg_6 = arg_6;\
@@ -2817,12 +2830,12 @@ void NAME##_SYNC(lace_worker* _lace_worker)                                     
     _lace_worker->head = head;                                                        \
                                                                                       \
     /* assert (__dq_head > 0); */  /* Commented out because we assume contract */     \
-    TD_##NAME *t = (TD_##NAME *)head;                                                 \
+    task_##NAME *t = (task_##NAME *)head;                                             \
                                                                                       \
     if (LACE_LIKELY(0 == _lace_worker->_public->movesplit)) {                         \
         if (LACE_LIKELY(_lace_worker->split <= head)) {                               \
             atomic_store_explicit(&t->thief, THIEF_EMPTY, memory_order_relaxed);      \
-            NAME##_CALL(_lace_worker, ((TD_##NAME*)t)->d.args.arg_1, ((TD_##NAME*)t)->d.args.arg_2, ((TD_##NAME*)t)->d.args.arg_3, ((TD_##NAME*)t)->d.args.arg_4, ((TD_##NAME*)t)->d.args.arg_5, ((TD_##NAME*)t)->d.args.arg_6);\
+            NAME##_CALL(_lace_worker, ((task_##NAME*)t)->d.args.arg_1, ((task_##NAME*)t)->d.args.arg_2, ((task_##NAME*)t)->d.args.arg_3, ((task_##NAME*)t)->d.args.arg_4, ((task_##NAME*)t)->d.args.arg_5, ((task_##NAME*)t)->d.args.arg_6);\
             return;                                                                   \
         }                                                                             \
     }                                                                                 \
@@ -2831,7 +2844,7 @@ void NAME##_SYNC(lace_worker* _lace_worker)                                     
         ;                                                                             \
     } else {                                                                          \
         atomic_store_explicit(&t->thief, THIEF_EMPTY, memory_order_relaxed);          \
-        NAME##_CALL(_lace_worker, ((TD_##NAME*)t)->d.args.arg_1, ((TD_##NAME*)t)->d.args.arg_2, ((TD_##NAME*)t)->d.args.arg_3, ((TD_##NAME*)t)->d.args.arg_4, ((TD_##NAME*)t)->d.args.arg_5, ((TD_##NAME*)t)->d.args.arg_6);\
+        NAME##_CALL(_lace_worker, ((task_##NAME*)t)->d.args.arg_1, ((task_##NAME*)t)->d.args.arg_2, ((task_##NAME*)t)->d.args.arg_3, ((task_##NAME*)t)->d.args.arg_4, ((task_##NAME*)t)->d.args.arg_5, ((task_##NAME*)t)->d.args.arg_6);\
     }                                                                                 \
 }                                                                                     \
                                                                                       \
@@ -2849,19 +2862,20 @@ void NAME##_DROP(lace_worker* _lace_worker)                                     
 
 #define TASK_7(RTYPE, NAME, ATYPE_1, ARG_1, ATYPE_2, ARG_2, ATYPE_3, ARG_3, ATYPE_4, ARG_4, ATYPE_5, ARG_5, ATYPE_6, ARG_6, ATYPE_7, ARG_7)\
                                                                                       \
-typedef struct _TD_##NAME {                                                           \
+typedef struct task_##NAME {                                                          \
   TASK_COMMON_FIELDS                                                                  \
   union { struct {  ATYPE_1 arg_1; ATYPE_2 arg_2; ATYPE_3 arg_3; ATYPE_4 arg_4; ATYPE_5 arg_5; ATYPE_6 arg_6; ATYPE_7 arg_7; } args; RTYPE res; } d;\
-} TD_##NAME;                                                                          \
+} task_##NAME;                                                                        \
                                                                                       \
-static_assert(sizeof(TD_##NAME) <= sizeof(lace_task), "TD_" #NAME " is too large to fit in the lace_task struct!");\
+static_assert(sizeof(task_##NAME) <= sizeof(lace_task), "task_" #NAME " is too large to fit in the lace_task struct!");\
                                                                                       \
 RTYPE NAME##_CALL(lace_worker*, ATYPE_1, ATYPE_2, ATYPE_3, ATYPE_4, ATYPE_5, ATYPE_6, ATYPE_7);\
                                                                                       \
 LACE_NO_SANITIZE_THREAD                                                               \
-static void NAME##_WRAP(lace_worker* lace_worker, lace_task* t LACE_UNUSED)           \
+static void NAME##_WRAP(lace_worker* lw, lace_task* t)                                \
 {                                                                                     \
-    ((TD_##NAME*)t)->d.res = NAME##_CALL(lace_worker, ((TD_##NAME*)t)->d.args.arg_1, ((TD_##NAME*)t)->d.args.arg_2, ((TD_##NAME*)t)->d.args.arg_3, ((TD_##NAME*)t)->d.args.arg_4, ((TD_##NAME*)t)->d.args.arg_5, ((TD_##NAME*)t)->d.args.arg_6, ((TD_##NAME*)t)->d.args.arg_7);\
+    (void)t;                                                                          \
+    ((task_##NAME*)t)->d.res = NAME##_CALL(lw, ((task_##NAME*)t)->d.args.arg_1, ((task_##NAME*)t)->d.args.arg_2, ((task_##NAME*)t)->d.args.arg_3, ((task_##NAME*)t)->d.args.arg_4, ((task_##NAME*)t)->d.args.arg_5, ((task_##NAME*)t)->d.args.arg_6, ((task_##NAME*)t)->d.args.arg_7);\
 }                                                                                     \
                                                                                       \
 LACE_NO_SANITIZE_THREAD                                                               \
@@ -2873,11 +2887,11 @@ lace_task* NAME##_SPAWN(lace_worker* _lace_worker, ATYPE_1 arg_1, ATYPE_2 arg_2,
     lace_task *lace_head = _lace_worker->head;                                        \
     if (lace_head == _lace_worker->end) lace_abort_stack_overflow();                  \
                                                                                       \
-    TD_##NAME *t;                                                                     \
+    task_##NAME *t;                                                                   \
     TailSplitNA ts;                                                                   \
     uint32_t head, split, newsplit;                                                   \
                                                                                       \
-    t = (TD_##NAME *)lace_head;                                                       \
+    t = (task_##NAME *)lace_head;                                                     \
     t->f = &NAME##_WRAP;                                                              \
     atomic_store_explicit(&t->thief, THIEF_TASK, memory_order_relaxed);               \
      t->d.args.arg_1 = arg_1; t->d.args.arg_2 = arg_2; t->d.args.arg_3 = arg_3; t->d.args.arg_4 = arg_4; t->d.args.arg_5 = arg_5; t->d.args.arg_6 = arg_6; t->d.args.arg_7 = arg_7;\
@@ -2913,12 +2927,12 @@ static inline LACE_UNUSED                                                       
 RTYPE NAME##_NEWFRAME(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, ATYPE_5 arg_5, ATYPE_6 arg_6, ATYPE_7 arg_7)\
 {                                                                                     \
     lace_task _t;                                                                     \
-    TD_##NAME *t = (TD_##NAME *)&_t;                                                  \
+    task_##NAME *t = (task_##NAME *)&_t;                                              \
     t->f = &NAME##_WRAP;                                                              \
     atomic_store_explicit(&t->thief, THIEF_TASK, memory_order_relaxed);               \
      t->d.args.arg_1 = arg_1; t->d.args.arg_2 = arg_2; t->d.args.arg_3 = arg_3; t->d.args.arg_4 = arg_4; t->d.args.arg_5 = arg_5; t->d.args.arg_6 = arg_6; t->d.args.arg_7 = arg_7;\
     lace_run_newframe(&_t);                                                           \
-    return ((TD_##NAME *)t)->d.res;                                                   \
+    return ((task_##NAME *)t)->d.res;                                                 \
 }                                                                                     \
                                                                                       \
 LACE_NO_SANITIZE_THREAD                                                               \
@@ -2926,7 +2940,7 @@ static inline LACE_UNUSED                                                       
 void NAME##_TOGETHER(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, ATYPE_5 arg_5, ATYPE_6 arg_6, ATYPE_7 arg_7)\
 {                                                                                     \
     lace_task _t;                                                                     \
-    TD_##NAME *t = (TD_##NAME *)&_t;                                                  \
+    task_##NAME *t = (task_##NAME *)&_t;                                              \
     t->f = &NAME##_WRAP;                                                              \
     atomic_store_explicit(&t->thief, THIEF_TASK, memory_order_relaxed);               \
      t->d.args.arg_1 = arg_1; t->d.args.arg_2 = arg_2; t->d.args.arg_3 = arg_3; t->d.args.arg_4 = arg_4; t->d.args.arg_5 = arg_5; t->d.args.arg_6 = arg_6; t->d.args.arg_7 = arg_7;\
@@ -2941,12 +2955,12 @@ RTYPE NAME(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, ATYPE_5 a
         return NAME##_CALL(worker, arg_1, arg_2, arg_3, arg_4, arg_5, arg_6, arg_7);  \
     } else {                                                                          \
         lace_task _t;                                                                 \
-        TD_##NAME *t = (TD_##NAME *)&_t;                                              \
+        task_##NAME *t = (task_##NAME *)&_t;                                          \
         t->f = &NAME##_WRAP;                                                          \
         atomic_store_explicit(&t->thief, THIEF_TASK, memory_order_relaxed);           \
          t->d.args.arg_1 = arg_1; t->d.args.arg_2 = arg_2; t->d.args.arg_3 = arg_3; t->d.args.arg_4 = arg_4; t->d.args.arg_5 = arg_5; t->d.args.arg_6 = arg_6; t->d.args.arg_7 = arg_7;\
         lace_run_task(&_t);                                                           \
-        return ((TD_##NAME *)t)->d.res;                                               \
+        return ((task_##NAME *)t)->d.res;                                             \
     }                                                                                 \
 }                                                                                     \
                                                                                       \
@@ -2958,21 +2972,21 @@ RTYPE NAME##_SYNC(lace_worker* _lace_worker)                                    
     _lace_worker->head = head;                                                        \
                                                                                       \
     /* assert (__dq_head > 0); */  /* Commented out because we assume contract */     \
-    TD_##NAME *t = (TD_##NAME *)head;                                                 \
+    task_##NAME *t = (task_##NAME *)head;                                             \
                                                                                       \
     if (LACE_LIKELY(0 == _lace_worker->_public->movesplit)) {                         \
         if (LACE_LIKELY(_lace_worker->split <= head)) {                               \
             atomic_store_explicit(&t->thief, THIEF_EMPTY, memory_order_relaxed);      \
-            return NAME##_CALL(_lace_worker, ((TD_##NAME*)t)->d.args.arg_1, ((TD_##NAME*)t)->d.args.arg_2, ((TD_##NAME*)t)->d.args.arg_3, ((TD_##NAME*)t)->d.args.arg_4, ((TD_##NAME*)t)->d.args.arg_5, ((TD_##NAME*)t)->d.args.arg_6, ((TD_##NAME*)t)->d.args.arg_7);\
+            return NAME##_CALL(_lace_worker, ((task_##NAME*)t)->d.args.arg_1, ((task_##NAME*)t)->d.args.arg_2, ((task_##NAME*)t)->d.args.arg_3, ((task_##NAME*)t)->d.args.arg_4, ((task_##NAME*)t)->d.args.arg_5, ((task_##NAME*)t)->d.args.arg_6, ((task_##NAME*)t)->d.args.arg_7);\
                                                                                       \
         }                                                                             \
     }                                                                                 \
                                                                                       \
     if (lace_sync(_lace_worker, head)) {                                              \
-        return ((TD_##NAME *)t)->d.res;                                               \
+        return ((task_##NAME *)t)->d.res;                                             \
     } else {                                                                          \
         atomic_store_explicit(&t->thief, THIEF_EMPTY, memory_order_relaxed);          \
-        return NAME##_CALL(_lace_worker, ((TD_##NAME*)t)->d.args.arg_1, ((TD_##NAME*)t)->d.args.arg_2, ((TD_##NAME*)t)->d.args.arg_3, ((TD_##NAME*)t)->d.args.arg_4, ((TD_##NAME*)t)->d.args.arg_5, ((TD_##NAME*)t)->d.args.arg_6, ((TD_##NAME*)t)->d.args.arg_7);\
+        return NAME##_CALL(_lace_worker, ((task_##NAME*)t)->d.args.arg_1, ((task_##NAME*)t)->d.args.arg_2, ((task_##NAME*)t)->d.args.arg_3, ((task_##NAME*)t)->d.args.arg_4, ((task_##NAME*)t)->d.args.arg_5, ((task_##NAME*)t)->d.args.arg_6, ((task_##NAME*)t)->d.args.arg_7);\
     }                                                                                 \
 }                                                                                     \
                                                                                       \
@@ -2987,19 +3001,20 @@ void NAME##_DROP(lace_worker* _lace_worker)                                     
 
 #define VOID_TASK_7(NAME, ATYPE_1, ARG_1, ATYPE_2, ARG_2, ATYPE_3, ARG_3, ATYPE_4, ARG_4, ATYPE_5, ARG_5, ATYPE_6, ARG_6, ATYPE_7, ARG_7)\
                                                                                       \
-typedef struct _TD_##NAME {                                                           \
+typedef struct task_##NAME {                                                          \
   TASK_COMMON_FIELDS                                                                  \
   union { struct {  ATYPE_1 arg_1; ATYPE_2 arg_2; ATYPE_3 arg_3; ATYPE_4 arg_4; ATYPE_5 arg_5; ATYPE_6 arg_6; ATYPE_7 arg_7; } args; } d;\
-} TD_##NAME;                                                                          \
+} task_##NAME;                                                                        \
                                                                                       \
-static_assert(sizeof(TD_##NAME) <= sizeof(lace_task), "TD_" #NAME " is too large to fit in the lace_task struct!");\
+static_assert(sizeof(task_##NAME) <= sizeof(lace_task), "task_" #NAME " is too large to fit in the lace_task struct!");\
                                                                                       \
 void NAME##_CALL(lace_worker*, ATYPE_1, ATYPE_2, ATYPE_3, ATYPE_4, ATYPE_5, ATYPE_6, ATYPE_7);\
                                                                                       \
 LACE_NO_SANITIZE_THREAD                                                               \
-static void NAME##_WRAP(lace_worker* lace_worker, lace_task* t LACE_UNUSED)           \
+static void NAME##_WRAP(lace_worker* lw, lace_task* t)                                \
 {                                                                                     \
-     NAME##_CALL(lace_worker, ((TD_##NAME*)t)->d.args.arg_1, ((TD_##NAME*)t)->d.args.arg_2, ((TD_##NAME*)t)->d.args.arg_3, ((TD_##NAME*)t)->d.args.arg_4, ((TD_##NAME*)t)->d.args.arg_5, ((TD_##NAME*)t)->d.args.arg_6, ((TD_##NAME*)t)->d.args.arg_7);\
+    (void)t;                                                                          \
+     NAME##_CALL(lw, ((task_##NAME*)t)->d.args.arg_1, ((task_##NAME*)t)->d.args.arg_2, ((task_##NAME*)t)->d.args.arg_3, ((task_##NAME*)t)->d.args.arg_4, ((task_##NAME*)t)->d.args.arg_5, ((task_##NAME*)t)->d.args.arg_6, ((task_##NAME*)t)->d.args.arg_7);\
 }                                                                                     \
                                                                                       \
 LACE_NO_SANITIZE_THREAD                                                               \
@@ -3011,11 +3026,11 @@ lace_task* NAME##_SPAWN(lace_worker* _lace_worker, ATYPE_1 arg_1, ATYPE_2 arg_2,
     lace_task *lace_head = _lace_worker->head;                                        \
     if (lace_head == _lace_worker->end) lace_abort_stack_overflow();                  \
                                                                                       \
-    TD_##NAME *t;                                                                     \
+    task_##NAME *t;                                                                   \
     TailSplitNA ts;                                                                   \
     uint32_t head, split, newsplit;                                                   \
                                                                                       \
-    t = (TD_##NAME *)lace_head;                                                       \
+    t = (task_##NAME *)lace_head;                                                     \
     t->f = &NAME##_WRAP;                                                              \
     atomic_store_explicit(&t->thief, THIEF_TASK, memory_order_relaxed);               \
      t->d.args.arg_1 = arg_1; t->d.args.arg_2 = arg_2; t->d.args.arg_3 = arg_3; t->d.args.arg_4 = arg_4; t->d.args.arg_5 = arg_5; t->d.args.arg_6 = arg_6; t->d.args.arg_7 = arg_7;\
@@ -3051,7 +3066,7 @@ static inline LACE_UNUSED                                                       
 void NAME##_NEWFRAME(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, ATYPE_5 arg_5, ATYPE_6 arg_6, ATYPE_7 arg_7)\
 {                                                                                     \
     lace_task _t;                                                                     \
-    TD_##NAME *t = (TD_##NAME *)&_t;                                                  \
+    task_##NAME *t = (task_##NAME *)&_t;                                              \
     t->f = &NAME##_WRAP;                                                              \
     atomic_store_explicit(&t->thief, THIEF_TASK, memory_order_relaxed);               \
      t->d.args.arg_1 = arg_1; t->d.args.arg_2 = arg_2; t->d.args.arg_3 = arg_3; t->d.args.arg_4 = arg_4; t->d.args.arg_5 = arg_5; t->d.args.arg_6 = arg_6; t->d.args.arg_7 = arg_7;\
@@ -3064,7 +3079,7 @@ static inline LACE_UNUSED                                                       
 void NAME##_TOGETHER(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, ATYPE_5 arg_5, ATYPE_6 arg_6, ATYPE_7 arg_7)\
 {                                                                                     \
     lace_task _t;                                                                     \
-    TD_##NAME *t = (TD_##NAME *)&_t;                                                  \
+    task_##NAME *t = (task_##NAME *)&_t;                                              \
     t->f = &NAME##_WRAP;                                                              \
     atomic_store_explicit(&t->thief, THIEF_TASK, memory_order_relaxed);               \
      t->d.args.arg_1 = arg_1; t->d.args.arg_2 = arg_2; t->d.args.arg_3 = arg_3; t->d.args.arg_4 = arg_4; t->d.args.arg_5 = arg_5; t->d.args.arg_6 = arg_6; t->d.args.arg_7 = arg_7;\
@@ -3079,7 +3094,7 @@ void NAME(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, ATYPE_5 ar
         NAME##_CALL(worker, arg_1, arg_2, arg_3, arg_4, arg_5, arg_6, arg_7);         \
     } else {                                                                          \
         lace_task _t;                                                                 \
-        TD_##NAME *t = (TD_##NAME *)&_t;                                              \
+        task_##NAME *t = (task_##NAME *)&_t;                                          \
         t->f = &NAME##_WRAP;                                                          \
         atomic_store_explicit(&t->thief, THIEF_TASK, memory_order_relaxed);           \
          t->d.args.arg_1 = arg_1; t->d.args.arg_2 = arg_2; t->d.args.arg_3 = arg_3; t->d.args.arg_4 = arg_4; t->d.args.arg_5 = arg_5; t->d.args.arg_6 = arg_6; t->d.args.arg_7 = arg_7;\
@@ -3096,12 +3111,12 @@ void NAME##_SYNC(lace_worker* _lace_worker)                                     
     _lace_worker->head = head;                                                        \
                                                                                       \
     /* assert (__dq_head > 0); */  /* Commented out because we assume contract */     \
-    TD_##NAME *t = (TD_##NAME *)head;                                                 \
+    task_##NAME *t = (task_##NAME *)head;                                             \
                                                                                       \
     if (LACE_LIKELY(0 == _lace_worker->_public->movesplit)) {                         \
         if (LACE_LIKELY(_lace_worker->split <= head)) {                               \
             atomic_store_explicit(&t->thief, THIEF_EMPTY, memory_order_relaxed);      \
-            NAME##_CALL(_lace_worker, ((TD_##NAME*)t)->d.args.arg_1, ((TD_##NAME*)t)->d.args.arg_2, ((TD_##NAME*)t)->d.args.arg_3, ((TD_##NAME*)t)->d.args.arg_4, ((TD_##NAME*)t)->d.args.arg_5, ((TD_##NAME*)t)->d.args.arg_6, ((TD_##NAME*)t)->d.args.arg_7);\
+            NAME##_CALL(_lace_worker, ((task_##NAME*)t)->d.args.arg_1, ((task_##NAME*)t)->d.args.arg_2, ((task_##NAME*)t)->d.args.arg_3, ((task_##NAME*)t)->d.args.arg_4, ((task_##NAME*)t)->d.args.arg_5, ((task_##NAME*)t)->d.args.arg_6, ((task_##NAME*)t)->d.args.arg_7);\
             return;                                                                   \
         }                                                                             \
     }                                                                                 \
@@ -3110,7 +3125,7 @@ void NAME##_SYNC(lace_worker* _lace_worker)                                     
         ;                                                                             \
     } else {                                                                          \
         atomic_store_explicit(&t->thief, THIEF_EMPTY, memory_order_relaxed);          \
-        NAME##_CALL(_lace_worker, ((TD_##NAME*)t)->d.args.arg_1, ((TD_##NAME*)t)->d.args.arg_2, ((TD_##NAME*)t)->d.args.arg_3, ((TD_##NAME*)t)->d.args.arg_4, ((TD_##NAME*)t)->d.args.arg_5, ((TD_##NAME*)t)->d.args.arg_6, ((TD_##NAME*)t)->d.args.arg_7);\
+        NAME##_CALL(_lace_worker, ((task_##NAME*)t)->d.args.arg_1, ((task_##NAME*)t)->d.args.arg_2, ((task_##NAME*)t)->d.args.arg_3, ((task_##NAME*)t)->d.args.arg_4, ((task_##NAME*)t)->d.args.arg_5, ((task_##NAME*)t)->d.args.arg_6, ((task_##NAME*)t)->d.args.arg_7);\
     }                                                                                 \
 }                                                                                     \
                                                                                       \
@@ -3128,19 +3143,20 @@ void NAME##_DROP(lace_worker* _lace_worker)                                     
 
 #define TASK_8(RTYPE, NAME, ATYPE_1, ARG_1, ATYPE_2, ARG_2, ATYPE_3, ARG_3, ATYPE_4, ARG_4, ATYPE_5, ARG_5, ATYPE_6, ARG_6, ATYPE_7, ARG_7, ATYPE_8, ARG_8)\
                                                                                       \
-typedef struct _TD_##NAME {                                                           \
+typedef struct task_##NAME {                                                          \
   TASK_COMMON_FIELDS                                                                  \
   union { struct {  ATYPE_1 arg_1; ATYPE_2 arg_2; ATYPE_3 arg_3; ATYPE_4 arg_4; ATYPE_5 arg_5; ATYPE_6 arg_6; ATYPE_7 arg_7; ATYPE_8 arg_8; } args; RTYPE res; } d;\
-} TD_##NAME;                                                                          \
+} task_##NAME;                                                                        \
                                                                                       \
-static_assert(sizeof(TD_##NAME) <= sizeof(lace_task), "TD_" #NAME " is too large to fit in the lace_task struct!");\
+static_assert(sizeof(task_##NAME) <= sizeof(lace_task), "task_" #NAME " is too large to fit in the lace_task struct!");\
                                                                                       \
 RTYPE NAME##_CALL(lace_worker*, ATYPE_1, ATYPE_2, ATYPE_3, ATYPE_4, ATYPE_5, ATYPE_6, ATYPE_7, ATYPE_8);\
                                                                                       \
 LACE_NO_SANITIZE_THREAD                                                               \
-static void NAME##_WRAP(lace_worker* lace_worker, lace_task* t LACE_UNUSED)           \
+static void NAME##_WRAP(lace_worker* lw, lace_task* t)                                \
 {                                                                                     \
-    ((TD_##NAME*)t)->d.res = NAME##_CALL(lace_worker, ((TD_##NAME*)t)->d.args.arg_1, ((TD_##NAME*)t)->d.args.arg_2, ((TD_##NAME*)t)->d.args.arg_3, ((TD_##NAME*)t)->d.args.arg_4, ((TD_##NAME*)t)->d.args.arg_5, ((TD_##NAME*)t)->d.args.arg_6, ((TD_##NAME*)t)->d.args.arg_7, ((TD_##NAME*)t)->d.args.arg_8);\
+    (void)t;                                                                          \
+    ((task_##NAME*)t)->d.res = NAME##_CALL(lw, ((task_##NAME*)t)->d.args.arg_1, ((task_##NAME*)t)->d.args.arg_2, ((task_##NAME*)t)->d.args.arg_3, ((task_##NAME*)t)->d.args.arg_4, ((task_##NAME*)t)->d.args.arg_5, ((task_##NAME*)t)->d.args.arg_6, ((task_##NAME*)t)->d.args.arg_7, ((task_##NAME*)t)->d.args.arg_8);\
 }                                                                                     \
                                                                                       \
 LACE_NO_SANITIZE_THREAD                                                               \
@@ -3152,11 +3168,11 @@ lace_task* NAME##_SPAWN(lace_worker* _lace_worker, ATYPE_1 arg_1, ATYPE_2 arg_2,
     lace_task *lace_head = _lace_worker->head;                                        \
     if (lace_head == _lace_worker->end) lace_abort_stack_overflow();                  \
                                                                                       \
-    TD_##NAME *t;                                                                     \
+    task_##NAME *t;                                                                   \
     TailSplitNA ts;                                                                   \
     uint32_t head, split, newsplit;                                                   \
                                                                                       \
-    t = (TD_##NAME *)lace_head;                                                       \
+    t = (task_##NAME *)lace_head;                                                     \
     t->f = &NAME##_WRAP;                                                              \
     atomic_store_explicit(&t->thief, THIEF_TASK, memory_order_relaxed);               \
      t->d.args.arg_1 = arg_1; t->d.args.arg_2 = arg_2; t->d.args.arg_3 = arg_3; t->d.args.arg_4 = arg_4; t->d.args.arg_5 = arg_5; t->d.args.arg_6 = arg_6; t->d.args.arg_7 = arg_7; t->d.args.arg_8 = arg_8;\
@@ -3192,12 +3208,12 @@ static inline LACE_UNUSED                                                       
 RTYPE NAME##_NEWFRAME(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, ATYPE_5 arg_5, ATYPE_6 arg_6, ATYPE_7 arg_7, ATYPE_8 arg_8)\
 {                                                                                     \
     lace_task _t;                                                                     \
-    TD_##NAME *t = (TD_##NAME *)&_t;                                                  \
+    task_##NAME *t = (task_##NAME *)&_t;                                              \
     t->f = &NAME##_WRAP;                                                              \
     atomic_store_explicit(&t->thief, THIEF_TASK, memory_order_relaxed);               \
      t->d.args.arg_1 = arg_1; t->d.args.arg_2 = arg_2; t->d.args.arg_3 = arg_3; t->d.args.arg_4 = arg_4; t->d.args.arg_5 = arg_5; t->d.args.arg_6 = arg_6; t->d.args.arg_7 = arg_7; t->d.args.arg_8 = arg_8;\
     lace_run_newframe(&_t);                                                           \
-    return ((TD_##NAME *)t)->d.res;                                                   \
+    return ((task_##NAME *)t)->d.res;                                                 \
 }                                                                                     \
                                                                                       \
 LACE_NO_SANITIZE_THREAD                                                               \
@@ -3205,7 +3221,7 @@ static inline LACE_UNUSED                                                       
 void NAME##_TOGETHER(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, ATYPE_5 arg_5, ATYPE_6 arg_6, ATYPE_7 arg_7, ATYPE_8 arg_8)\
 {                                                                                     \
     lace_task _t;                                                                     \
-    TD_##NAME *t = (TD_##NAME *)&_t;                                                  \
+    task_##NAME *t = (task_##NAME *)&_t;                                              \
     t->f = &NAME##_WRAP;                                                              \
     atomic_store_explicit(&t->thief, THIEF_TASK, memory_order_relaxed);               \
      t->d.args.arg_1 = arg_1; t->d.args.arg_2 = arg_2; t->d.args.arg_3 = arg_3; t->d.args.arg_4 = arg_4; t->d.args.arg_5 = arg_5; t->d.args.arg_6 = arg_6; t->d.args.arg_7 = arg_7; t->d.args.arg_8 = arg_8;\
@@ -3220,12 +3236,12 @@ RTYPE NAME(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, ATYPE_5 a
         return NAME##_CALL(worker, arg_1, arg_2, arg_3, arg_4, arg_5, arg_6, arg_7, arg_8);\
     } else {                                                                          \
         lace_task _t;                                                                 \
-        TD_##NAME *t = (TD_##NAME *)&_t;                                              \
+        task_##NAME *t = (task_##NAME *)&_t;                                          \
         t->f = &NAME##_WRAP;                                                          \
         atomic_store_explicit(&t->thief, THIEF_TASK, memory_order_relaxed);           \
          t->d.args.arg_1 = arg_1; t->d.args.arg_2 = arg_2; t->d.args.arg_3 = arg_3; t->d.args.arg_4 = arg_4; t->d.args.arg_5 = arg_5; t->d.args.arg_6 = arg_6; t->d.args.arg_7 = arg_7; t->d.args.arg_8 = arg_8;\
         lace_run_task(&_t);                                                           \
-        return ((TD_##NAME *)t)->d.res;                                               \
+        return ((task_##NAME *)t)->d.res;                                             \
     }                                                                                 \
 }                                                                                     \
                                                                                       \
@@ -3237,21 +3253,21 @@ RTYPE NAME##_SYNC(lace_worker* _lace_worker)                                    
     _lace_worker->head = head;                                                        \
                                                                                       \
     /* assert (__dq_head > 0); */  /* Commented out because we assume contract */     \
-    TD_##NAME *t = (TD_##NAME *)head;                                                 \
+    task_##NAME *t = (task_##NAME *)head;                                             \
                                                                                       \
     if (LACE_LIKELY(0 == _lace_worker->_public->movesplit)) {                         \
         if (LACE_LIKELY(_lace_worker->split <= head)) {                               \
             atomic_store_explicit(&t->thief, THIEF_EMPTY, memory_order_relaxed);      \
-            return NAME##_CALL(_lace_worker, ((TD_##NAME*)t)->d.args.arg_1, ((TD_##NAME*)t)->d.args.arg_2, ((TD_##NAME*)t)->d.args.arg_3, ((TD_##NAME*)t)->d.args.arg_4, ((TD_##NAME*)t)->d.args.arg_5, ((TD_##NAME*)t)->d.args.arg_6, ((TD_##NAME*)t)->d.args.arg_7, ((TD_##NAME*)t)->d.args.arg_8);\
+            return NAME##_CALL(_lace_worker, ((task_##NAME*)t)->d.args.arg_1, ((task_##NAME*)t)->d.args.arg_2, ((task_##NAME*)t)->d.args.arg_3, ((task_##NAME*)t)->d.args.arg_4, ((task_##NAME*)t)->d.args.arg_5, ((task_##NAME*)t)->d.args.arg_6, ((task_##NAME*)t)->d.args.arg_7, ((task_##NAME*)t)->d.args.arg_8);\
                                                                                       \
         }                                                                             \
     }                                                                                 \
                                                                                       \
     if (lace_sync(_lace_worker, head)) {                                              \
-        return ((TD_##NAME *)t)->d.res;                                               \
+        return ((task_##NAME *)t)->d.res;                                             \
     } else {                                                                          \
         atomic_store_explicit(&t->thief, THIEF_EMPTY, memory_order_relaxed);          \
-        return NAME##_CALL(_lace_worker, ((TD_##NAME*)t)->d.args.arg_1, ((TD_##NAME*)t)->d.args.arg_2, ((TD_##NAME*)t)->d.args.arg_3, ((TD_##NAME*)t)->d.args.arg_4, ((TD_##NAME*)t)->d.args.arg_5, ((TD_##NAME*)t)->d.args.arg_6, ((TD_##NAME*)t)->d.args.arg_7, ((TD_##NAME*)t)->d.args.arg_8);\
+        return NAME##_CALL(_lace_worker, ((task_##NAME*)t)->d.args.arg_1, ((task_##NAME*)t)->d.args.arg_2, ((task_##NAME*)t)->d.args.arg_3, ((task_##NAME*)t)->d.args.arg_4, ((task_##NAME*)t)->d.args.arg_5, ((task_##NAME*)t)->d.args.arg_6, ((task_##NAME*)t)->d.args.arg_7, ((task_##NAME*)t)->d.args.arg_8);\
     }                                                                                 \
 }                                                                                     \
                                                                                       \
@@ -3266,19 +3282,20 @@ void NAME##_DROP(lace_worker* _lace_worker)                                     
 
 #define VOID_TASK_8(NAME, ATYPE_1, ARG_1, ATYPE_2, ARG_2, ATYPE_3, ARG_3, ATYPE_4, ARG_4, ATYPE_5, ARG_5, ATYPE_6, ARG_6, ATYPE_7, ARG_7, ATYPE_8, ARG_8)\
                                                                                       \
-typedef struct _TD_##NAME {                                                           \
+typedef struct task_##NAME {                                                          \
   TASK_COMMON_FIELDS                                                                  \
   union { struct {  ATYPE_1 arg_1; ATYPE_2 arg_2; ATYPE_3 arg_3; ATYPE_4 arg_4; ATYPE_5 arg_5; ATYPE_6 arg_6; ATYPE_7 arg_7; ATYPE_8 arg_8; } args; } d;\
-} TD_##NAME;                                                                          \
+} task_##NAME;                                                                        \
                                                                                       \
-static_assert(sizeof(TD_##NAME) <= sizeof(lace_task), "TD_" #NAME " is too large to fit in the lace_task struct!");\
+static_assert(sizeof(task_##NAME) <= sizeof(lace_task), "task_" #NAME " is too large to fit in the lace_task struct!");\
                                                                                       \
 void NAME##_CALL(lace_worker*, ATYPE_1, ATYPE_2, ATYPE_3, ATYPE_4, ATYPE_5, ATYPE_6, ATYPE_7, ATYPE_8);\
                                                                                       \
 LACE_NO_SANITIZE_THREAD                                                               \
-static void NAME##_WRAP(lace_worker* lace_worker, lace_task* t LACE_UNUSED)           \
+static void NAME##_WRAP(lace_worker* lw, lace_task* t)                                \
 {                                                                                     \
-     NAME##_CALL(lace_worker, ((TD_##NAME*)t)->d.args.arg_1, ((TD_##NAME*)t)->d.args.arg_2, ((TD_##NAME*)t)->d.args.arg_3, ((TD_##NAME*)t)->d.args.arg_4, ((TD_##NAME*)t)->d.args.arg_5, ((TD_##NAME*)t)->d.args.arg_6, ((TD_##NAME*)t)->d.args.arg_7, ((TD_##NAME*)t)->d.args.arg_8);\
+    (void)t;                                                                          \
+     NAME##_CALL(lw, ((task_##NAME*)t)->d.args.arg_1, ((task_##NAME*)t)->d.args.arg_2, ((task_##NAME*)t)->d.args.arg_3, ((task_##NAME*)t)->d.args.arg_4, ((task_##NAME*)t)->d.args.arg_5, ((task_##NAME*)t)->d.args.arg_6, ((task_##NAME*)t)->d.args.arg_7, ((task_##NAME*)t)->d.args.arg_8);\
 }                                                                                     \
                                                                                       \
 LACE_NO_SANITIZE_THREAD                                                               \
@@ -3290,11 +3307,11 @@ lace_task* NAME##_SPAWN(lace_worker* _lace_worker, ATYPE_1 arg_1, ATYPE_2 arg_2,
     lace_task *lace_head = _lace_worker->head;                                        \
     if (lace_head == _lace_worker->end) lace_abort_stack_overflow();                  \
                                                                                       \
-    TD_##NAME *t;                                                                     \
+    task_##NAME *t;                                                                   \
     TailSplitNA ts;                                                                   \
     uint32_t head, split, newsplit;                                                   \
                                                                                       \
-    t = (TD_##NAME *)lace_head;                                                       \
+    t = (task_##NAME *)lace_head;                                                     \
     t->f = &NAME##_WRAP;                                                              \
     atomic_store_explicit(&t->thief, THIEF_TASK, memory_order_relaxed);               \
      t->d.args.arg_1 = arg_1; t->d.args.arg_2 = arg_2; t->d.args.arg_3 = arg_3; t->d.args.arg_4 = arg_4; t->d.args.arg_5 = arg_5; t->d.args.arg_6 = arg_6; t->d.args.arg_7 = arg_7; t->d.args.arg_8 = arg_8;\
@@ -3330,7 +3347,7 @@ static inline LACE_UNUSED                                                       
 void NAME##_NEWFRAME(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, ATYPE_5 arg_5, ATYPE_6 arg_6, ATYPE_7 arg_7, ATYPE_8 arg_8)\
 {                                                                                     \
     lace_task _t;                                                                     \
-    TD_##NAME *t = (TD_##NAME *)&_t;                                                  \
+    task_##NAME *t = (task_##NAME *)&_t;                                              \
     t->f = &NAME##_WRAP;                                                              \
     atomic_store_explicit(&t->thief, THIEF_TASK, memory_order_relaxed);               \
      t->d.args.arg_1 = arg_1; t->d.args.arg_2 = arg_2; t->d.args.arg_3 = arg_3; t->d.args.arg_4 = arg_4; t->d.args.arg_5 = arg_5; t->d.args.arg_6 = arg_6; t->d.args.arg_7 = arg_7; t->d.args.arg_8 = arg_8;\
@@ -3343,7 +3360,7 @@ static inline LACE_UNUSED                                                       
 void NAME##_TOGETHER(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, ATYPE_5 arg_5, ATYPE_6 arg_6, ATYPE_7 arg_7, ATYPE_8 arg_8)\
 {                                                                                     \
     lace_task _t;                                                                     \
-    TD_##NAME *t = (TD_##NAME *)&_t;                                                  \
+    task_##NAME *t = (task_##NAME *)&_t;                                              \
     t->f = &NAME##_WRAP;                                                              \
     atomic_store_explicit(&t->thief, THIEF_TASK, memory_order_relaxed);               \
      t->d.args.arg_1 = arg_1; t->d.args.arg_2 = arg_2; t->d.args.arg_3 = arg_3; t->d.args.arg_4 = arg_4; t->d.args.arg_5 = arg_5; t->d.args.arg_6 = arg_6; t->d.args.arg_7 = arg_7; t->d.args.arg_8 = arg_8;\
@@ -3358,7 +3375,7 @@ void NAME(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, ATYPE_5 ar
         NAME##_CALL(worker, arg_1, arg_2, arg_3, arg_4, arg_5, arg_6, arg_7, arg_8);  \
     } else {                                                                          \
         lace_task _t;                                                                 \
-        TD_##NAME *t = (TD_##NAME *)&_t;                                              \
+        task_##NAME *t = (task_##NAME *)&_t;                                          \
         t->f = &NAME##_WRAP;                                                          \
         atomic_store_explicit(&t->thief, THIEF_TASK, memory_order_relaxed);           \
          t->d.args.arg_1 = arg_1; t->d.args.arg_2 = arg_2; t->d.args.arg_3 = arg_3; t->d.args.arg_4 = arg_4; t->d.args.arg_5 = arg_5; t->d.args.arg_6 = arg_6; t->d.args.arg_7 = arg_7; t->d.args.arg_8 = arg_8;\
@@ -3375,12 +3392,12 @@ void NAME##_SYNC(lace_worker* _lace_worker)                                     
     _lace_worker->head = head;                                                        \
                                                                                       \
     /* assert (__dq_head > 0); */  /* Commented out because we assume contract */     \
-    TD_##NAME *t = (TD_##NAME *)head;                                                 \
+    task_##NAME *t = (task_##NAME *)head;                                             \
                                                                                       \
     if (LACE_LIKELY(0 == _lace_worker->_public->movesplit)) {                         \
         if (LACE_LIKELY(_lace_worker->split <= head)) {                               \
             atomic_store_explicit(&t->thief, THIEF_EMPTY, memory_order_relaxed);      \
-            NAME##_CALL(_lace_worker, ((TD_##NAME*)t)->d.args.arg_1, ((TD_##NAME*)t)->d.args.arg_2, ((TD_##NAME*)t)->d.args.arg_3, ((TD_##NAME*)t)->d.args.arg_4, ((TD_##NAME*)t)->d.args.arg_5, ((TD_##NAME*)t)->d.args.arg_6, ((TD_##NAME*)t)->d.args.arg_7, ((TD_##NAME*)t)->d.args.arg_8);\
+            NAME##_CALL(_lace_worker, ((task_##NAME*)t)->d.args.arg_1, ((task_##NAME*)t)->d.args.arg_2, ((task_##NAME*)t)->d.args.arg_3, ((task_##NAME*)t)->d.args.arg_4, ((task_##NAME*)t)->d.args.arg_5, ((task_##NAME*)t)->d.args.arg_6, ((task_##NAME*)t)->d.args.arg_7, ((task_##NAME*)t)->d.args.arg_8);\
             return;                                                                   \
         }                                                                             \
     }                                                                                 \
@@ -3389,7 +3406,7 @@ void NAME##_SYNC(lace_worker* _lace_worker)                                     
         ;                                                                             \
     } else {                                                                          \
         atomic_store_explicit(&t->thief, THIEF_EMPTY, memory_order_relaxed);          \
-        NAME##_CALL(_lace_worker, ((TD_##NAME*)t)->d.args.arg_1, ((TD_##NAME*)t)->d.args.arg_2, ((TD_##NAME*)t)->d.args.arg_3, ((TD_##NAME*)t)->d.args.arg_4, ((TD_##NAME*)t)->d.args.arg_5, ((TD_##NAME*)t)->d.args.arg_6, ((TD_##NAME*)t)->d.args.arg_7, ((TD_##NAME*)t)->d.args.arg_8);\
+        NAME##_CALL(_lace_worker, ((task_##NAME*)t)->d.args.arg_1, ((task_##NAME*)t)->d.args.arg_2, ((task_##NAME*)t)->d.args.arg_3, ((task_##NAME*)t)->d.args.arg_4, ((task_##NAME*)t)->d.args.arg_5, ((task_##NAME*)t)->d.args.arg_6, ((task_##NAME*)t)->d.args.arg_7, ((task_##NAME*)t)->d.args.arg_8);\
     }                                                                                 \
 }                                                                                     \
                                                                                       \
@@ -3407,19 +3424,20 @@ void NAME##_DROP(lace_worker* _lace_worker)                                     
 
 #define TASK_9(RTYPE, NAME, ATYPE_1, ARG_1, ATYPE_2, ARG_2, ATYPE_3, ARG_3, ATYPE_4, ARG_4, ATYPE_5, ARG_5, ATYPE_6, ARG_6, ATYPE_7, ARG_7, ATYPE_8, ARG_8, ATYPE_9, ARG_9)\
                                                                                       \
-typedef struct _TD_##NAME {                                                           \
+typedef struct task_##NAME {                                                          \
   TASK_COMMON_FIELDS                                                                  \
   union { struct {  ATYPE_1 arg_1; ATYPE_2 arg_2; ATYPE_3 arg_3; ATYPE_4 arg_4; ATYPE_5 arg_5; ATYPE_6 arg_6; ATYPE_7 arg_7; ATYPE_8 arg_8; ATYPE_9 arg_9; } args; RTYPE res; } d;\
-} TD_##NAME;                                                                          \
+} task_##NAME;                                                                        \
                                                                                       \
-static_assert(sizeof(TD_##NAME) <= sizeof(lace_task), "TD_" #NAME " is too large to fit in the lace_task struct!");\
+static_assert(sizeof(task_##NAME) <= sizeof(lace_task), "task_" #NAME " is too large to fit in the lace_task struct!");\
                                                                                       \
 RTYPE NAME##_CALL(lace_worker*, ATYPE_1, ATYPE_2, ATYPE_3, ATYPE_4, ATYPE_5, ATYPE_6, ATYPE_7, ATYPE_8, ATYPE_9);\
                                                                                       \
 LACE_NO_SANITIZE_THREAD                                                               \
-static void NAME##_WRAP(lace_worker* lace_worker, lace_task* t LACE_UNUSED)           \
+static void NAME##_WRAP(lace_worker* lw, lace_task* t)                                \
 {                                                                                     \
-    ((TD_##NAME*)t)->d.res = NAME##_CALL(lace_worker, ((TD_##NAME*)t)->d.args.arg_1, ((TD_##NAME*)t)->d.args.arg_2, ((TD_##NAME*)t)->d.args.arg_3, ((TD_##NAME*)t)->d.args.arg_4, ((TD_##NAME*)t)->d.args.arg_5, ((TD_##NAME*)t)->d.args.arg_6, ((TD_##NAME*)t)->d.args.arg_7, ((TD_##NAME*)t)->d.args.arg_8, ((TD_##NAME*)t)->d.args.arg_9);\
+    (void)t;                                                                          \
+    ((task_##NAME*)t)->d.res = NAME##_CALL(lw, ((task_##NAME*)t)->d.args.arg_1, ((task_##NAME*)t)->d.args.arg_2, ((task_##NAME*)t)->d.args.arg_3, ((task_##NAME*)t)->d.args.arg_4, ((task_##NAME*)t)->d.args.arg_5, ((task_##NAME*)t)->d.args.arg_6, ((task_##NAME*)t)->d.args.arg_7, ((task_##NAME*)t)->d.args.arg_8, ((task_##NAME*)t)->d.args.arg_9);\
 }                                                                                     \
                                                                                       \
 LACE_NO_SANITIZE_THREAD                                                               \
@@ -3431,11 +3449,11 @@ lace_task* NAME##_SPAWN(lace_worker* _lace_worker, ATYPE_1 arg_1, ATYPE_2 arg_2,
     lace_task *lace_head = _lace_worker->head;                                        \
     if (lace_head == _lace_worker->end) lace_abort_stack_overflow();                  \
                                                                                       \
-    TD_##NAME *t;                                                                     \
+    task_##NAME *t;                                                                   \
     TailSplitNA ts;                                                                   \
     uint32_t head, split, newsplit;                                                   \
                                                                                       \
-    t = (TD_##NAME *)lace_head;                                                       \
+    t = (task_##NAME *)lace_head;                                                     \
     t->f = &NAME##_WRAP;                                                              \
     atomic_store_explicit(&t->thief, THIEF_TASK, memory_order_relaxed);               \
      t->d.args.arg_1 = arg_1; t->d.args.arg_2 = arg_2; t->d.args.arg_3 = arg_3; t->d.args.arg_4 = arg_4; t->d.args.arg_5 = arg_5; t->d.args.arg_6 = arg_6; t->d.args.arg_7 = arg_7; t->d.args.arg_8 = arg_8; t->d.args.arg_9 = arg_9;\
@@ -3471,12 +3489,12 @@ static inline LACE_UNUSED                                                       
 RTYPE NAME##_NEWFRAME(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, ATYPE_5 arg_5, ATYPE_6 arg_6, ATYPE_7 arg_7, ATYPE_8 arg_8, ATYPE_9 arg_9)\
 {                                                                                     \
     lace_task _t;                                                                     \
-    TD_##NAME *t = (TD_##NAME *)&_t;                                                  \
+    task_##NAME *t = (task_##NAME *)&_t;                                              \
     t->f = &NAME##_WRAP;                                                              \
     atomic_store_explicit(&t->thief, THIEF_TASK, memory_order_relaxed);               \
      t->d.args.arg_1 = arg_1; t->d.args.arg_2 = arg_2; t->d.args.arg_3 = arg_3; t->d.args.arg_4 = arg_4; t->d.args.arg_5 = arg_5; t->d.args.arg_6 = arg_6; t->d.args.arg_7 = arg_7; t->d.args.arg_8 = arg_8; t->d.args.arg_9 = arg_9;\
     lace_run_newframe(&_t);                                                           \
-    return ((TD_##NAME *)t)->d.res;                                                   \
+    return ((task_##NAME *)t)->d.res;                                                 \
 }                                                                                     \
                                                                                       \
 LACE_NO_SANITIZE_THREAD                                                               \
@@ -3484,7 +3502,7 @@ static inline LACE_UNUSED                                                       
 void NAME##_TOGETHER(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, ATYPE_5 arg_5, ATYPE_6 arg_6, ATYPE_7 arg_7, ATYPE_8 arg_8, ATYPE_9 arg_9)\
 {                                                                                     \
     lace_task _t;                                                                     \
-    TD_##NAME *t = (TD_##NAME *)&_t;                                                  \
+    task_##NAME *t = (task_##NAME *)&_t;                                              \
     t->f = &NAME##_WRAP;                                                              \
     atomic_store_explicit(&t->thief, THIEF_TASK, memory_order_relaxed);               \
      t->d.args.arg_1 = arg_1; t->d.args.arg_2 = arg_2; t->d.args.arg_3 = arg_3; t->d.args.arg_4 = arg_4; t->d.args.arg_5 = arg_5; t->d.args.arg_6 = arg_6; t->d.args.arg_7 = arg_7; t->d.args.arg_8 = arg_8; t->d.args.arg_9 = arg_9;\
@@ -3499,12 +3517,12 @@ RTYPE NAME(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, ATYPE_5 a
         return NAME##_CALL(worker, arg_1, arg_2, arg_3, arg_4, arg_5, arg_6, arg_7, arg_8, arg_9);\
     } else {                                                                          \
         lace_task _t;                                                                 \
-        TD_##NAME *t = (TD_##NAME *)&_t;                                              \
+        task_##NAME *t = (task_##NAME *)&_t;                                          \
         t->f = &NAME##_WRAP;                                                          \
         atomic_store_explicit(&t->thief, THIEF_TASK, memory_order_relaxed);           \
          t->d.args.arg_1 = arg_1; t->d.args.arg_2 = arg_2; t->d.args.arg_3 = arg_3; t->d.args.arg_4 = arg_4; t->d.args.arg_5 = arg_5; t->d.args.arg_6 = arg_6; t->d.args.arg_7 = arg_7; t->d.args.arg_8 = arg_8; t->d.args.arg_9 = arg_9;\
         lace_run_task(&_t);                                                           \
-        return ((TD_##NAME *)t)->d.res;                                               \
+        return ((task_##NAME *)t)->d.res;                                             \
     }                                                                                 \
 }                                                                                     \
                                                                                       \
@@ -3516,21 +3534,21 @@ RTYPE NAME##_SYNC(lace_worker* _lace_worker)                                    
     _lace_worker->head = head;                                                        \
                                                                                       \
     /* assert (__dq_head > 0); */  /* Commented out because we assume contract */     \
-    TD_##NAME *t = (TD_##NAME *)head;                                                 \
+    task_##NAME *t = (task_##NAME *)head;                                             \
                                                                                       \
     if (LACE_LIKELY(0 == _lace_worker->_public->movesplit)) {                         \
         if (LACE_LIKELY(_lace_worker->split <= head)) {                               \
             atomic_store_explicit(&t->thief, THIEF_EMPTY, memory_order_relaxed);      \
-            return NAME##_CALL(_lace_worker, ((TD_##NAME*)t)->d.args.arg_1, ((TD_##NAME*)t)->d.args.arg_2, ((TD_##NAME*)t)->d.args.arg_3, ((TD_##NAME*)t)->d.args.arg_4, ((TD_##NAME*)t)->d.args.arg_5, ((TD_##NAME*)t)->d.args.arg_6, ((TD_##NAME*)t)->d.args.arg_7, ((TD_##NAME*)t)->d.args.arg_8, ((TD_##NAME*)t)->d.args.arg_9);\
+            return NAME##_CALL(_lace_worker, ((task_##NAME*)t)->d.args.arg_1, ((task_##NAME*)t)->d.args.arg_2, ((task_##NAME*)t)->d.args.arg_3, ((task_##NAME*)t)->d.args.arg_4, ((task_##NAME*)t)->d.args.arg_5, ((task_##NAME*)t)->d.args.arg_6, ((task_##NAME*)t)->d.args.arg_7, ((task_##NAME*)t)->d.args.arg_8, ((task_##NAME*)t)->d.args.arg_9);\
                                                                                       \
         }                                                                             \
     }                                                                                 \
                                                                                       \
     if (lace_sync(_lace_worker, head)) {                                              \
-        return ((TD_##NAME *)t)->d.res;                                               \
+        return ((task_##NAME *)t)->d.res;                                             \
     } else {                                                                          \
         atomic_store_explicit(&t->thief, THIEF_EMPTY, memory_order_relaxed);          \
-        return NAME##_CALL(_lace_worker, ((TD_##NAME*)t)->d.args.arg_1, ((TD_##NAME*)t)->d.args.arg_2, ((TD_##NAME*)t)->d.args.arg_3, ((TD_##NAME*)t)->d.args.arg_4, ((TD_##NAME*)t)->d.args.arg_5, ((TD_##NAME*)t)->d.args.arg_6, ((TD_##NAME*)t)->d.args.arg_7, ((TD_##NAME*)t)->d.args.arg_8, ((TD_##NAME*)t)->d.args.arg_9);\
+        return NAME##_CALL(_lace_worker, ((task_##NAME*)t)->d.args.arg_1, ((task_##NAME*)t)->d.args.arg_2, ((task_##NAME*)t)->d.args.arg_3, ((task_##NAME*)t)->d.args.arg_4, ((task_##NAME*)t)->d.args.arg_5, ((task_##NAME*)t)->d.args.arg_6, ((task_##NAME*)t)->d.args.arg_7, ((task_##NAME*)t)->d.args.arg_8, ((task_##NAME*)t)->d.args.arg_9);\
     }                                                                                 \
 }                                                                                     \
                                                                                       \
@@ -3545,19 +3563,20 @@ void NAME##_DROP(lace_worker* _lace_worker)                                     
 
 #define VOID_TASK_9(NAME, ATYPE_1, ARG_1, ATYPE_2, ARG_2, ATYPE_3, ARG_3, ATYPE_4, ARG_4, ATYPE_5, ARG_5, ATYPE_6, ARG_6, ATYPE_7, ARG_7, ATYPE_8, ARG_8, ATYPE_9, ARG_9)\
                                                                                       \
-typedef struct _TD_##NAME {                                                           \
+typedef struct task_##NAME {                                                          \
   TASK_COMMON_FIELDS                                                                  \
   union { struct {  ATYPE_1 arg_1; ATYPE_2 arg_2; ATYPE_3 arg_3; ATYPE_4 arg_4; ATYPE_5 arg_5; ATYPE_6 arg_6; ATYPE_7 arg_7; ATYPE_8 arg_8; ATYPE_9 arg_9; } args; } d;\
-} TD_##NAME;                                                                          \
+} task_##NAME;                                                                        \
                                                                                       \
-static_assert(sizeof(TD_##NAME) <= sizeof(lace_task), "TD_" #NAME " is too large to fit in the lace_task struct!");\
+static_assert(sizeof(task_##NAME) <= sizeof(lace_task), "task_" #NAME " is too large to fit in the lace_task struct!");\
                                                                                       \
 void NAME##_CALL(lace_worker*, ATYPE_1, ATYPE_2, ATYPE_3, ATYPE_4, ATYPE_5, ATYPE_6, ATYPE_7, ATYPE_8, ATYPE_9);\
                                                                                       \
 LACE_NO_SANITIZE_THREAD                                                               \
-static void NAME##_WRAP(lace_worker* lace_worker, lace_task* t LACE_UNUSED)           \
+static void NAME##_WRAP(lace_worker* lw, lace_task* t)                                \
 {                                                                                     \
-     NAME##_CALL(lace_worker, ((TD_##NAME*)t)->d.args.arg_1, ((TD_##NAME*)t)->d.args.arg_2, ((TD_##NAME*)t)->d.args.arg_3, ((TD_##NAME*)t)->d.args.arg_4, ((TD_##NAME*)t)->d.args.arg_5, ((TD_##NAME*)t)->d.args.arg_6, ((TD_##NAME*)t)->d.args.arg_7, ((TD_##NAME*)t)->d.args.arg_8, ((TD_##NAME*)t)->d.args.arg_9);\
+    (void)t;                                                                          \
+     NAME##_CALL(lw, ((task_##NAME*)t)->d.args.arg_1, ((task_##NAME*)t)->d.args.arg_2, ((task_##NAME*)t)->d.args.arg_3, ((task_##NAME*)t)->d.args.arg_4, ((task_##NAME*)t)->d.args.arg_5, ((task_##NAME*)t)->d.args.arg_6, ((task_##NAME*)t)->d.args.arg_7, ((task_##NAME*)t)->d.args.arg_8, ((task_##NAME*)t)->d.args.arg_9);\
 }                                                                                     \
                                                                                       \
 LACE_NO_SANITIZE_THREAD                                                               \
@@ -3569,11 +3588,11 @@ lace_task* NAME##_SPAWN(lace_worker* _lace_worker, ATYPE_1 arg_1, ATYPE_2 arg_2,
     lace_task *lace_head = _lace_worker->head;                                        \
     if (lace_head == _lace_worker->end) lace_abort_stack_overflow();                  \
                                                                                       \
-    TD_##NAME *t;                                                                     \
+    task_##NAME *t;                                                                   \
     TailSplitNA ts;                                                                   \
     uint32_t head, split, newsplit;                                                   \
                                                                                       \
-    t = (TD_##NAME *)lace_head;                                                       \
+    t = (task_##NAME *)lace_head;                                                     \
     t->f = &NAME##_WRAP;                                                              \
     atomic_store_explicit(&t->thief, THIEF_TASK, memory_order_relaxed);               \
      t->d.args.arg_1 = arg_1; t->d.args.arg_2 = arg_2; t->d.args.arg_3 = arg_3; t->d.args.arg_4 = arg_4; t->d.args.arg_5 = arg_5; t->d.args.arg_6 = arg_6; t->d.args.arg_7 = arg_7; t->d.args.arg_8 = arg_8; t->d.args.arg_9 = arg_9;\
@@ -3609,7 +3628,7 @@ static inline LACE_UNUSED                                                       
 void NAME##_NEWFRAME(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, ATYPE_5 arg_5, ATYPE_6 arg_6, ATYPE_7 arg_7, ATYPE_8 arg_8, ATYPE_9 arg_9)\
 {                                                                                     \
     lace_task _t;                                                                     \
-    TD_##NAME *t = (TD_##NAME *)&_t;                                                  \
+    task_##NAME *t = (task_##NAME *)&_t;                                              \
     t->f = &NAME##_WRAP;                                                              \
     atomic_store_explicit(&t->thief, THIEF_TASK, memory_order_relaxed);               \
      t->d.args.arg_1 = arg_1; t->d.args.arg_2 = arg_2; t->d.args.arg_3 = arg_3; t->d.args.arg_4 = arg_4; t->d.args.arg_5 = arg_5; t->d.args.arg_6 = arg_6; t->d.args.arg_7 = arg_7; t->d.args.arg_8 = arg_8; t->d.args.arg_9 = arg_9;\
@@ -3622,7 +3641,7 @@ static inline LACE_UNUSED                                                       
 void NAME##_TOGETHER(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, ATYPE_5 arg_5, ATYPE_6 arg_6, ATYPE_7 arg_7, ATYPE_8 arg_8, ATYPE_9 arg_9)\
 {                                                                                     \
     lace_task _t;                                                                     \
-    TD_##NAME *t = (TD_##NAME *)&_t;                                                  \
+    task_##NAME *t = (task_##NAME *)&_t;                                              \
     t->f = &NAME##_WRAP;                                                              \
     atomic_store_explicit(&t->thief, THIEF_TASK, memory_order_relaxed);               \
      t->d.args.arg_1 = arg_1; t->d.args.arg_2 = arg_2; t->d.args.arg_3 = arg_3; t->d.args.arg_4 = arg_4; t->d.args.arg_5 = arg_5; t->d.args.arg_6 = arg_6; t->d.args.arg_7 = arg_7; t->d.args.arg_8 = arg_8; t->d.args.arg_9 = arg_9;\
@@ -3637,7 +3656,7 @@ void NAME(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, ATYPE_5 ar
         NAME##_CALL(worker, arg_1, arg_2, arg_3, arg_4, arg_5, arg_6, arg_7, arg_8, arg_9);\
     } else {                                                                          \
         lace_task _t;                                                                 \
-        TD_##NAME *t = (TD_##NAME *)&_t;                                              \
+        task_##NAME *t = (task_##NAME *)&_t;                                          \
         t->f = &NAME##_WRAP;                                                          \
         atomic_store_explicit(&t->thief, THIEF_TASK, memory_order_relaxed);           \
          t->d.args.arg_1 = arg_1; t->d.args.arg_2 = arg_2; t->d.args.arg_3 = arg_3; t->d.args.arg_4 = arg_4; t->d.args.arg_5 = arg_5; t->d.args.arg_6 = arg_6; t->d.args.arg_7 = arg_7; t->d.args.arg_8 = arg_8; t->d.args.arg_9 = arg_9;\
@@ -3654,12 +3673,12 @@ void NAME##_SYNC(lace_worker* _lace_worker)                                     
     _lace_worker->head = head;                                                        \
                                                                                       \
     /* assert (__dq_head > 0); */  /* Commented out because we assume contract */     \
-    TD_##NAME *t = (TD_##NAME *)head;                                                 \
+    task_##NAME *t = (task_##NAME *)head;                                             \
                                                                                       \
     if (LACE_LIKELY(0 == _lace_worker->_public->movesplit)) {                         \
         if (LACE_LIKELY(_lace_worker->split <= head)) {                               \
             atomic_store_explicit(&t->thief, THIEF_EMPTY, memory_order_relaxed);      \
-            NAME##_CALL(_lace_worker, ((TD_##NAME*)t)->d.args.arg_1, ((TD_##NAME*)t)->d.args.arg_2, ((TD_##NAME*)t)->d.args.arg_3, ((TD_##NAME*)t)->d.args.arg_4, ((TD_##NAME*)t)->d.args.arg_5, ((TD_##NAME*)t)->d.args.arg_6, ((TD_##NAME*)t)->d.args.arg_7, ((TD_##NAME*)t)->d.args.arg_8, ((TD_##NAME*)t)->d.args.arg_9);\
+            NAME##_CALL(_lace_worker, ((task_##NAME*)t)->d.args.arg_1, ((task_##NAME*)t)->d.args.arg_2, ((task_##NAME*)t)->d.args.arg_3, ((task_##NAME*)t)->d.args.arg_4, ((task_##NAME*)t)->d.args.arg_5, ((task_##NAME*)t)->d.args.arg_6, ((task_##NAME*)t)->d.args.arg_7, ((task_##NAME*)t)->d.args.arg_8, ((task_##NAME*)t)->d.args.arg_9);\
             return;                                                                   \
         }                                                                             \
     }                                                                                 \
@@ -3668,7 +3687,7 @@ void NAME##_SYNC(lace_worker* _lace_worker)                                     
         ;                                                                             \
     } else {                                                                          \
         atomic_store_explicit(&t->thief, THIEF_EMPTY, memory_order_relaxed);          \
-        NAME##_CALL(_lace_worker, ((TD_##NAME*)t)->d.args.arg_1, ((TD_##NAME*)t)->d.args.arg_2, ((TD_##NAME*)t)->d.args.arg_3, ((TD_##NAME*)t)->d.args.arg_4, ((TD_##NAME*)t)->d.args.arg_5, ((TD_##NAME*)t)->d.args.arg_6, ((TD_##NAME*)t)->d.args.arg_7, ((TD_##NAME*)t)->d.args.arg_8, ((TD_##NAME*)t)->d.args.arg_9);\
+        NAME##_CALL(_lace_worker, ((task_##NAME*)t)->d.args.arg_1, ((task_##NAME*)t)->d.args.arg_2, ((task_##NAME*)t)->d.args.arg_3, ((task_##NAME*)t)->d.args.arg_4, ((task_##NAME*)t)->d.args.arg_5, ((task_##NAME*)t)->d.args.arg_6, ((task_##NAME*)t)->d.args.arg_7, ((task_##NAME*)t)->d.args.arg_8, ((task_##NAME*)t)->d.args.arg_9);\
     }                                                                                 \
 }                                                                                     \
                                                                                       \
@@ -3686,19 +3705,20 @@ void NAME##_DROP(lace_worker* _lace_worker)                                     
 
 #define TASK_10(RTYPE, NAME, ATYPE_1, ARG_1, ATYPE_2, ARG_2, ATYPE_3, ARG_3, ATYPE_4, ARG_4, ATYPE_5, ARG_5, ATYPE_6, ARG_6, ATYPE_7, ARG_7, ATYPE_8, ARG_8, ATYPE_9, ARG_9, ATYPE_10, ARG_10)\
                                                                                       \
-typedef struct _TD_##NAME {                                                           \
+typedef struct task_##NAME {                                                          \
   TASK_COMMON_FIELDS                                                                  \
   union { struct {  ATYPE_1 arg_1; ATYPE_2 arg_2; ATYPE_3 arg_3; ATYPE_4 arg_4; ATYPE_5 arg_5; ATYPE_6 arg_6; ATYPE_7 arg_7; ATYPE_8 arg_8; ATYPE_9 arg_9; ATYPE_10 arg_10; } args; RTYPE res; } d;\
-} TD_##NAME;                                                                          \
+} task_##NAME;                                                                        \
                                                                                       \
-static_assert(sizeof(TD_##NAME) <= sizeof(lace_task), "TD_" #NAME " is too large to fit in the lace_task struct!");\
+static_assert(sizeof(task_##NAME) <= sizeof(lace_task), "task_" #NAME " is too large to fit in the lace_task struct!");\
                                                                                       \
 RTYPE NAME##_CALL(lace_worker*, ATYPE_1, ATYPE_2, ATYPE_3, ATYPE_4, ATYPE_5, ATYPE_6, ATYPE_7, ATYPE_8, ATYPE_9, ATYPE_10);\
                                                                                       \
 LACE_NO_SANITIZE_THREAD                                                               \
-static void NAME##_WRAP(lace_worker* lace_worker, lace_task* t LACE_UNUSED)           \
+static void NAME##_WRAP(lace_worker* lw, lace_task* t)                                \
 {                                                                                     \
-    ((TD_##NAME*)t)->d.res = NAME##_CALL(lace_worker, ((TD_##NAME*)t)->d.args.arg_1, ((TD_##NAME*)t)->d.args.arg_2, ((TD_##NAME*)t)->d.args.arg_3, ((TD_##NAME*)t)->d.args.arg_4, ((TD_##NAME*)t)->d.args.arg_5, ((TD_##NAME*)t)->d.args.arg_6, ((TD_##NAME*)t)->d.args.arg_7, ((TD_##NAME*)t)->d.args.arg_8, ((TD_##NAME*)t)->d.args.arg_9, ((TD_##NAME*)t)->d.args.arg_10);\
+    (void)t;                                                                          \
+    ((task_##NAME*)t)->d.res = NAME##_CALL(lw, ((task_##NAME*)t)->d.args.arg_1, ((task_##NAME*)t)->d.args.arg_2, ((task_##NAME*)t)->d.args.arg_3, ((task_##NAME*)t)->d.args.arg_4, ((task_##NAME*)t)->d.args.arg_5, ((task_##NAME*)t)->d.args.arg_6, ((task_##NAME*)t)->d.args.arg_7, ((task_##NAME*)t)->d.args.arg_8, ((task_##NAME*)t)->d.args.arg_9, ((task_##NAME*)t)->d.args.arg_10);\
 }                                                                                     \
                                                                                       \
 LACE_NO_SANITIZE_THREAD                                                               \
@@ -3710,11 +3730,11 @@ lace_task* NAME##_SPAWN(lace_worker* _lace_worker, ATYPE_1 arg_1, ATYPE_2 arg_2,
     lace_task *lace_head = _lace_worker->head;                                        \
     if (lace_head == _lace_worker->end) lace_abort_stack_overflow();                  \
                                                                                       \
-    TD_##NAME *t;                                                                     \
+    task_##NAME *t;                                                                   \
     TailSplitNA ts;                                                                   \
     uint32_t head, split, newsplit;                                                   \
                                                                                       \
-    t = (TD_##NAME *)lace_head;                                                       \
+    t = (task_##NAME *)lace_head;                                                     \
     t->f = &NAME##_WRAP;                                                              \
     atomic_store_explicit(&t->thief, THIEF_TASK, memory_order_relaxed);               \
      t->d.args.arg_1 = arg_1; t->d.args.arg_2 = arg_2; t->d.args.arg_3 = arg_3; t->d.args.arg_4 = arg_4; t->d.args.arg_5 = arg_5; t->d.args.arg_6 = arg_6; t->d.args.arg_7 = arg_7; t->d.args.arg_8 = arg_8; t->d.args.arg_9 = arg_9; t->d.args.arg_10 = arg_10;\
@@ -3750,12 +3770,12 @@ static inline LACE_UNUSED                                                       
 RTYPE NAME##_NEWFRAME(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, ATYPE_5 arg_5, ATYPE_6 arg_6, ATYPE_7 arg_7, ATYPE_8 arg_8, ATYPE_9 arg_9, ATYPE_10 arg_10)\
 {                                                                                     \
     lace_task _t;                                                                     \
-    TD_##NAME *t = (TD_##NAME *)&_t;                                                  \
+    task_##NAME *t = (task_##NAME *)&_t;                                              \
     t->f = &NAME##_WRAP;                                                              \
     atomic_store_explicit(&t->thief, THIEF_TASK, memory_order_relaxed);               \
      t->d.args.arg_1 = arg_1; t->d.args.arg_2 = arg_2; t->d.args.arg_3 = arg_3; t->d.args.arg_4 = arg_4; t->d.args.arg_5 = arg_5; t->d.args.arg_6 = arg_6; t->d.args.arg_7 = arg_7; t->d.args.arg_8 = arg_8; t->d.args.arg_9 = arg_9; t->d.args.arg_10 = arg_10;\
     lace_run_newframe(&_t);                                                           \
-    return ((TD_##NAME *)t)->d.res;                                                   \
+    return ((task_##NAME *)t)->d.res;                                                 \
 }                                                                                     \
                                                                                       \
 LACE_NO_SANITIZE_THREAD                                                               \
@@ -3763,7 +3783,7 @@ static inline LACE_UNUSED                                                       
 void NAME##_TOGETHER(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, ATYPE_5 arg_5, ATYPE_6 arg_6, ATYPE_7 arg_7, ATYPE_8 arg_8, ATYPE_9 arg_9, ATYPE_10 arg_10)\
 {                                                                                     \
     lace_task _t;                                                                     \
-    TD_##NAME *t = (TD_##NAME *)&_t;                                                  \
+    task_##NAME *t = (task_##NAME *)&_t;                                              \
     t->f = &NAME##_WRAP;                                                              \
     atomic_store_explicit(&t->thief, THIEF_TASK, memory_order_relaxed);               \
      t->d.args.arg_1 = arg_1; t->d.args.arg_2 = arg_2; t->d.args.arg_3 = arg_3; t->d.args.arg_4 = arg_4; t->d.args.arg_5 = arg_5; t->d.args.arg_6 = arg_6; t->d.args.arg_7 = arg_7; t->d.args.arg_8 = arg_8; t->d.args.arg_9 = arg_9; t->d.args.arg_10 = arg_10;\
@@ -3778,12 +3798,12 @@ RTYPE NAME(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, ATYPE_5 a
         return NAME##_CALL(worker, arg_1, arg_2, arg_3, arg_4, arg_5, arg_6, arg_7, arg_8, arg_9, arg_10);\
     } else {                                                                          \
         lace_task _t;                                                                 \
-        TD_##NAME *t = (TD_##NAME *)&_t;                                              \
+        task_##NAME *t = (task_##NAME *)&_t;                                          \
         t->f = &NAME##_WRAP;                                                          \
         atomic_store_explicit(&t->thief, THIEF_TASK, memory_order_relaxed);           \
          t->d.args.arg_1 = arg_1; t->d.args.arg_2 = arg_2; t->d.args.arg_3 = arg_3; t->d.args.arg_4 = arg_4; t->d.args.arg_5 = arg_5; t->d.args.arg_6 = arg_6; t->d.args.arg_7 = arg_7; t->d.args.arg_8 = arg_8; t->d.args.arg_9 = arg_9; t->d.args.arg_10 = arg_10;\
         lace_run_task(&_t);                                                           \
-        return ((TD_##NAME *)t)->d.res;                                               \
+        return ((task_##NAME *)t)->d.res;                                             \
     }                                                                                 \
 }                                                                                     \
                                                                                       \
@@ -3795,21 +3815,21 @@ RTYPE NAME##_SYNC(lace_worker* _lace_worker)                                    
     _lace_worker->head = head;                                                        \
                                                                                       \
     /* assert (__dq_head > 0); */  /* Commented out because we assume contract */     \
-    TD_##NAME *t = (TD_##NAME *)head;                                                 \
+    task_##NAME *t = (task_##NAME *)head;                                             \
                                                                                       \
     if (LACE_LIKELY(0 == _lace_worker->_public->movesplit)) {                         \
         if (LACE_LIKELY(_lace_worker->split <= head)) {                               \
             atomic_store_explicit(&t->thief, THIEF_EMPTY, memory_order_relaxed);      \
-            return NAME##_CALL(_lace_worker, ((TD_##NAME*)t)->d.args.arg_1, ((TD_##NAME*)t)->d.args.arg_2, ((TD_##NAME*)t)->d.args.arg_3, ((TD_##NAME*)t)->d.args.arg_4, ((TD_##NAME*)t)->d.args.arg_5, ((TD_##NAME*)t)->d.args.arg_6, ((TD_##NAME*)t)->d.args.arg_7, ((TD_##NAME*)t)->d.args.arg_8, ((TD_##NAME*)t)->d.args.arg_9, ((TD_##NAME*)t)->d.args.arg_10);\
+            return NAME##_CALL(_lace_worker, ((task_##NAME*)t)->d.args.arg_1, ((task_##NAME*)t)->d.args.arg_2, ((task_##NAME*)t)->d.args.arg_3, ((task_##NAME*)t)->d.args.arg_4, ((task_##NAME*)t)->d.args.arg_5, ((task_##NAME*)t)->d.args.arg_6, ((task_##NAME*)t)->d.args.arg_7, ((task_##NAME*)t)->d.args.arg_8, ((task_##NAME*)t)->d.args.arg_9, ((task_##NAME*)t)->d.args.arg_10);\
                                                                                       \
         }                                                                             \
     }                                                                                 \
                                                                                       \
     if (lace_sync(_lace_worker, head)) {                                              \
-        return ((TD_##NAME *)t)->d.res;                                               \
+        return ((task_##NAME *)t)->d.res;                                             \
     } else {                                                                          \
         atomic_store_explicit(&t->thief, THIEF_EMPTY, memory_order_relaxed);          \
-        return NAME##_CALL(_lace_worker, ((TD_##NAME*)t)->d.args.arg_1, ((TD_##NAME*)t)->d.args.arg_2, ((TD_##NAME*)t)->d.args.arg_3, ((TD_##NAME*)t)->d.args.arg_4, ((TD_##NAME*)t)->d.args.arg_5, ((TD_##NAME*)t)->d.args.arg_6, ((TD_##NAME*)t)->d.args.arg_7, ((TD_##NAME*)t)->d.args.arg_8, ((TD_##NAME*)t)->d.args.arg_9, ((TD_##NAME*)t)->d.args.arg_10);\
+        return NAME##_CALL(_lace_worker, ((task_##NAME*)t)->d.args.arg_1, ((task_##NAME*)t)->d.args.arg_2, ((task_##NAME*)t)->d.args.arg_3, ((task_##NAME*)t)->d.args.arg_4, ((task_##NAME*)t)->d.args.arg_5, ((task_##NAME*)t)->d.args.arg_6, ((task_##NAME*)t)->d.args.arg_7, ((task_##NAME*)t)->d.args.arg_8, ((task_##NAME*)t)->d.args.arg_9, ((task_##NAME*)t)->d.args.arg_10);\
     }                                                                                 \
 }                                                                                     \
                                                                                       \
@@ -3824,19 +3844,20 @@ void NAME##_DROP(lace_worker* _lace_worker)                                     
 
 #define VOID_TASK_10(NAME, ATYPE_1, ARG_1, ATYPE_2, ARG_2, ATYPE_3, ARG_3, ATYPE_4, ARG_4, ATYPE_5, ARG_5, ATYPE_6, ARG_6, ATYPE_7, ARG_7, ATYPE_8, ARG_8, ATYPE_9, ARG_9, ATYPE_10, ARG_10)\
                                                                                       \
-typedef struct _TD_##NAME {                                                           \
+typedef struct task_##NAME {                                                          \
   TASK_COMMON_FIELDS                                                                  \
   union { struct {  ATYPE_1 arg_1; ATYPE_2 arg_2; ATYPE_3 arg_3; ATYPE_4 arg_4; ATYPE_5 arg_5; ATYPE_6 arg_6; ATYPE_7 arg_7; ATYPE_8 arg_8; ATYPE_9 arg_9; ATYPE_10 arg_10; } args; } d;\
-} TD_##NAME;                                                                          \
+} task_##NAME;                                                                        \
                                                                                       \
-static_assert(sizeof(TD_##NAME) <= sizeof(lace_task), "TD_" #NAME " is too large to fit in the lace_task struct!");\
+static_assert(sizeof(task_##NAME) <= sizeof(lace_task), "task_" #NAME " is too large to fit in the lace_task struct!");\
                                                                                       \
 void NAME##_CALL(lace_worker*, ATYPE_1, ATYPE_2, ATYPE_3, ATYPE_4, ATYPE_5, ATYPE_6, ATYPE_7, ATYPE_8, ATYPE_9, ATYPE_10);\
                                                                                       \
 LACE_NO_SANITIZE_THREAD                                                               \
-static void NAME##_WRAP(lace_worker* lace_worker, lace_task* t LACE_UNUSED)           \
+static void NAME##_WRAP(lace_worker* lw, lace_task* t)                                \
 {                                                                                     \
-     NAME##_CALL(lace_worker, ((TD_##NAME*)t)->d.args.arg_1, ((TD_##NAME*)t)->d.args.arg_2, ((TD_##NAME*)t)->d.args.arg_3, ((TD_##NAME*)t)->d.args.arg_4, ((TD_##NAME*)t)->d.args.arg_5, ((TD_##NAME*)t)->d.args.arg_6, ((TD_##NAME*)t)->d.args.arg_7, ((TD_##NAME*)t)->d.args.arg_8, ((TD_##NAME*)t)->d.args.arg_9, ((TD_##NAME*)t)->d.args.arg_10);\
+    (void)t;                                                                          \
+     NAME##_CALL(lw, ((task_##NAME*)t)->d.args.arg_1, ((task_##NAME*)t)->d.args.arg_2, ((task_##NAME*)t)->d.args.arg_3, ((task_##NAME*)t)->d.args.arg_4, ((task_##NAME*)t)->d.args.arg_5, ((task_##NAME*)t)->d.args.arg_6, ((task_##NAME*)t)->d.args.arg_7, ((task_##NAME*)t)->d.args.arg_8, ((task_##NAME*)t)->d.args.arg_9, ((task_##NAME*)t)->d.args.arg_10);\
 }                                                                                     \
                                                                                       \
 LACE_NO_SANITIZE_THREAD                                                               \
@@ -3848,11 +3869,11 @@ lace_task* NAME##_SPAWN(lace_worker* _lace_worker, ATYPE_1 arg_1, ATYPE_2 arg_2,
     lace_task *lace_head = _lace_worker->head;                                        \
     if (lace_head == _lace_worker->end) lace_abort_stack_overflow();                  \
                                                                                       \
-    TD_##NAME *t;                                                                     \
+    task_##NAME *t;                                                                   \
     TailSplitNA ts;                                                                   \
     uint32_t head, split, newsplit;                                                   \
                                                                                       \
-    t = (TD_##NAME *)lace_head;                                                       \
+    t = (task_##NAME *)lace_head;                                                     \
     t->f = &NAME##_WRAP;                                                              \
     atomic_store_explicit(&t->thief, THIEF_TASK, memory_order_relaxed);               \
      t->d.args.arg_1 = arg_1; t->d.args.arg_2 = arg_2; t->d.args.arg_3 = arg_3; t->d.args.arg_4 = arg_4; t->d.args.arg_5 = arg_5; t->d.args.arg_6 = arg_6; t->d.args.arg_7 = arg_7; t->d.args.arg_8 = arg_8; t->d.args.arg_9 = arg_9; t->d.args.arg_10 = arg_10;\
@@ -3888,7 +3909,7 @@ static inline LACE_UNUSED                                                       
 void NAME##_NEWFRAME(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, ATYPE_5 arg_5, ATYPE_6 arg_6, ATYPE_7 arg_7, ATYPE_8 arg_8, ATYPE_9 arg_9, ATYPE_10 arg_10)\
 {                                                                                     \
     lace_task _t;                                                                     \
-    TD_##NAME *t = (TD_##NAME *)&_t;                                                  \
+    task_##NAME *t = (task_##NAME *)&_t;                                              \
     t->f = &NAME##_WRAP;                                                              \
     atomic_store_explicit(&t->thief, THIEF_TASK, memory_order_relaxed);               \
      t->d.args.arg_1 = arg_1; t->d.args.arg_2 = arg_2; t->d.args.arg_3 = arg_3; t->d.args.arg_4 = arg_4; t->d.args.arg_5 = arg_5; t->d.args.arg_6 = arg_6; t->d.args.arg_7 = arg_7; t->d.args.arg_8 = arg_8; t->d.args.arg_9 = arg_9; t->d.args.arg_10 = arg_10;\
@@ -3901,7 +3922,7 @@ static inline LACE_UNUSED                                                       
 void NAME##_TOGETHER(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, ATYPE_5 arg_5, ATYPE_6 arg_6, ATYPE_7 arg_7, ATYPE_8 arg_8, ATYPE_9 arg_9, ATYPE_10 arg_10)\
 {                                                                                     \
     lace_task _t;                                                                     \
-    TD_##NAME *t = (TD_##NAME *)&_t;                                                  \
+    task_##NAME *t = (task_##NAME *)&_t;                                              \
     t->f = &NAME##_WRAP;                                                              \
     atomic_store_explicit(&t->thief, THIEF_TASK, memory_order_relaxed);               \
      t->d.args.arg_1 = arg_1; t->d.args.arg_2 = arg_2; t->d.args.arg_3 = arg_3; t->d.args.arg_4 = arg_4; t->d.args.arg_5 = arg_5; t->d.args.arg_6 = arg_6; t->d.args.arg_7 = arg_7; t->d.args.arg_8 = arg_8; t->d.args.arg_9 = arg_9; t->d.args.arg_10 = arg_10;\
@@ -3916,7 +3937,7 @@ void NAME(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, ATYPE_5 ar
         NAME##_CALL(worker, arg_1, arg_2, arg_3, arg_4, arg_5, arg_6, arg_7, arg_8, arg_9, arg_10);\
     } else {                                                                          \
         lace_task _t;                                                                 \
-        TD_##NAME *t = (TD_##NAME *)&_t;                                              \
+        task_##NAME *t = (task_##NAME *)&_t;                                          \
         t->f = &NAME##_WRAP;                                                          \
         atomic_store_explicit(&t->thief, THIEF_TASK, memory_order_relaxed);           \
          t->d.args.arg_1 = arg_1; t->d.args.arg_2 = arg_2; t->d.args.arg_3 = arg_3; t->d.args.arg_4 = arg_4; t->d.args.arg_5 = arg_5; t->d.args.arg_6 = arg_6; t->d.args.arg_7 = arg_7; t->d.args.arg_8 = arg_8; t->d.args.arg_9 = arg_9; t->d.args.arg_10 = arg_10;\
@@ -3933,12 +3954,12 @@ void NAME##_SYNC(lace_worker* _lace_worker)                                     
     _lace_worker->head = head;                                                        \
                                                                                       \
     /* assert (__dq_head > 0); */  /* Commented out because we assume contract */     \
-    TD_##NAME *t = (TD_##NAME *)head;                                                 \
+    task_##NAME *t = (task_##NAME *)head;                                             \
                                                                                       \
     if (LACE_LIKELY(0 == _lace_worker->_public->movesplit)) {                         \
         if (LACE_LIKELY(_lace_worker->split <= head)) {                               \
             atomic_store_explicit(&t->thief, THIEF_EMPTY, memory_order_relaxed);      \
-            NAME##_CALL(_lace_worker, ((TD_##NAME*)t)->d.args.arg_1, ((TD_##NAME*)t)->d.args.arg_2, ((TD_##NAME*)t)->d.args.arg_3, ((TD_##NAME*)t)->d.args.arg_4, ((TD_##NAME*)t)->d.args.arg_5, ((TD_##NAME*)t)->d.args.arg_6, ((TD_##NAME*)t)->d.args.arg_7, ((TD_##NAME*)t)->d.args.arg_8, ((TD_##NAME*)t)->d.args.arg_9, ((TD_##NAME*)t)->d.args.arg_10);\
+            NAME##_CALL(_lace_worker, ((task_##NAME*)t)->d.args.arg_1, ((task_##NAME*)t)->d.args.arg_2, ((task_##NAME*)t)->d.args.arg_3, ((task_##NAME*)t)->d.args.arg_4, ((task_##NAME*)t)->d.args.arg_5, ((task_##NAME*)t)->d.args.arg_6, ((task_##NAME*)t)->d.args.arg_7, ((task_##NAME*)t)->d.args.arg_8, ((task_##NAME*)t)->d.args.arg_9, ((task_##NAME*)t)->d.args.arg_10);\
             return;                                                                   \
         }                                                                             \
     }                                                                                 \
@@ -3947,7 +3968,7 @@ void NAME##_SYNC(lace_worker* _lace_worker)                                     
         ;                                                                             \
     } else {                                                                          \
         atomic_store_explicit(&t->thief, THIEF_EMPTY, memory_order_relaxed);          \
-        NAME##_CALL(_lace_worker, ((TD_##NAME*)t)->d.args.arg_1, ((TD_##NAME*)t)->d.args.arg_2, ((TD_##NAME*)t)->d.args.arg_3, ((TD_##NAME*)t)->d.args.arg_4, ((TD_##NAME*)t)->d.args.arg_5, ((TD_##NAME*)t)->d.args.arg_6, ((TD_##NAME*)t)->d.args.arg_7, ((TD_##NAME*)t)->d.args.arg_8, ((TD_##NAME*)t)->d.args.arg_9, ((TD_##NAME*)t)->d.args.arg_10);\
+        NAME##_CALL(_lace_worker, ((task_##NAME*)t)->d.args.arg_1, ((task_##NAME*)t)->d.args.arg_2, ((task_##NAME*)t)->d.args.arg_3, ((task_##NAME*)t)->d.args.arg_4, ((task_##NAME*)t)->d.args.arg_5, ((task_##NAME*)t)->d.args.arg_6, ((task_##NAME*)t)->d.args.arg_7, ((task_##NAME*)t)->d.args.arg_8, ((task_##NAME*)t)->d.args.arg_9, ((task_##NAME*)t)->d.args.arg_10);\
     }                                                                                 \
 }                                                                                     \
                                                                                       \
@@ -3964,5 +3985,3 @@ void NAME##_DROP(lace_worker* _lace_worker)                                     
 #ifdef __cplusplus
 }
 #endif /* __cplusplus */
-
-#endif

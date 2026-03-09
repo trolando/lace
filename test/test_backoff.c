@@ -84,7 +84,7 @@ main (int argc, char *argv[])
     for (int i=0; i<10; i++) pfib(20); // some startup workload
 
     for (int zzz=0; zzz<=2; zzz++) {
-        if (zzz==1) lace_sleep_us(1e6);
+        if (zzz==1) lace_sleep_us(1000000);
         double cpu_before_1 = cpu_time_seconds();
         double before_1 = wctime();
         double sleep_1 = 0;

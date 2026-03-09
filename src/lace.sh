@@ -24,8 +24,6 @@ echo "/*
 
 echo '
 #pragma once
-#ifndef __LACE_H__
-#define __LACE_H__
 
 // Lace version
 #define LACE_VERSION_MAJOR 2
@@ -297,8 +295,8 @@ extern "C" {
 #endif /* __cplusplus */
 
 // Forward declarations
-typedef struct _lace_worker lace_worker;
-typedef struct _lace_task lace_task;
+typedef struct lace_worker lace_worker;
+typedef struct lace_task lace_task;
 
 /**************************************
  * Lifecycle functions
@@ -364,7 +362,7 @@ static inline int lace_worker_id(void) LACE_UNUSED;
 /**
  * Thread-local pseudo-random number generator for Lace workers.
  */
-static inline uint64_t lace_rng(lace_worker *lace_worker) LACE_UNUSED;
+static inline uint64_t lace_rng(lace_worker *lw) LACE_UNUSED;
 
 /**************************************
  * lace_task operations
@@ -388,7 +386,7 @@ void lace_barrier(void);
 /**
  * Instead of SYNCing on the next task, drop the task (unless stolen already)
  */
-void lace_drop(lace_worker *lace_worker);
+void lace_drop(lace_worker *lw);
 
 /**
  * Returns 1 if the given task is stolen, 0 otherwise.
@@ -509,15 +507,15 @@ typedef enum {
     CTR_MAX
 } CTR_index;
 
-typedef struct _lace_worker_public lace_worker_public;
+typedef struct lace_worker_public lace_worker_public;
 
 #define TASK_COMMON_FIELDS                      \
     void (*f)(lace_worker *, lace_task *);      \
-    _Atomic(struct _lace_worker_public*) thief;
+    _Atomic(struct lace_worker_public*) thief;
 
-typedef struct _lace_task {
+typedef struct lace_task {
     TASK_COMMON_FIELDS
-    char d[LACE_TASKSIZE-sizeof(void*)-sizeof(struct _lace_worker_public*)];
+    char d[LACE_TASKSIZE-sizeof(void*)-sizeof(struct lace_worker_public*)];
 } lace_task;
 
 static_assert(LACE_PADDING_TARGET % 32 == 0, "LACE_PADDING_TARGET must be a multiple of 32");
@@ -547,7 +545,7 @@ static_assert(sizeof(TailSplitNA) == 8, "TailSplit size should be 8 bytes");
 #pragma warning(disable: 4324)
 #endif
 
-typedef struct _lace_worker_public {
+typedef struct lace_worker_public {
     lace_task *dq;
     TailSplit ts;
     uint8_t allstolen;
@@ -561,7 +559,7 @@ typedef struct _lace_worker_public {
 
 typedef struct { uint64_t s0, s1; } lace_rng_state;
 
-typedef struct _lace_worker {
+typedef struct lace_worker {
     lace_task *head;                 // my head
     lace_task *split;                // same as dq+ts.ts.split
     lace_task *end;                  // dq+dq_size
@@ -634,7 +632,7 @@ static inline int lace_worker_id(void)
  */
 static inline int lace_is_stolen_task(lace_task* t)
 {
-    return ((size_t)(lace_worker_public*)t->thief > 1) ? 1 : 0;
+    return ((size_t)(lace_worker_public*)atomic_load_explicit(&t->thief, memory_order_relaxed) > 1) ? 1 : 0;
 }
 
 /**
@@ -642,7 +640,7 @@ static inline int lace_is_stolen_task(lace_task* t)
  */
 static inline int lace_is_completed_task(lace_task* t)
 {
-    return ((size_t)(lace_worker_public*)t->thief == 2) ? 1 : 0;
+    return ((size_t)(lace_worker_public*)atomic_load_explicit(&t->thief, memory_order_relaxed) == 2) ? 1 : 0;
 }
 
 /**
@@ -750,9 +748,9 @@ static inline uint64_t lace_gethrtime(void)
 #endif
 #define PR_INC(s,i) PR_ADD(s,i,1)
 
-#define THIEF_EMPTY     ((struct _lace_worker_public*)0x0)
-#define THIEF_TASK      ((struct _lace_worker_public*)0x1)
-#define THIEF_COMPLETED ((struct _lace_worker_public*)0x2)
+#define THIEF_EMPTY     ((struct lace_worker_public*)0x0)
+#define THIEF_TASK      ((struct lace_worker_public*)0x1)
+#define THIEF_COMPLETED ((struct lace_worker_public*)0x2)
 
 #define LACE_STOLEN   ((lace_worker_public*)0)
 #define LACE_BUSY     ((lace_worker_public*)1)
@@ -877,6 +875,7 @@ void lace_yield(lace_worker*);
 static inline void lace_check_yield(lace_worker *w)
 {
     if (LACE_UNLIKELY(atomic_load_explicit(&lace_newframe.t, memory_order_relaxed) != NULL)) {
+        atomic_thread_fence(memory_order_acquire);
         lace_yield(w);
     }
 }
@@ -889,7 +888,7 @@ static inline void lace_make_all_shared(void)
     lace_worker* w = lace_get_worker();
     if (w->split != w->head) {
         w->split = w->head;
-        w->_public->ts.ts.split = (uint32_t)(w->head - w->dq);
+        atomic_store_explicit(&w->_public->ts.ts.split, (uint32_t)(w->head - w->dq), memory_order_relaxed);
     }
 }
 
@@ -911,14 +910,14 @@ if ((r)); then
   if (( r == 1)); then
     MACRO_ARGS="ATYPE_$r, ARG_$r"
     DECL_ARGS=", ATYPE_1"
-    TASK_GET_FROM_t=", ((TD_##NAME*)t)->d.args.arg_1"
+    TASK_GET_FROM_t=", ((task_##NAME*)t)->d.args.arg_1"
     FUN_ARGS=", ATYPE_1 arg_1"
     RUN_ARGS="ATYPE_1 arg_1"
     CALL_ARGS=", arg_1"
   else
     MACRO_ARGS="$MACRO_ARGS, ATYPE_$r, ARG_$r"
     DECL_ARGS="$DECL_ARGS, ATYPE_$r"
-    TASK_GET_FROM_t="$TASK_GET_FROM_t, ((TD_##NAME*)t)->d.args.arg_$r"
+    TASK_GET_FROM_t="$TASK_GET_FROM_t, ((task_##NAME*)t)->d.args.arg_$r"
     FUN_ARGS="$FUN_ARGS, ATYPE_$r arg_$r"
     RUN_ARGS="$RUN_ARGS, ATYPE_$r arg_$r"
     CALL_ARGS="$CALL_ARGS, arg_$r"
@@ -942,8 +941,8 @@ if (( isvoid==0 )); then
   fi
   RTYPE="RTYPE"
   RES_FIELD="$RTYPE res;"
-  SAVE_RVAL="((TD_##NAME*)t)->d.res ="
-  RETURN_RES="((TD_##NAME *)t)->d.res"
+  SAVE_RVAL="((task_##NAME*)t)->d.res ="
+  RETURN_RES="((task_##NAME *)t)->d.res"
   UNION="union { $ARGS_STRUCT $RTYPE res; } d;"
   SS_RETURN="return "
   SS_RETURN2=""
@@ -965,19 +964,20 @@ fi
 (\
 echo "$DEF_MACRO
 
-typedef struct _TD_##NAME {
+typedef struct task_##NAME {
   TASK_COMMON_FIELDS
   $UNION
-} TD_##NAME;
+} task_##NAME;
 
-static_assert(sizeof(TD_##NAME) <= sizeof(lace_task), \"TD_\" #NAME \" is too large to fit in the lace_task struct!\");
+static_assert(sizeof(task_##NAME) <= sizeof(lace_task), \"task_\" #NAME \" is too large to fit in the lace_task struct!\");
 
 $RTYPE NAME##_CALL(lace_worker*$DECL_ARGS);
 
 LACE_NO_SANITIZE_THREAD
-static void NAME##_WRAP(lace_worker* lace_worker, lace_task* t LACE_UNUSED)
+static void NAME##_WRAP(lace_worker* lw, lace_task* t)
 {
-    $SAVE_RVAL NAME##_CALL(lace_worker$TASK_GET_FROM_t);
+    (void)t;
+    $SAVE_RVAL NAME##_CALL(lw$TASK_GET_FROM_t);
 }
 
 LACE_NO_SANITIZE_THREAD
@@ -989,11 +989,11 @@ lace_task* NAME##_SPAWN(lace_worker* _lace_worker$FUN_ARGS)
     lace_task *lace_head = _lace_worker->head;
     if (lace_head == _lace_worker->end) lace_abort_stack_overflow();
 
-    TD_##NAME *t;
+    task_##NAME *t;
     TailSplitNA ts;
     uint32_t head, split, newsplit;
 
-    t = (TD_##NAME *)lace_head;
+    t = (task_##NAME *)lace_head;
     t->f = &NAME##_WRAP;
     atomic_store_explicit(&t->thief, THIEF_TASK, memory_order_relaxed);
     $TASK_INIT
@@ -1029,7 +1029,7 @@ static inline LACE_UNUSED
 $RTYPE NAME##_NEWFRAME($RUN_ARGS)
 {
     lace_task _t;
-    TD_##NAME *t = (TD_##NAME *)&_t;
+    task_##NAME *t = (task_##NAME *)&_t;
     t->f = &NAME##_WRAP;
     atomic_store_explicit(&t->thief, THIEF_TASK, memory_order_relaxed);
     $TASK_INIT
@@ -1042,7 +1042,7 @@ static inline LACE_UNUSED
 void NAME##_TOGETHER($RUN_ARGS)
 {
     lace_task _t;
-    TD_##NAME *t = (TD_##NAME *)&_t;
+    task_##NAME *t = (task_##NAME *)&_t;
     t->f = &NAME##_WRAP;
     atomic_store_explicit(&t->thief, THIEF_TASK, memory_order_relaxed);
     $TASK_INIT
@@ -1057,7 +1057,7 @@ $RTYPE NAME($RUN_ARGS)
         ${SS_RETURN}NAME##_CALL(worker$CALL_ARGS);
     } else {
         lace_task _t;
-        TD_##NAME *t = (TD_##NAME *)&_t;
+        task_##NAME *t = (task_##NAME *)&_t;
         t->f = &NAME##_WRAP;
         atomic_store_explicit(&t->thief, THIEF_TASK, memory_order_relaxed);
         $TASK_INIT
@@ -1074,7 +1074,7 @@ $RTYPE NAME##_SYNC(lace_worker* _lace_worker)
     _lace_worker->head = head;
 
     /* assert (__dq_head > 0); */  /* Commented out because we assume contract */
-    TD_##NAME *t = (TD_##NAME *)head;
+    task_##NAME *t = (task_##NAME *)head;
 
     if (LACE_LIKELY(0 == _lace_worker->_public->movesplit)) {
         if (LACE_LIKELY(_lace_worker->split <= head)) {
@@ -1111,6 +1111,4 @@ done
 echo "
 #ifdef __cplusplus
 }
-#endif /* __cplusplus */
-
-#endif"
+#endif /* __cplusplus */"

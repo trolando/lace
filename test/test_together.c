@@ -119,9 +119,9 @@ runtests(int n_workers)
     if (counter != 4096) exit(1);
 
     printf("Testing only together...\n");
-    for (int i=0; i<lace_worker_count(); i++) worker_counter[i] = 0;
+    for (unsigned int i=0; i<lace_worker_count(); i++) worker_counter[i] = 0;
     test_only_together(6);
-    for (int i=0; i<lace_worker_count(); i++) {
+    for (unsigned int i=0; i<lace_worker_count(); i++) {
         printf("Counter %d reads %d (expecting 4096)\n", i, worker_counter[i]);
         if (worker_counter[i] != 4096) exit(1);
     }
@@ -131,7 +131,7 @@ runtests(int n_workers)
     worker_counter = (int*)calloc(lace_worker_count(), sizeof(int));
     test_newframe(5);
     test_together(5);
-    for (int i=0; i<lace_worker_count(); i++) {
+    for (unsigned int i=0; i<lace_worker_count(); i++) {
         printf("Counter %d reads %d (expecting 65536)\n", i, worker_counter[i]);
         if (worker_counter[i] != 65536) exit(1);
     }
@@ -155,7 +155,7 @@ main (int argc, char *argv[])
 
 #define EXECUTIONS 5
 
-    for (int i=0; i<EXECUTIONS; i++) {
+    for (unsigned int i=0; i<EXECUTIONS; i++) {
         printf("### RUNNING TEST %d OF %d ###\n", i+1, EXECUTIONS);
         runtests(n_workers);
         printf("\n");
