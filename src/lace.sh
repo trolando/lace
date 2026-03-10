@@ -458,8 +458,8 @@ static inline LACE_UNUSED void lace_count_report(void)
     static inline void lace_sleep_us(int64_t microseconds) {
         if (microseconds <= 0) return;
         struct timespec ts;
-        ts.tv_sec = microseconds / 1000000;
-        ts.tv_nsec = (microseconds % 1000000) * 1000;
+        ts.tv_sec = (time_t)(microseconds / 1000000);
+        ts.tv_nsec = (long)((microseconds % 1000000) * 1000);
         nanosleep(&ts, NULL);
     }
 #endif
@@ -526,7 +526,7 @@ typedef union {
         _Atomic(uint32_t) tail;
         _Atomic(uint32_t) split;
     } ts;
-    _Atomic(uint64_t) v;
+    LACE_ALIGN(8) _Atomic(uint64_t) v;
 } TailSplit;
 
 typedef union {
