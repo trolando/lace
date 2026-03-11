@@ -1,0 +1,71 @@
+# Doxyfile.in — configured by CMake
+# Generates XML for Breathe; no standalone HTML output.
+
+PROJECT_NAME           = "Lace"
+PROJECT_NUMBER         = @lace_VERSION@
+PROJECT_BRIEF          = "A work-stealing framework for multi-core fork-join parallelism"
+
+# ── Inputs ──────────────────────────────────────────────────────────
+# Scan the *generated* lace.h (in the build tree), not the .sh template.
+# Also scan lace32.h and lace128.h for completeness, though they are
+# nearly identical — Doxygen will deduplicate the shared API.
+INPUT                  = @CMAKE_CURRENT_SOURCE_DIR@/src/lace.h
+RECURSIVE              = NO
+FILE_PATTERNS          = *.h
+
+# Only document items with Doxygen comments
+EXTRACT_ALL            = NO
+EXTRACT_STATIC         = YES
+
+# ── Output ──────────────────────────────────────────────────────────
+GENERATE_HTML          = NO
+GENERATE_LATEX         = NO
+GENERATE_XML           = YES
+XML_OUTPUT             = xml
+OUTPUT_DIRECTORY       = @DOXYGEN_OUTPUT_DIR@
+REFERENCES_LINK_SOURCE = NO
+
+# ── Preprocessing ───────────────────────────────────────────────────
+ENABLE_PREPROCESSING   = YES
+MACRO_EXPANSION        = YES
+EXPAND_ONLY_PREDEF     = YES
+
+# Tell Doxygen what our portability macros expand to, and define
+# conditionals so all code paths are visible.
+PREDEFINED             = \
+    LACE_UNUSED= \
+    LACE_NOINLINE= \
+    LACE_NORETURN= \
+    LACE_ALIGN(N)= \
+    LACE_LIKELY(x)=(x) \
+    LACE_UNLIKELY(x)=(x) \
+    LACE_TLS= \
+    LACE_MSVC=0 \
+    LACE_NO_SANITIZE_THREAD= \
+    LACE_TASKSIZE=64 \
+    LACE_PADDING_TARGET=128 \
+    LACE_COUNT_EVENTS=1 \
+    LACE_PIE_TIMES=1 \
+    LACE_COUNT_TASKS=1 \
+    LACE_COUNT_STEALS=1 \
+    LACE_COUNT_SPLITS=1 \
+    __cplusplus
+
+# Skip expansion of the giant task-defining macros; we document
+# the pattern, not every expansion.
+SKIP_FUNCTION_MACROS   = YES
+
+# ── Grouping & sorting ─────────────────────────────────────────────
+SORT_MEMBER_DOCS       = NO
+SORT_BRIEF_DOCS        = NO
+
+# ── Warnings ────────────────────────────────────────────────────────
+QUIET                  = YES
+WARN_IF_UNDOCUMENTED   = YES
+WARN_FORMAT            = "$file:$line: $text"
+
+# ── Miscellaneous ──────────────────────────────────────────────────
+JAVADOC_AUTOBRIEF      = YES
+TAB_SIZE               = 4
+OPTIMIZE_OUTPUT_FOR_C  = YES
+TYPEDEF_HIDES_STRUCT   = YES

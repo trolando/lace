@@ -1,0 +1,32 @@
+# docs/conf.py.in — configured by CMake (@ONLY)
+
+version = "@PROJECT_VERSION_MAJOR@.@PROJECT_VERSION_MINOR@"
+release = "@PROJECT_VERSION@"
+project = f"Lace {release}"
+author = "Tom van Dijk"
+copyright = "2026, Tom van Dijk"
+
+extensions = [
+    "breathe",
+    "sphinx.ext.todo",
+]
+
+breathe_projects = {
+    "lace": "@DOXYGEN_OUTPUT_DIR@/xml",
+}
+breathe_default_project = "lace"
+breathe_default_members = ("members", "undoc-members")
+
+master_doc = "index"
+exclude_patterns = ["_build"]
+pygments_style = "sphinx"
+language = "en"
+
+html_theme = "sphinx_rtd_theme"
+html_theme_options = {
+}
+html_static_path = ["@CMAKE_CURRENT_SOURCE_DIR@/docs/_static"]
+html_css_files = ["custom.css"]
+html_title = f"Lace {release}"
+
+todo_include_todos = True

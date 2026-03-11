@@ -36,6 +36,7 @@ option(LACE_ENABLE_PIC   "Build Lace with -fPIC (e.g. for linking into shared li
 if(lace_is_top_level)
     option(LACE_BUILD_TESTS      "Build and run Lace tests"                          ON)
     option(LACE_BUILD_BENCHMARKS "Build Lace benchmark programs"                     ON)
+    option(LACE_BUILD_DOCS "Build documentation" OFF)
     option(LACE_SANITIZE_ADDRESS "Enable AddressSanitizer"                           OFF)
     option(LACE_SANITIZE_THREAD  "Enable ThreadSanitizer"                            OFF)
     option(LACE_SANITIZE_UB      "Enable UndefinedBehaviorSanitizer"                 OFF)
@@ -180,6 +181,10 @@ if(lace_is_top_level)
         include(CTest)
         enable_testing()
         add_subdirectory(test)
+    endif()
+
+    if(LACE_BUILD_DOCS)
+        include(LaceDocs)
     endif()
 endif()
 

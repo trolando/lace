@@ -1,0 +1,41 @@
+name: Documentation
+
+on:
+  push:
+    branches: [master]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  docs:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get install -y doxygen
+          pip install -r docs/requirements.txt
+
+      - name: Configure
+        run: cmake -B build -DLACE_BUILD_DOCS=ON -DLACE_BUILD_TESTS=OFF -DLACE_BUILD_BENCHMARKS=OFF
+
+      - name: Build docs
+        run: cmake --build build --target docs
+
+      - name: Add .nojekyll
+        run: touch build/docs/_build/.nojekyll
+
+      - name: Deploy
+        uses: peaceiris/actions-gh-pages@v3
+        if: github.ref == 'refs/heads/master'
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: build/docs/_build
+          force_orphan: true

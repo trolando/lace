@@ -3,20 +3,54 @@
  * Copyright 2016-2018 Tom van Dijk, Johannes Kepler University Linz
  * Copyright 2019-2026 Tom van Dijk, Formal Methods and Tools, University of Twente
  *
- * Licensed under the Apache License, Version 2.0 (the License);
+ * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
  *
  *     http://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an AS IS BASIS,
+ * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
 
 #pragma once
+
+/**
+ * @file
+ * @brief Lace: a work-stealing framework for multi-core fork-join parallelism.
+ *
+ * Lace provides lightweight task-based parallelism using work-stealing deques.
+ * Tasks are defined with the TASK_N() family of macros and executed across a
+ * pool of worker threads. Each worker maintains a private deque; idle workers
+ * steal tasks from busy ones.
+ *
+ * Quick start:
+ * @code
+ * #include <lace.h>
+ *
+ * TASK_1(int, fibonacci, int, n)
+ * int fibonacci_CALL(lace_worker* lw, int n) {
+ *     if (n < 2) return n;
+ *     fibonacci_SPAWN(lw, n-1);
+ *     int a = fibonacci_CALL(lw, n-2);
+ *     int b = fibonacci_SYNC(lw);
+ *     return a + b;
+ * }
+ *
+ * int main(void) {
+ *     lace_start(0, 0, 0);
+ *     printf("fib(42) = %d\n", fibonacci(42));
+ *     lace_stop();
+ * }
+ * @endcode
+ *
+ * @see @ref lace_lifecycle "Lifecycle" for starting and stopping Lace.
+ * @see @ref lace_task_macros "Task Macros" for defining parallel tasks.
+ * @see @ref lace_worker_ctx "Worker Context" for thread-local queries.
+ */
 
 // Lace version
 #define LACE_VERSION_MAJOR 2
@@ -291,163 +325,271 @@ extern "C" {
 typedef struct lace_worker lace_worker;
 typedef struct lace_task lace_task;
 
-/**************************************
- * Lifecycle functions
- * - lace_set_verbosity
- * - lace_start
- * - lace_stop
- * - lace_is_running
- **************************************/
-
 /**
- * Set verbosity level (0 = no startup messages, 1 = startup messages)
- * Default level: 0
+ * @defgroup lace_lifecycle Lifecycle
+ * @brief Start and stop the Lace worker pool.
+ *
+ * These functions manage the Lace runtime. Call lace_start() to spawn worker
+ * threads and lace_stop() to shut them down. Both must be called from outside
+ * a Lace worker thread.
+ * @{
  */
-void lace_set_verbosity(int level);
 
 /**
- * Start Lace with <n_workers> workers and a task deque size of <dqsize> per worker.
- * If <n_workers> is set to 0, automatically detects available cores.
- * If <dqsize> is set to 0, uses a reasonable default value.
- * If <stacksize> is set to 0, uses the minimum of 16M and the stack size of the calling thread.
+ * Start Lace and spawn worker threads.
+ *
+ * Allocates per-worker deques and launches @p n_workers threads.
+ * Workers begin busy-waiting for tasks immediately. If LACE_BACKOFF
+ * is enabled (the default), CPU usage drops to near zero after roughly
+ * one second of inactivity.
+ *
+ * When LACE_USE_MMAP is enabled, deques are allocated as virtual memory
+ * and physical pages are committed lazily, so a large @p dqsize has no
+ * upfront memory cost.
+ *
+ * When LACE_USE_HWLOC is enabled, worker threads are pinned to CPU cores.
+ *
+ * @param n_workers  Number of worker threads. Pass 0 to auto-detect
+ *                   available cores.
+ * @param dqsize     Task deque size per worker (number of task slots).
+ *                   Pass 0 for a default of 100 000. Each live SPAWN that
+ *                   has not yet been SYNCed occupies one slot.
+ * @param stacksize  Worker thread stack size in bytes. Pass 0 for the
+ *                   minimum of 16 MB and the calling thread's stack size.
+ *
+ * @see lace_stop
  */
 void lace_start(unsigned int n_workers, size_t dqsize, size_t stacksize);
 
 /**
- * Stop Lace. Do not call this from inside Lace threads.
+ * Stop all workers and free resources.
+ *
+ * Must be called from a thread that is not a Lace worker.
+ * Do not call from a signal handler.
+ *
+ * @see lace_start
  */
 void lace_stop(void);
 
 /**
- * Check if Lace is running. Returns 1 if it does, or 0 otherwise.
+ * Check whether the Lace runtime is currently active.
+ *
+ * @return 1 if Lace is running, 0 otherwise
  */
 int lace_is_running(void);
 
-/**************************************
- * Worker context
- * - lace_worker_count
- * - lace_is_worker
- * - lace_get_worker
- * - lace_worker_id
- * - lace_rng
- **************************************/
+/**
+ * Set the verbosity level for Lace startup messages.
+ *
+ * Call before lace_start(). Level 0 (default) suppresses output;
+ * level 1 prints startup diagnostics.
+ *
+ * @param level  Verbosity level (0 = silent, 1 = verbose)
+ */
+void lace_set_verbosity(int level);
+
+/** @} */ /* end lace_lifecycle */
 
 /**
- * Retrieve the number of Lace workers.
+ * @defgroup lace_worker_ctx Worker Context
+ * @brief Query worker identity and thread-local state.
+ * @{
+ */
+
+/**
+ * Get the number of Lace worker threads.
+ *
+ * @return Number of workers started by lace_start()
  */
 unsigned int lace_worker_count(void);
 
 /**
- * Retrieve whether we are running in a Lace worker. Returns 1 if this is the case, 0 otherwise.
+ * Check whether the calling thread is a Lace worker.
+ *
+ * @return 1 if called from a Lace worker thread, 0 otherwise
  */
 static inline int lace_is_worker(void) LACE_UNUSED;
 
 /**
- * Retrieve the current worker data.
+ * Get the calling worker's private data.
+ *
+ * @return Pointer to the current lace_worker, or NULL if not a worker
  */
 static inline lace_worker* lace_get_worker(void) LACE_UNUSED;
 
 /**
- * Get the current worker id. Returns -1 if not inside a Lace thread.
+ * Get the calling worker's integer ID.
+ *
+ * @return Worker ID (0-based), or -1 if not called from a Lace worker
  */
 static inline int lace_worker_id(void) LACE_UNUSED;
 
 /**
- * Thread-local pseudo-random number generator for Lace workers.
+ * Thread-local pseudo-random number generator (xoroshiro128**).
+ *
+ * Each worker has its own RNG state, so this function is contention-free.
+ *
+ * @param lw  Pointer to the current worker (from lace_get_worker())
+ * @return    A pseudo-random 64-bit value
  */
 static inline uint64_t lace_rng(lace_worker *lw) LACE_UNUSED;
 
-/**************************************
- * lace_task operations
- * - lace_barrier
- * - lace_drop
- * - lace_is_stolen_task
- * - lace_is_completed_task
- * - lace_steal_random
- * - lace_check_yield
- * - lace_make_all_shared
- * - lace_get_head
- **************************************/
+/** @} */ /* end lace_worker_ctx */
 
 /**
- * Enter the Lace barrier. This is a collective operation.
- * All workers must enter it before the method returns for all workers.
- * Only run this from inside a Lace task.
+ * @defgroup lace_task_ops Task Operations
+ * @brief Barriers, steal control, and task inspection.
+ *
+ * These functions provide low-level control over task execution.
+ * For normal fork-join parallelism, use the SPAWN / SYNC / DROP
+ * functions generated by the TASK_N() macros instead.
+ * @{
+ */
+
+/**
+ * Collective barrier across all workers.
+ *
+ * All workers must reach this call before any of them returns from it.
+ * Must be called from inside a Lace task.
+ *
+ * @warning Deadlock will occur if not all workers reach the lace_barrier().
  */
 void lace_barrier(void);
 
 /**
- * Instead of SYNCing on the next task, drop the task (unless stolen already)
+ * Drop the last spawned task without retrieving its result.
+ *
+ * If the task has not been stolen, it is cancelled. If it has already been
+ * stolen, the thief will complete it but the result is discarded. Must follow
+ * LIFO order relative to other SPAWN/SYNC/DROP calls.
+ *
+ * @param lw  Pointer to the current worker
  */
 void lace_drop(lace_worker *lw);
 
 /**
- * Returns 1 if the given task is stolen, 0 otherwise.
+ * Check whether a task has been stolen by another worker.
+ *
+ * @param t  Pointer to a task (as returned by NAME_SPAWN)
+ * @return   1 if stolen, 0 otherwise
  */
 static inline int lace_is_stolen_task(lace_task* t) LACE_UNUSED;
 
 /**
- * Returns 1 if the given task is completed, 0 otherwise.
+ * Check whether a task has been completed.
+ *
+ * @param t  Pointer to a task (as returned by NAME_SPAWN)
+ * @return   1 if completed, 0 otherwise
  */
 static inline int lace_is_completed_task(lace_task* t) LACE_UNUSED;
 
 /**
- * Try to steal and execute a random task from a random worker.
- * Only use this from inside a Lace task.
+ * Retrieve a pointer to the result storage inside a completed task.
+ *
+ * The result is available after lace_is_completed_task() returns 1.
+ *
+ * @param t  Pointer to a completed lace_task
  */
-void lace_steal_random(lace_worker*);
+static inline void* lace_task_result(lace_task* t) LACE_UNUSED;
 
 /**
- * Check if current tasks must be interrupted, and if so, interrupt.
+ * Attempt to steal and execute a random task from another worker.
+ *
+ * This is a low-level function for the uncommon case where a task
+ * needs to block on an external condition and wants to keep its
+ * worker productive. In normal fork-join code the framework handles
+ * work distribution through SYNC automatically.
+ *
+ * @param lw  Pointer to the current worker
  */
-static inline void lace_check_yield(lace_worker*) LACE_UNUSED;
+void lace_steal_random(lace_worker* lw);
 
 /**
- * Make all tasks of the current worker shared.
+ * Check for pending NEWFRAME/TOGETHER interruptions and yield if needed.
+ *
+ * Call periodically from long-running tasks to cooperate with
+ * interruptions (e.g. stop-the-world garbage collection).
+ *
+ * @param lw  Pointer to the current worker
+ */
+static inline void lace_check_yield(lace_worker* lw) LACE_UNUSED;
+
+/**
+ * Make all tasks on the current worker's deque stealable.
+ *
+ * Normally only tasks up to the split point are visible to thieves.
+ * This moves the split to the head, exposing all pending tasks.
  */
 static inline void lace_make_all_shared(void) LACE_UNUSED;
 
 /**
- * Retrieve the current head of the deque of the worker.
+ * Get the current head pointer of the calling worker's deque.
+ *
+ * @return Pointer to the task at the head of the deque
  */
 static inline lace_task *lace_get_head(void) LACE_UNUSED;
 
-/**************************************
- * Statistics
- * - lace_count_report_file
- * - lace_count_reset
- * - lace_count_report
- **************************************/
+/** @} */ /* end lace_task_ops */
 
 /**
- * Reset internal stats counters.
+ * @defgroup lace_stats Statistics
+ * @brief Optional runtime statistics counters.
+ *
+ * These functions report data collected by the LACE_COUNT_TASKS,
+ * LACE_COUNT_STEALS, LACE_COUNT_SPLITS, and LACE_PIE_TIMES build
+ * options. If none are enabled, reports will be empty.
+ * @{
+ */
+
+/**
+ * Reset all internal statistics counters.
  */
 void lace_count_reset(void);
 
 /**
- * Report Lace stats to the given file.
+ * Write a statistics report to the given file.
+ *
+ * @param file  Output stream (e.g. stdout or an open FILE*)
  */
 void lace_count_report_file(FILE *file);
 
 /**
- * Report Lace stats to stdout.
+ * Write a statistics report to stdout.
+ *
+ * Convenience wrapper around lace_count_report_file().
  */
 static inline LACE_UNUSED void lace_count_report(void)
 {
     lace_count_report_file(stdout);
 }
 
-/**************************************
- * Miscellaneous
- * - lace_sleep_us
- **************************************/
+/** @} */ /* end lace_stats */
+
+/**
+ * @defgroup lace_misc Miscellaneous
+ * @{
+ */
 
 #if defined(_WIN32)
+    /**
+     * Sleep for the given number of microseconds.
+     *
+     * On Windows, resolution is limited to whole milliseconds.
+     *
+     * @param microseconds  Duration to sleep
+     */
     // not inline, because we do not want to pull in windows.h here
     // also Windows sleep has a ms resolution, so it is not very practical anyway...
     void lace_sleep_us(int64_t microseconds);
 #else
     #include <time.h>
+    /**
+     * Sleep for the given number of microseconds.
+     *
+     * Uses nanosleep() and is precise to the microsecond on POSIX systems.
+     *
+     * @param microseconds  Duration to sleep
+     */
     static inline void lace_sleep_us(int64_t microseconds) {
         if (microseconds <= 0) return;
         struct timespec ts;
@@ -457,9 +599,13 @@ static inline LACE_UNUSED void lace_count_report(void)
     }
 #endif
 
-/**************************************
- * Internals
- **************************************/
+/** @} */ /* end lace_misc */
+
+/**
+ * @defgroup lace_internals Internals
+ * @brief Internal data structures; not part of the public API contract.
+ * @{
+ */
 
 #ifndef LACE_COUNT_EVENTS
 #define LACE_COUNT_EVENTS (LACE_PIE_TIMES || LACE_COUNT_TASKS || LACE_COUNT_STEALS || LACE_COUNT_SPLITS)
@@ -571,84 +717,79 @@ typedef struct lace_worker {
 
 extern LACE_TLS lace_worker *lace_thread_worker;
 
+/** @} */ /* end lace_internals */
+
+/* Implementations of inline functions declared above */
+
 static inline lace_worker* lace_get_worker(void)
 {
     return lace_thread_worker;
 }
 
-/**
- * Retrieve whether we are running in a Lace worker. Returns 1 if this is the case, 0 otherwise.
- */
 static inline int lace_is_worker(void)
 {
     return lace_get_worker() != NULL ? 1 : 0;
 }
 
-/**
- * Retrieve the current head of the deque of the worker.
- */
 static inline lace_task *lace_get_head(void)
 {
     return lace_get_worker()->head;
 }
 
 /**
- * Helper function to call from outside Lace threads.
+ * @ingroup lace_internals
+ * Helper function to execute a task from outside a Lace worker.
+ * @param task  Pointer to a prepared lace_task
  */
 void lace_run_task(lace_task *task);
 
 /**
- * Helper function to start a new task execution (task frame) on a given task.
- * This helper function is used by the _NEWFRAME methods for the NEWFRAME() macro
- * Only when the task is done, do workers continue with the previous task frame.
+ * @ingroup lace_internals
+ * Start a new task frame (used by NAME_NEWFRAME).
+ *
+ * All workers suspend their current frame and cooperatively execute
+ * @p task. Normal execution resumes once the new frame completes.
+ *
+ * @param task  Pointer to a prepared lace_task
  */
 void lace_run_newframe(lace_task *task);
 
 /**
- * Helper function to make all run a given task together.
- * This helper function is used by the _TOGETHER methods for the TOGETHER() macro
- * They all start the task in a lace_barrier and complete it with a lace barrier.
- * Meaning they all start together, and all end together.
+ * @ingroup lace_internals
+ * Run a task on every worker simultaneously (used by NAME_TOGETHER).
+ *
+ * All workers enter a barrier, execute a copy of @p task, and exit
+ * through a second barrier.
+ *
+ * @param task  Pointer to a prepared lace_task
  */
 void lace_run_together(lace_task *task);
 
-/**
- * Get the current worker id, or -1 if not inside a Lace thread.
- */
 static inline int lace_worker_id(void)
 {
     return lace_get_worker() == NULL ? -1 : lace_get_worker()->worker;
 }
 
-/**
- * 1 if the given task is stolen, 0 otherwise.
- */
 static inline int lace_is_stolen_task(lace_task* t)
 {
     return ((size_t)(lace_worker_public*)atomic_load_explicit(&t->thief, memory_order_relaxed) > 1) ? 1 : 0;
 }
 
-/**
- * 1 if the given task is completed, 0 otherwise.
- */
 static inline int lace_is_completed_task(lace_task* t)
 {
     return ((size_t)(lace_worker_public*)atomic_load_explicit(&t->thief, memory_order_relaxed) == 2) ? 1 : 0;
 }
 
-/**
- * Retrieves a pointer to the result of the given task.
- */
-#define lace_task_result(t) (&t->d[0])
+static inline void* lace_task_result(lace_task* t)
+{
+    return (void*)&t->d[0];
+}
 
 static inline uint64_t lace_rotl64(uint64_t x, int k)
 {
     return (x << k) | (x >> (64 - k));
 }
 
-/**
- * Compute a random number, thread-local (so scalable)
- */
 static inline uint64_t lace_rng(lace_worker* w)
 {
     // Xoroshiro128**
@@ -841,12 +982,14 @@ static LACE_UNUSED void lace_time_event( lace_worker *w, int event )
 #endif
 
 /**
- * Helper function when a lace_task stack overflow is detected.
+ * @ingroup lace_internals
+ * Called when a deque overflow is detected. Prints an error and aborts.
  */
 LACE_NORETURN void lace_abort_stack_overflow(void);
 
 /**
- * Support for interrupting Lace workers
+ * @ingroup lace_internals
+ * Support for interrupting Lace workers.
  */
 
 typedef struct
@@ -858,24 +1001,20 @@ typedef struct
 extern lace_newframe_t lace_newframe;
 
 /**
- * Interrupt the current worker and run a task in a new frame
+ * @ingroup lace_internals
+ * Yield the current worker to handle a pending NEWFRAME interruption.
+ * @param lw  Pointer to the current worker
  */
-void lace_yield(lace_worker*);
+void lace_yield(lace_worker* lw);
 
-/**
- * Check if current tasks must be interrupted, and if so, interrupt.
- */
-static inline void lace_check_yield(lace_worker *w)
+static inline void lace_check_yield(lace_worker *lw)
 {
     if (LACE_UNLIKELY(atomic_load_explicit(&lace_newframe.t, memory_order_relaxed) != NULL)) {
         atomic_thread_fence(memory_order_acquire);
-        lace_yield(w);
+        lace_yield(lw);
     }
 }
 
-/**
- * Make all tasks of the current worker shared.
- */
 static inline void lace_make_all_shared(void)
 {
     lace_worker* w = lace_get_worker();
@@ -886,12 +1025,40 @@ static inline void lace_make_all_shared(void)
 }
 
 /**
- * Helper function for _SYNC implementations
+ * @ingroup lace_internals
+ * Helper for SYNC implementations. Handles the slow path when a task
+ * may have been stolen.
+ *
+ * @param w     Pointer to the current worker
+ * @param head  Pointer to the task being synced
+ * @return      1 if the task was completed by a thief, 0 if it should
+ *              be executed locally
  */
 int lace_sync(lace_worker *w, lace_task *head);
 
 
-// lace_task macros for tasks of arity 0
+/**
+ * @defgroup lace_task_macros Task Macros
+ * @brief Macros for defining parallel tasks of varying arity.
+ *
+ * Use TASK_N(RTYPE, NAME, ...) to declare a task with N parameters and
+ * return type RTYPE. Use VOID_TASK_N(NAME, ...) for void tasks.
+ *
+ * Each macro generates the following functions:
+ * - \b NAME_CALL(lw, ...)   — the task body; you implement this.
+ * - \b NAME(...)            — run the task (works from any thread).
+ * - \b NAME_SPAWN(lw, ...)  — fork: push task onto the deque.
+ * - \b NAME_SYNC(lw)        — join: retrieve spawned result (LIFO order).
+ * - \b NAME_DROP(lw)        — cancel or discard the last spawned task.
+ * - \b NAME_NEWFRAME(...)   — interrupt all workers and run this task.
+ * - \b NAME_TOGETHER(...)   — interrupt all workers and run on each.
+ *
+ * SPAWN and SYNC must be matched in strict LIFO order.
+ * @{
+ */
+
+
+// Task macros for arity 0
 
 #define TASK_0(RTYPE, NAME)                                                           \
                                                                                       \
@@ -1172,7 +1339,7 @@ void NAME##_DROP(lace_worker* _lace_worker)                                     
                                                                                       \
 
 
-// lace_task macros for tasks of arity 1
+// Task macros for arity 1
 
 #define TASK_1(RTYPE, NAME, ATYPE_1, ARG_1)                                           \
                                                                                       \
@@ -1453,7 +1620,7 @@ void NAME##_DROP(lace_worker* _lace_worker)                                     
                                                                                       \
 
 
-// lace_task macros for tasks of arity 2
+// Task macros for arity 2
 
 #define TASK_2(RTYPE, NAME, ATYPE_1, ARG_1, ATYPE_2, ARG_2)                           \
                                                                                       \
@@ -1734,7 +1901,7 @@ void NAME##_DROP(lace_worker* _lace_worker)                                     
                                                                                       \
 
 
-// lace_task macros for tasks of arity 3
+// Task macros for arity 3
 
 #define TASK_3(RTYPE, NAME, ATYPE_1, ARG_1, ATYPE_2, ARG_2, ATYPE_3, ARG_3)           \
                                                                                       \
@@ -2015,7 +2182,7 @@ void NAME##_DROP(lace_worker* _lace_worker)                                     
                                                                                       \
 
 
-// lace_task macros for tasks of arity 4
+// Task macros for arity 4
 
 #define TASK_4(RTYPE, NAME, ATYPE_1, ARG_1, ATYPE_2, ARG_2, ATYPE_3, ARG_3, ATYPE_4, ARG_4)\
                                                                                       \
@@ -2296,7 +2463,7 @@ void NAME##_DROP(lace_worker* _lace_worker)                                     
                                                                                       \
 
 
-// lace_task macros for tasks of arity 5
+// Task macros for arity 5
 
 #define TASK_5(RTYPE, NAME, ATYPE_1, ARG_1, ATYPE_2, ARG_2, ATYPE_3, ARG_3, ATYPE_4, ARG_4, ATYPE_5, ARG_5)\
                                                                                       \
@@ -2577,7 +2744,7 @@ void NAME##_DROP(lace_worker* _lace_worker)                                     
                                                                                       \
 
 
-// lace_task macros for tasks of arity 6
+// Task macros for arity 6
 
 #define TASK_6(RTYPE, NAME, ATYPE_1, ARG_1, ATYPE_2, ARG_2, ATYPE_3, ARG_3, ATYPE_4, ARG_4, ATYPE_5, ARG_5, ATYPE_6, ARG_6)\
                                                                                       \
@@ -2858,7 +3025,7 @@ void NAME##_DROP(lace_worker* _lace_worker)                                     
                                                                                       \
 
 
-// lace_task macros for tasks of arity 7
+// Task macros for arity 7
 
 #define TASK_7(RTYPE, NAME, ATYPE_1, ARG_1, ATYPE_2, ARG_2, ATYPE_3, ARG_3, ATYPE_4, ARG_4, ATYPE_5, ARG_5, ATYPE_6, ARG_6, ATYPE_7, ARG_7)\
                                                                                       \
@@ -3139,7 +3306,7 @@ void NAME##_DROP(lace_worker* _lace_worker)                                     
                                                                                       \
 
 
-// lace_task macros for tasks of arity 8
+// Task macros for arity 8
 
 #define TASK_8(RTYPE, NAME, ATYPE_1, ARG_1, ATYPE_2, ARG_2, ATYPE_3, ARG_3, ATYPE_4, ARG_4, ATYPE_5, ARG_5, ATYPE_6, ARG_6, ATYPE_7, ARG_7, ATYPE_8, ARG_8)\
                                                                                       \
@@ -3420,7 +3587,7 @@ void NAME##_DROP(lace_worker* _lace_worker)                                     
                                                                                       \
 
 
-// lace_task macros for tasks of arity 9
+// Task macros for arity 9
 
 #define TASK_9(RTYPE, NAME, ATYPE_1, ARG_1, ATYPE_2, ARG_2, ATYPE_3, ARG_3, ATYPE_4, ARG_4, ATYPE_5, ARG_5, ATYPE_6, ARG_6, ATYPE_7, ARG_7, ATYPE_8, ARG_8, ATYPE_9, ARG_9)\
                                                                                       \
@@ -3701,7 +3868,7 @@ void NAME##_DROP(lace_worker* _lace_worker)                                     
                                                                                       \
 
 
-// lace_task macros for tasks of arity 10
+// Task macros for arity 10
 
 #define TASK_10(RTYPE, NAME, ATYPE_1, ARG_1, ATYPE_2, ARG_2, ATYPE_3, ARG_3, ATYPE_4, ARG_4, ATYPE_5, ARG_5, ATYPE_6, ARG_6, ATYPE_7, ARG_7, ATYPE_8, ARG_8, ATYPE_9, ARG_9, ATYPE_10, ARG_10)\
                                                                                       \
@@ -3981,6 +4148,8 @@ void NAME##_DROP(lace_worker* _lace_worker)                                     
                                                                                       \
                                                                                       \
 
+
+/** @} */ /* end lace_task_macros */
 
 #ifdef __cplusplus
 }
