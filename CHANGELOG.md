@@ -2,6 +2,13 @@
 
 All notable changes to Lace will be documented in this file.
 
+## [1.5.3] - 2026-03-17
+
+###  Fixed
+
+- Fixed a few compilation warnings
+
+
 ## [1.5.2] - 2026-03-02
 
 ### Added
