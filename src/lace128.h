@@ -850,7 +850,11 @@ static inline uint64_t lace_gethrtime(void)
     return lace_macos_now_ns();
 #else
     struct timespec ts;
+#if defined(CLOCK_MONOTONIC_RAW)
     clock_gettime(CLOCK_MONOTONIC_RAW, &ts);
+#else
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+#endif
     return (uint64_t)ts.tv_sec * 1000000000ULL + (uint64_t)ts.tv_nsec;
 #endif
 }

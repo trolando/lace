@@ -31,7 +31,11 @@ static inline double wctime(void)
 static inline double wctime(void)
 {
     struct timespec tv;
+#if defined(CLOCK_MONOTONIC_RAW)
+    clock_gettime(CLOCK_MONOTONIC_RAW, &tv);
+#else
     clock_gettime(CLOCK_MONOTONIC, &tv);
+#endif
     return (tv.tv_sec + 1e-9 * tv.tv_nsec);
 }
 #endif
