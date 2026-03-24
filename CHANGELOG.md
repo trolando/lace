@@ -2,6 +2,17 @@
 
 All notable changes to Lace will be documented in this file.
 
+## [2.2.3] - 2026-03-24
+
+### Changed
+
+- Improved GitHub actions, also added FreeBSD actions
+
+### Fixed
+
+- Compilation error in FreeBSD
+
+
 ## [2.2.2] - 2026-03-24
 
 ### Changed
