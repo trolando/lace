@@ -895,7 +895,7 @@ lace_start(unsigned int _n_workers, size_t dequesize, size_t stacksize)
 #ifndef _WIN32
         struct rlimit lim;
         getrlimit(RLIMIT_STACK, &lim);
-        size_t size = lim.rlim_cur;
+        size_t size = (size_t)lim.rlim_cur;
         if (size < 16 * 1024 * 1024) size = 16 * 1024 * 1024;
 #else
         size_t size = 16 * 1024 * 1024;
