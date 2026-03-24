@@ -2,26 +2,24 @@ name: FreeBSD
 
 on: [push, pull_request]
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   freebsd-build:
-    name: 'FreeBSD 15.0 ${{matrix.arch}} ${{matrix.build_type}}'
+    name: 'FreeBSD 15.0 x86_64 ${{matrix.build_type}}'
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - { arch: x86_64,  build_type: Release, sync: rsync }
-          - { arch: x86_64,  build_type: Debug,   sync: rsync }
-          - { arch: aarch64, build_type: Release, sync: rsync }
-          - { arch: riscv64, build_type: Release, sync: scp   }
+        build_type: [Release, Debug]
     steps:
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@v6
     - name: Build and test in FreeBSD
       uses: vmactions/freebsd-vm@v1
       with:
         release: "15.0"
-        arch: ${{matrix.arch}}
-        sync: ${{matrix.sync}}
         copyback: false
         usesh: true
         prepare: |
@@ -31,5 +29,28 @@ jobs:
             -DCMAKE_BUILD_TYPE=${{matrix.build_type}} \
             -DLACE_BUILD_TESTS=ON \
             -DLACE_BUILD_BENCHMARKS=OFF
+          cmake --build build
+          ctest --test-dir build --output-on-failure -VV --timeout 120
+
+  freebsd-i386:
+    name: 'FreeBSD 14.3 i386 (-m32) Release'
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v6
+    - name: Build and test 32-bit in FreeBSD
+      uses: vmactions/freebsd-vm@v1
+      with:
+        release: "14.3"
+        copyback: false
+        usesh: true
+        prepare: |
+          pkg install -y cmake ninja
+        run: |
+          cmake -S . -B build -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DLACE_BUILD_TESTS=ON \
+            -DLACE_BUILD_BENCHMARKS=OFF \
+            -DCMAKE_C_FLAGS="-m32" \
+            -DCMAKE_CXX_FLAGS="-m32"
           cmake --build build
           ctest --test-dir build --output-on-failure -VV --timeout 120
