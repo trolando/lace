@@ -2,6 +2,18 @@
 
 All notable changes to Lace will be documented in this file.
 
+## [2.2.2] - 2026-03-24
+
+### Changed
+
+- Documentation now via Doxygen and Sphinx.
+
+### Fixed
+
+- Fixed compilation on systems without `CLOCK_MONOTONIC_RAW`.
+- Fixed several more compilation warnings and 32-bit systems.
+
+
 ## [2.2.1] - 2026-03-06
 
 ### Added

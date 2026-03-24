@@ -46,7 +46,7 @@ Using Lace in your project
    include(FetchContent)
    FetchContent_Declare(lace
        GIT_REPOSITORY https://github.com/trolando/lace.git
-       GIT_TAG        v2.2.1
+       GIT_TAG        v2.2.2
        GIT_SHALLOW    TRUE
    )
    FetchContent_MakeAvailable(lace)
@@ -56,7 +56,7 @@ Using Lace in your project
 
 .. code-block:: cmake
 
-   find_package(lace 2.2.1 REQUIRED CONFIG)
+   find_package(lace 2.2.2 REQUIRED CONFIG)
    target_link_libraries(my_app PRIVATE lace::lace)
 
 A robust pattern that handles all three cases:
@@ -64,12 +64,12 @@ A robust pattern that handles all three cases:
 .. code-block:: cmake
 
    if(NOT TARGET lace::lace)
-       find_package(lace 2.2.1 CONFIG QUIET)
+       find_package(lace 2.2.2 CONFIG QUIET)
        if(NOT lace_FOUND)
            include(FetchContent)
            FetchContent_Declare(lace
                GIT_REPOSITORY https://github.com/trolando/lace.git
-               GIT_TAG        v2.2.1
+               GIT_TAG        v2.2.2
                GIT_SHALLOW    TRUE
            )
            FetchContent_MakeAvailable(lace)
