@@ -1,0 +1,35 @@
+name: FreeBSD
+
+on: [push, pull_request]
+
+jobs:
+  freebsd-build:
+    name: 'FreeBSD 15.0 ${{matrix.arch}} ${{matrix.build_type}}'
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { arch: x86_64,  build_type: Release, sync: rsync }
+          - { arch: x86_64,  build_type: Debug,   sync: rsync }
+          - { arch: aarch64, build_type: Release, sync: rsync }
+          - { arch: riscv64, build_type: Release, sync: scp   }
+    steps:
+    - uses: actions/checkout@v4
+    - name: Build and test in FreeBSD
+      uses: vmactions/freebsd-vm@v1
+      with:
+        release: "15.0"
+        arch: ${{matrix.arch}}
+        sync: ${{matrix.sync}}
+        copyback: false
+        usesh: true
+        prepare: |
+          pkg install -y cmake ninja
+        run: |
+          cmake -S . -B build -G Ninja \
+            -DCMAKE_BUILD_TYPE=${{matrix.build_type}} \
+            -DLACE_BUILD_TESTS=ON \
+            -DLACE_BUILD_BENCHMARKS=OFF
+          cmake --build build
+          ctest --test-dir build --output-on-failure -VV --timeout 120
