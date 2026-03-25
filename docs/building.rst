@@ -41,12 +41,12 @@ Using Lace in your project
 
 **With FetchContent:**
 
-.. code-block:: cmake
+.. parsed-literal::
 
    include(FetchContent)
    FetchContent_Declare(lace
        GIT_REPOSITORY https://github.com/trolando/lace.git
-       GIT_TAG        v2.2.3
+       GIT_TAG        |tag|
        GIT_SHALLOW    TRUE
    )
    FetchContent_MakeAvailable(lace)
@@ -54,22 +54,22 @@ Using Lace in your project
 
 **With find_package (after installing):**
 
-.. code-block:: cmake
+.. parsed-literal::
 
-   find_package(lace 2.2.3 REQUIRED CONFIG)
+   find_package(lace |version| REQUIRED CONFIG)
    target_link_libraries(my_app PRIVATE lace::lace)
 
 A robust pattern that handles all three cases:
 
-.. code-block:: cmake
+.. parsed-literal::
 
    if(NOT TARGET lace::lace)
-       find_package(lace 2.2.3 CONFIG QUIET)
+       find_package(lace |version| CONFIG QUIET)
        if(NOT lace_FOUND)
            include(FetchContent)
            FetchContent_Declare(lace
                GIT_REPOSITORY https://github.com/trolando/lace.git
-               GIT_TAG        v2.2.3
+               GIT_TAG        |tag|
                GIT_SHALLOW    TRUE
            )
            FetchContent_MakeAvailable(lace)
@@ -113,6 +113,10 @@ CMake options
    * - ``LACE_ENABLE_PIC``
      - Compile with position-independent code (``-fPIC``). Required when
        embedding Lace inside a shared library.
+     - OFF
+   * - ``BUILD_SHARED_LIBS``
+     - Build shared libraries instead of static. Automatically enables
+       ``LACE_ENABLE_PIC``.
      - OFF
    * - ``LACE_PIE_TIMES``
      - Record precise overhead times per worker (startup, steal overhead,
@@ -201,6 +205,6 @@ Installing
    cmake --build build
    cmake --install build
 
-This installs static libraries, headers, CMake config files, and pkg-config
+This installs libraries, headers, CMake config files, and pkg-config
 ``.pc`` files. After installation, other projects can use ``find_package(lace)``
 or ``pkg-config --cflags --libs lace``.

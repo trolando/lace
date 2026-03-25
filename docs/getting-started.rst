@@ -56,12 +56,12 @@ As a subdirectory:
 
 Or fetch automatically:
 
-.. code-block:: cmake
+.. parsed-literal::
 
    include(FetchContent)
    FetchContent_Declare(lace
        GIT_REPOSITORY https://github.com/trolando/lace.git
-       GIT_TAG        v2.2.3
+       GIT_TAG        |tag|
        GIT_SHALLOW    TRUE
    )
    FetchContent_MakeAvailable(lace)

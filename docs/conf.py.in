@@ -30,3 +30,8 @@ html_css_files = ["custom.css"]
 html_title = f"Lace {release}"
 
 todo_include_todos = True
+
+rst_epilog = f"""
+.. |version| replace:: {release}
+.. |tag| replace:: v{release}
+"""
