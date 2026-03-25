@@ -8,18 +8,22 @@ concurrency:
 
 jobs:
   freebsd-build:
-    name: 'FreeBSD 15.0 x86_64 ${{matrix.build_type}}'
+    name: 'FreeBSD 15.0 ${{matrix.arch}} ${{matrix.build_type}}'
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        build_type: [Release, Debug]
+        include:
+          - { arch: x86_64,  build_type: Release }
+          - { arch: x86_64,  build_type: Debug }
+          - { arch: aarch64, build_type: Release }
     steps:
     - uses: actions/checkout@v6
     - name: Build and test in FreeBSD
       uses: vmactions/freebsd-vm@v1
       with:
         release: "15.0"
+        arch: ${{matrix.arch}}
         copyback: false
         usesh: true
         prepare: |
