@@ -3,6 +3,15 @@
 nparams=$1
 tasksize=$2
 
+# Extract version from CMakeLists.txt (single source of truth)
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+CMAKE_FILE="$SCRIPT_DIR/../CMakeLists.txt"
+LACE_VERSION=$(sed -n '/^project(/,/)/{ s/.*VERSION \([0-9]*\.[0-9]*\.[0-9]*\).*/\1/p; }' "$CMAKE_FILE")
+LACE_MAJOR=${LACE_VERSION%%.*}
+_rest=${LACE_VERSION#*.}
+LACE_MINOR=${_rest%%.*}
+LACE_PATCH=${_rest#*.}
+
 # Copyright notice:
 echo "/* 
  * Copyright 2013-2016 Formal Methods and Tools, University of Twente
@@ -60,9 +69,9 @@ echo '
  */
 
 // Lace version
-#define LACE_VERSION_MAJOR 2
-#define LACE_VERSION_MINOR 2
-#define LACE_VERSION_PATCH 3
+#define LACE_VERSION_MAJOR '$LACE_MAJOR'
+#define LACE_VERSION_MINOR '$LACE_MINOR'
+#define LACE_VERSION_PATCH '$LACE_PATCH'
 
 #if defined(_MSC_VER) && !defined(__clang__)
     #define LACE_MSVC 1
