@@ -7,7 +7,16 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  check-generated:
+    name: 'Check generated files are up to date'
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v6
+    - run: cd src && bash gen.sh
+    - run: git diff --exit-code -- src/
+
   gcc-build:
+    needs: check-generated
     name: 'Linux ${{matrix.name}} ${{matrix.build_type}}'
     runs-on: ${{matrix.os}}
     strategy:
@@ -36,6 +45,7 @@ jobs:
       run: ctest --test-dir build --output-on-failure -VV --timeout 60
 
   clang-build:
+    needs: check-generated
     name: 'Linux Clang-18 ${{matrix.build_type}}'
     runs-on: ubuntu-latest
     strategy:
@@ -61,6 +71,7 @@ jobs:
       run: ctest --test-dir build --output-on-failure -VV --timeout 60
 
   all-options:
+    needs: check-generated
     name: 'Linux GCC all options enabled'
     runs-on: ubuntu-latest
     steps:
@@ -88,6 +99,7 @@ jobs:
       run: ctest --test-dir build --output-on-failure -VV --timeout 60
 
   no-backoff:
+    needs: check-generated
     name: 'Linux GCC BACKOFF=OFF'
     runs-on: ubuntu-latest
     steps:
@@ -109,6 +121,7 @@ jobs:
       run: ctest --test-dir build --output-on-failure -VV --timeout 60
 
   i386-m32:
+    needs: check-generated
     name: 'Linux i386 (-m32) Release'
     runs-on: ubuntu-latest
     steps:
@@ -132,6 +145,7 @@ jobs:
       run: ctest --test-dir build32 --output-on-failure -VV --timeout 60 -j 1
 
   armv7-qemu:
+    needs: check-generated
     name: 'Linux armv7 (QEMU) Release'
     runs-on: ubuntu-latest
     steps:
