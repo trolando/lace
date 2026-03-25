@@ -3,6 +3,7 @@
 [![Linux](https://github.com/trolando/lace/actions/workflows/linux.yml/badge.svg)](https://github.com/trolando/lace/actions/workflows/linux.yml)
 [![macOS](https://github.com/trolando/lace/actions/workflows/macos.yml/badge.svg)](https://github.com/trolando/lace/actions/workflows/macos.yml)
 [![Windows](https://github.com/trolando/lace/actions/workflows/windows.yml/badge.svg)](https://github.com/trolando/lace/actions/workflows/windows.yml)
+[![FreeBSD](https://github.com/trolando/lace/actions/workflows/freebsd.yml/badge.svg)](https://github.com/trolando/lace/actions/workflows/freebsd.yml)
 [![License: Apache](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 
 Lace is a C framework for fine-grained fork-join parallelism on multi-core computers.
