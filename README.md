@@ -64,12 +64,12 @@ Or fetch automatically:
 
 ```cmake
 if(NOT TARGET lace::lace)
-  find_package(lace 2.2.3 CONFIG QUIET)
+  find_package(lace 2.2.4 CONFIG QUIET)
   if(NOT lace_FOUND)
     include(FetchContent)
     FetchContent_Declare(lace
         GIT_REPOSITORY https://github.com/trolando/lace.git
-        GIT_TAG        v2.2.3
+        GIT_TAG        v2.2.4
         GIT_SHALLOW    TRUE
     )
     FetchContent_MakeAvailable(lace)
