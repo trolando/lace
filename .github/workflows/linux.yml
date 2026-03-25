@@ -80,7 +80,8 @@ jobs:
           -DLACE_COUNT_TASKS=ON \
           -DLACE_COUNT_STEALS=ON \
           -DLACE_COUNT_SPLITS=ON \
-          -DLACE_PIE_TIMES=ON
+          -DLACE_PIE_TIMES=ON \
+          -DBUILD_SHARED_LIBS=ON
     - name: Build
       run: cmake --build build
     - name: Test

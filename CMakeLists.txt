@@ -32,6 +32,7 @@ option(LACE_USE_MMAP     "Let Lace use mmap to allocate virtual memory"         
 option(LACE_BACKOFF      "Let idle threads sleep if there is no work"                ON)
 option(LACE_NATIVE_OPT   "Enable -march=native for compiler optimizations"           ON)
 option(LACE_ENABLE_PIC   "Build Lace with -fPIC (e.g. for linking into shared libs)" OFF)
+option(BUILD_SHARED_LIBS "Build shared libraries instead of static"                  OFF)
 
 if(lace_is_top_level)
     option(LACE_BUILD_TESTS      "Build and run Lace tests"                          ON)
@@ -86,6 +87,10 @@ if(LACE_USE_HWLOC)
     find_package(HWLOC REQUIRED)
 endif()
 
+if(BUILD_SHARED_LIBS)
+    set(LACE_ENABLE_PIC ON)
+endif()
+
 foreach(_target lace lace32 lace128)
     if(_target STREQUAL "lace")
         set(_src ${CMAKE_CURRENT_SOURCE_DIR}/src/lace.c ${CMAKE_CURRENT_SOURCE_DIR}/src/lace.h)
@@ -95,7 +100,7 @@ foreach(_target lace lace32 lace128)
         set(_src ${CMAKE_CURRENT_SOURCE_DIR}/src/lace128.c ${CMAKE_CURRENT_SOURCE_DIR}/src/lace128.h)
     endif()
 
-    add_library(${_target} STATIC ${_src})
+    add_library(${_target} ${_src})
     add_library(lace::${_target} ALIAS ${_target})
 
     target_compile_features(${_target} PUBLIC c_std_11)
@@ -162,9 +167,12 @@ foreach(_target lace lace32 lace128)
     endif()
 
     set_target_properties(${_target} PROPERTIES
+        VERSION ${PROJECT_VERSION}
+        SOVERSION ${PROJECT_VERSION_MAJOR}
         ARCHIVE_OUTPUT_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/lib
         LIBRARY_OUTPUT_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/lib
         RUNTIME_OUTPUT_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/bin
+        WINDOWS_EXPORT_ALL_SYMBOLS ${BUILD_SHARED_LIBS}
     )
 endforeach()
 
@@ -270,6 +278,7 @@ endif()
 message(STATUS "")
 message(STATUS "Lace ${PROJECT_VERSION} configuration summary:")
 message(STATUS "  Build type        : ${CMAKE_BUILD_TYPE}")
+message(STATUS "  Shared libraries  : ${BUILD_SHARED_LIBS}")
 message(STATUS "  Top-level project : ${lace_is_top_level}")
 message(STATUS "  Use mmap          : ${LACE_USE_MMAP}")
 message(STATUS "  Use HWLOC         : ${LACE_USE_HWLOC}")
