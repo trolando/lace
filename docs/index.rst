@@ -25,6 +25,7 @@ Platform support
 * 🐧 Linux (GCC, Clang)
 * 🪟 Windows (MSVC, MSYS2/MinGW)
 * 🍎 macOS (Apple Clang)
+* 😈 FreeBSD (Clang)
 
 .. toctree::
    :maxdepth: 2

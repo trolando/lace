@@ -45,6 +45,8 @@ Lace uses a **scalable** double-ended queue for work-stealing. The owner thread 
 - 🐧 Linux (GCC, Clang)
 - 🪟 Windows (MSVC, MSYS2/MinGW)
 - 🍎 macOS (Apple Clang)
+- 😈 FreeBSD (Clang)
+
 
 ## Quick start
 
@@ -90,3 +92,4 @@ T. van Dijk (2016) [Sylvan: Multi-core Decision Diagrams](http://dx.doi.org/10.3
 ## License
 
 Lace is licensed under the [Apache 2.0 license](https://opensource.org/licenses/Apache-2.0).
+
