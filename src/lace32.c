@@ -535,7 +535,10 @@ lace_run_task(lace_task *task)
         ext_lace_task et;
         et.task = task;
         atomic_store_explicit(&et.task->thief, 0, memory_order_relaxed);
-        lace_sem_init(&et.sem, 0);
+        if (lace_sem_init(&et.sem, 0) != 0) {
+            fprintf(stderr, "Lace error: unable to create semaphore for external task!\n");
+            exit(1);
+        }
 
         ext_lace_task *exp = 0;
         while (atomic_compare_exchange_weak(&external_task, &exp, &et) != 1) {
@@ -882,28 +885,29 @@ lace_start(unsigned int _n_workers, size_t dequesize, size_t stacksize)
 #else
     // Prepare structures for thread creation
     pthread_attr_t worker_attr;
-    pthread_attr_init(&worker_attr);
-
-    // Set the stack size
-    if (stacksize != 0) {
-        if (stacksize < 16 * 1024 * 1024) stacksize = 16 * 1024 * 1024;
-        pthread_attr_setstacksize(&worker_attr, stacksize);
+    if (pthread_attr_init(&worker_attr) != 0) {
+        fprintf(stderr, "Lace error: unable to initialize thread attributes!\n");
+        exit(1);
     }
-    else {
+
+    // Compute the stack size
+    if (stacksize == 0) {
         // on certain systems, the default stack size is too small (e.g. OSX)
         // so by default, we just pick the current RLIMIT_STACK or 16M whichever is greatest
 #ifndef _WIN32
         struct rlimit lim;
-        getrlimit(RLIMIT_STACK, &lim);
-        size_t size = (size_t)lim.rlim_cur;
-        if (size < 16 * 1024 * 1024) size = 16 * 1024 * 1024;
+        if (getrlimit(RLIMIT_STACK, &lim) == 0) stacksize = (size_t)lim.rlim_cur;
+        if (stacksize > 67108864) stacksize = 67108864; // 64MB
 #else
-        size_t size = 16 * 1024 * 1024;
+        stacksize = 16777216;
 #endif
-        pthread_attr_setstacksize(&worker_attr, size);
-        stacksize = size;
     }
-#endif
+    if (stacksize < 16777216) stacksize = 16777216;
+
+    if (pthread_attr_setstacksize(&worker_attr, stacksize) != 0) {
+        fprintf(stderr, "Lace error: unable to set stack size to %zu bytes!\n", stacksize);
+        exit(1);
+    }
 
     if (verbosity) {
 #if LACE_USE_HWLOC
@@ -950,7 +954,11 @@ lace_start(unsigned int _n_workers, size_t dequesize, size_t stacksize)
     /* Spawn all workers */
     for (unsigned int i=0; i<n_workers; i++) {
 #if !LACE_MSVC
-        pthread_create(&handles[i], &worker_attr, lace_worker_thread, (void*)(size_t)i);
+        int rc = pthread_create(&handles[i], &worker_attr, lace_worker_thread, (void*)(size_t)i);
+        if (rc != 0) {
+            fprintf(stderr, "Lace error: unable to create worker thread %u: %s\n", i, strerror(rc));
+            exit(1);
+        }
 #else
         unsigned thread_id;
         handles[i] = (HANDLE)_beginthreadex(
