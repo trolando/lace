@@ -2,6 +2,18 @@
 
 All notable changes to Lace will be documented in this file.
 
+## [1.5.4] - 2026-03-26
+
+### Changed
+
+- Now allocates memory on the right memory node with HWLOC enabled.
+
+### Fixed
+
+- Now checks the return value of various important calls, including pthread_create.
+- If the detected stack size (with stacksize == 0) is insanely high, default to max 64MB
+
+
 ## [1.5.3] - 2026-03-17
 
 ###  Fixed
