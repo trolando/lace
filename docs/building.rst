@@ -92,11 +92,6 @@ CMake options
    * - Option
      - Description
      - Default
-   * - ``LACE_USE_MMAP``
-     - Use ``mmap`` (or ``VirtualAlloc`` on Windows) to allocate task deques
-       instead of ``aligned_alloc``. Physical pages are lazily allocated by the
-       OS, which reduces startup memory usage.
-     - ON
    * - ``LACE_USE_HWLOC``
      - Use the ``hwloc`` library to pin worker threads to CPU cores.
        Important for NUMA systems where memory locality affects performance.
@@ -172,11 +167,6 @@ Configuration recommendations
 throughput, but it prevents idle workers from consuming 100% CPU when there
 is no work. There is no reason to turn this off unless you are doing very
 precise micro-benchmarking of steal overhead.
-
-**Use LACE_USE_MMAP.** When enabled, deques are allocated as virtual memory.
-Physical pages are committed lazily by the OS, so a large ``dqsize`` has no
-upfront memory cost. This means you can be generous with the deque size
-without worrying about wasting RAM.
 
 **Use LACE_USE_HWLOC for NUMA systems.** On multi-socket machines, enabling
 hwloc ensures that worker threads are pinned to cores and that memory is

@@ -87,7 +87,6 @@ jobs:
           -DLACE_BUILD_TESTS=ON \
           -DLACE_BUILD_BENCHMARKS=ON \
           -DLACE_USE_HWLOC=ON \
-          -DLACE_USE_MMAP=ON \
           -DLACE_COUNT_TASKS=ON \
           -DLACE_COUNT_STEALS=ON \
           -DLACE_COUNT_SPLITS=ON \

@@ -457,7 +457,6 @@ static void
 lace_init_worker(unsigned int worker)
 {
     // Allocate our memory
-#if LACE_USE_MMAP
 #if defined(_WIN32)
     workers_memory[worker] = (worker_data*)VirtualAlloc(NULL, workers_memory_size, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE);
     if (workers_memory[worker] == NULL) {
@@ -470,20 +469,6 @@ lace_init_worker(unsigned int worker)
         fprintf(stderr, "Lace error: Unable to allocate mmapped memory for the Lace worker!\n");
         exit(1);
     }
-#endif
-#else
-#if defined(_MSC_VER) || defined(__MINGW64_VERSION_MAJOR)
-    workers_memory[worker] = _aligned_malloc(workers_memory_size, cache_line_size);
-#elif defined(__MINGW32__)
-    workers_memory[worker] = __mingw_aligned_malloc(workers_memory_size, cache_line_size);
-#else
-    workers_memory[worker] = aligned_alloc(cache_line_size, workers_memory_size);
-#endif
-    if (workers_memory[worker] == 0) {
-        fprintf(stderr, "Lace error: Unable to allocate memory for the Lace worker!\n");
-        exit(1);
-    }
-    memset(workers_memory[worker], 0, workers_memory_size);
 #endif
 
     // Set pointers
@@ -1263,18 +1248,10 @@ void lace_stop(void)
     lace_barrier_destroy();
 
     for (unsigned int i=0; i<n_workers; i++) {
-#if LACE_USE_MMAP
 #if defined(_WIN32)
         VirtualFree(workers_memory[i], 0, MEM_RELEASE);
 #else
         munmap(workers_memory[i], workers_memory_size);
-#endif
-#elif defined(_MSC_VER) || defined(__MINGW64_VERSION_MAJOR)
-	_aligned_free(workers_memory[i]);
-#elif defined(__MINGW32__)
-	__mingw_aligned_free(workers_memory[i]);
-#else
-        free(workers_memory[i]);
 #endif
     }
 

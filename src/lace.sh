@@ -359,9 +359,8 @@ typedef struct lace_task lace_task;
  * is enabled (the default), CPU usage drops to near zero after roughly
  * one second of inactivity.
  *
- * When LACE_USE_MMAP is enabled, deques are allocated as virtual memory
- * and physical pages are committed lazily, so a large @p dqsize has no
- * upfront memory cost.
+ * Deques are allocated as virtual memory and physical pages are committed
+ * lazily, so a large @p dqsize has no upfront memory cost.
  *
  * When LACE_USE_HWLOC is enabled, worker threads are pinned to CPU cores.
  *
