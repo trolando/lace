@@ -1,34 +1,30 @@
 Defining Tasks
 ==============
 
-Tasks are declared with the ``TASK_N`` family of macros, where *N* is the
-number of parameters. Place the macro in a header or at the top of a source
+Tasks are declared with the ``TASK`` macro.
+Place the macro in a header or at the top of a source
 file; it generates the task descriptor and all associated functions. Then
 provide the task body as a regular C function named ``NAME_CALL``.
 
 .. code-block:: c
 
-   TASK_0(int, my_task)
+   TASK(int, my_task)
    int my_task_CALL(lace_worker* lw) { ... }
 
    TASK(int, fibonacci, int, n)
    int fibonacci_CALL(lace_worker* lw, int n) { ... }
 
-For ``void`` return types, use the ``VOID_TASK_N`` variants:
-
-.. code-block:: c
-
-   VOID_TASK_1(my_void_task, int, n)
+   TASK(void, my_void_task, int, n)
    void my_void_task_CALL(lace_worker* lw, int n) { ... }
 
-   VOID_TASK_2(process, int*, data, int, size)
+   TASK(void, process, int*, data, int, size)
    void process_CALL(lace_worker* lw, int* data, int size) { ... }
 
 
 Generated functions
 -------------------
 
-Each ``TASK_N(RTYPE, NAME, ...)`` macro generates the following:
+Each ``TASK(RTYPE, NAME, ...)`` macro generates the following:
 
 .. list-table::
    :header-rows: 1

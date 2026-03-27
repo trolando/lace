@@ -247,7 +247,7 @@ int check_matrix(block * R, long x, long y, long o, double v)
 /* Add matrix T into matrix R, where T and R are bl blocks in size
  *
  */
-VOID_TASK_6(add_matrix, block*, T, long, ot, block*, R, long, oR, long, x, long, y)
+TASK(void, add_matrix, block*, T, long, ot, block*, R, long, oR, long, x, long, y)
 void add_matrix_CALL(lace_worker* worker, block* T, long ot, block* R, long oR, long x, long y)
 {
     if (x + y == 2) {
@@ -290,7 +290,7 @@ void init_matrix(block * R, long x, long y, long o, double v)
     }
 }
 
-VOID_TASK_10(multiply_matrix, block*, A, long, oa, block*, B, long, ob, long, x, long, y, long, z, block*, R, long, oR, int, add)
+TASK(void, multiply_matrix, block*, A, long, oa, block*, B, long, ob, long, x, long, y, long, z, block*, R, long, oR, int, add)
 void multiply_matrix_CALL(lace_worker* worker, block* A, long oa, block* B, long ob, long x, long y, long z, block* R, long oR, int add)
 {
     if (x + y + z == 3) {

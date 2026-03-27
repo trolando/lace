@@ -43,9 +43,9 @@ double dtdxsq, dtdysq;
 double ** odd;
 double ** even;
 
-VOID_TASK_3(heat, double**, m, int, il, int, iu)
-VOID_TASK_5(diffuse, double**, out, double**, in, int, il, int, iu, double, t)
-VOID_TASK_0(test)
+TASK(void, heat, double**, m, int, il, int, iu)
+TASK(void, diffuse, double**, out, double**, in, int, il, int, iu, double, t)
+TASK(void, test)
 
 void heat_CALL(lace_worker* worker, double ** m, int il, int iu)
 {

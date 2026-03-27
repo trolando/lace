@@ -39,7 +39,7 @@ echo '
  * @brief Lace: a work-stealing framework for multi-core fork-join parallelism.
  *
  * Lace provides lightweight task-based parallelism using work-stealing deques.
- * Tasks are defined with the TASK_N() family of macros and executed across a
+ * Tasks are defined with the TASK() macro and executed across a
  * pool of worker threads. Each worker maintains a private deque; idle workers
  * steal tasks from busy ones.
  *
@@ -47,7 +47,7 @@ echo '
  * @code
  * #include <lace.h>
  *
- * TASK_1(int, fibonacci, int, n)
+ * TASK(int, fibonacci, int, n)
  * int fibonacci_CALL(lace_worker* lw, int n) {
  *     if (n < 2) return n;
  *     fibonacci_SPAWN(lw, n-1);

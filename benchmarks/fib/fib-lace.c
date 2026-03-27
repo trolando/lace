@@ -4,7 +4,7 @@
 #include <lace32.h>
 #include <common.h>
 
-TASK_1(int, pfib, int, n)
+TASK(int, pfib, int, n)
 
 int pfib_CALL(lace_worker *worker, int n)
 {

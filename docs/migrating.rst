@@ -24,7 +24,7 @@ macros that hid the worker pointer. In v2, the body is a regular C function
 
 .. code-block:: c
 
-   TASK_1(int, fibonacci, int, n)
+   TASK(int, fibonacci, int, n)
 
    int fibonacci_CALL(lace_worker* lw, int n)
    {
@@ -38,7 +38,7 @@ macros that hid the worker pointer. In v2, the body is a regular C function
 Key differences
 ---------------
 
-**Task body is a plain C function.** The ``TASK_N`` macro only generates
+**Task body is a plain C function.** The ``TASK`` macro only generates
 the task descriptor and wrapper code. You write the body as
 ``NAME_CALL(lace_worker* lw, ...)``. This means the body is visible to
 debuggers, can be stepped through in GDB, and can call non-Lace helper

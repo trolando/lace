@@ -97,7 +97,7 @@ static int compare(struct item *a, struct item *b)
  * return the optimal solution for n items (first is e) and
  * capacity c. Value so far is v.
  */
-TASK_4(int, knapsack, struct item *, e, int, c, int, n, int, v)
+TASK(int, knapsack, struct item *, e, int, c, int, n, int, v)
 
 int knapsack_CALL(lace_worker* worker, struct item *e, int c, int n, int v)
 {

@@ -8,7 +8,7 @@
  * N Queens problem
  * Given already placed queens in array a, and we want n queens, place a queen on row d at position i
  */
-TASK_4(long, nqueens, const int*, a, int, n, int, d, int, i)
+TASK(long, nqueens, const int*, a, int, n, int, d, int, i)
 
 long nqueens_CALL(lace_worker* worker, const int* a, int n, int d, int i)
 {

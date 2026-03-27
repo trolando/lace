@@ -405,7 +405,7 @@ void MultiplyByDivideAndConquer(REAL *C, REAL *A, REAL *B,
  **    C = (*C WRITE) Matrix C contains A x B. (Initial value of *C undefined.)
  **
  *****************************************************************************/
-VOID_TASK_7(OptimizedStrassenMultiply, REAL *, C, REAL *, A, REAL *, B,
+TASK(void, OptimizedStrassenMultiply, REAL *, C, REAL *, A, REAL *, B,
         unsigned, MatrixSize,
         unsigned, RowWidthC,
         unsigned, RowWidthA,

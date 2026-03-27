@@ -9,7 +9,7 @@
 Lace is a C framework for fine-grained fork-join parallelism on multi-core computers.
 
 ```c
-TASK(int, fibonacci, int, n)  // declare a Lace task (place in header or source)
+TASK(int, fibonacci, int, n)          // declare a Lace task (place in header or source)
 
 int fibonacci_CALL(lace_worker* lw, int n) {
     if (n < 2) return n;

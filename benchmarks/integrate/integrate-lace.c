@@ -12,7 +12,7 @@ static double f(double x)
     return (x * x + 1.0) * x;
 }
 
-TASK_5(double, integrate, double, x1, double, y1, double, x2, double, y2, double, area)
+TASK(double, integrate, double, x1, double, y1, double, x2, double, y2, double, area)
 
 double
 integrate_CALL(lace_worker* worker, double x1, double y1, double x2, double y2, double area)

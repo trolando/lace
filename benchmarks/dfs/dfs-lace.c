@@ -21,7 +21,7 @@ LACE_NOINLINE int loop(void)
     return s;
 }
 
-TASK_1(int, tree, int, d)
+TASK(int, tree, int, d)
 
 int tree_CALL(lace_worker* worker, int d)
 {

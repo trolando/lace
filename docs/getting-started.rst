@@ -22,7 +22,7 @@ Quick example
    #include <lace.h>
    #include <stdio.h>
 
-   TASK_1(int, fibonacci, int, n)        // declare the task, create helper functions
+   TASK(int, fibonacci, int, n)          // declare the task, create helper functions
 
    int fibonacci_CALL(lace_worker* lw, int n)
    {
@@ -56,7 +56,7 @@ As a subdirectory:
 
 Or fetch automatically:
 
-.. parsed-literal::
+.. code-block:: cmake
 
    include(FetchContent)
    FetchContent_Declare(lace

@@ -587,7 +587,7 @@ void lace_steal_random(lace_worker *_lace_worker)
     lace_check_yield(_lace_worker);
 
     if (LACE_UNLIKELY(atomic_load_explicit(&external_task_count, memory_order_acquire) > 0)) {
-        lace_steal_external(lw);
+        lace_steal_external(_lace_worker);
     } else if (n_workers > 1) {
         lace_worker_public *victim = workers[(_lace_worker->worker + 1U + (lace_rng(_lace_worker) % (n_workers-1))) % n_workers];
 
@@ -605,7 +605,7 @@ void lace_steal_random(lace_worker *_lace_worker)
  * Main Lace worker implementation.
  * Steal from random victims until "quit" is set.
  */
-VOID_TASK_1(lace_steal_loop, atomic_int*, quit)
+TASK(void, lace_steal_loop, atomic_int*, quit)
 
 LACE_NO_SANITIZE_THREAD
 void lace_steal_loop_CALL(lace_worker* lw, atomic_int* quit)
@@ -1364,7 +1364,7 @@ lace_yield(lace_worker *worker)
  * Root task for the TOGETHER method.
  * Ensures after executing, to steal random tasks until done.
  */
-VOID_TASK_2(lace_together_root, lace_task*, t, atomic_int*, finished)
+TASK(void, lace_together_root, lace_task*, t, atomic_int*, finished)
 
 void
 lace_together_root_CALL(lace_worker* lw, lace_task* t, atomic_int* finished)
@@ -1379,7 +1379,7 @@ lace_together_root_CALL(lace_worker* lw, lace_task* t, atomic_int* finished)
     while (atomic_load_explicit(finished, memory_order_relaxed) != 0) lace_steal_random(lw);
 }
 
-VOID_TASK_1(lace_wrap_together, lace_task*, task)
+TASK(void, lace_wrap_together, lace_task*, task)
 
 void
 lace_wrap_together_CALL(lace_worker* worker, lace_task* task)
@@ -1412,7 +1412,7 @@ lace_wrap_together_CALL(lace_worker* worker, lace_task* task)
     lace_exec_in_new_frame(worker, &_t2);
 }
 
-VOID_TASK_2(lace_newframe_root, lace_task*, t, atomic_int*, done)
+TASK(void, lace_newframe_root, lace_task*, t, atomic_int*, done)
 
 void
 lace_newframe_root_CALL(lace_worker *lw, lace_task* t, atomic_int *done)
@@ -1422,7 +1422,7 @@ lace_newframe_root_CALL(lace_worker *lw, lace_task* t, atomic_int *done)
     atomic_store_explicit(done, 1, memory_order_relaxed);
 }
 
-VOID_TASK_1(lace_wrap_newframe, lace_task*, task)
+TASK(void, lace_wrap_newframe, lace_task*, task)
 
 void
 lace_wrap_newframe_CALL(lace_worker* worker, lace_task* task)

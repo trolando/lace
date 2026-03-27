@@ -292,7 +292,7 @@ ELM *binsplit(ELM val, ELM *low, ELM *high)
         return low;
 }
 
-VOID_TASK_5(cilkmerge, ELM*, low1, ELM*, high1, ELM*, low2, ELM*, high2, ELM*, lowdest)
+TASK(void, cilkmerge, ELM*, low1, ELM*, high1, ELM*, low2, ELM*, high2, ELM*, lowdest)
 
 void cilkmerge_CALL(lace_worker* worker, ELM* low1, ELM* high1, ELM* low2, ELM* high2, ELM* lowdest)
 {
@@ -352,7 +352,7 @@ void cilkmerge_CALL(lace_worker* worker, ELM* low1, ELM* high1, ELM* low2, ELM* 
     return;
 }
 
-VOID_TASK_3(cilksort, ELM*, low, ELM*, tmp, long, size)
+TASK(void, cilksort, ELM*, low, ELM*, tmp, long, size)
 
 void cilksort_CALL(lace_worker* worker, ELM* low, ELM* tmp, long size)
 {

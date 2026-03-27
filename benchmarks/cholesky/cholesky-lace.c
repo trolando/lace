@@ -349,7 +349,7 @@ static Matrix set_matrix(int depth, Matrix a, int r, int c, Real value)
  * Perform R -= A * Transpose(B)
  * if lower==1, update only lower-triangular part of R
  */
-TASK_5(Matrix, mul_and_subT, int, depth, int, lower, Matrix, a, Matrix, b, Matrix, r)
+TASK(Matrix, mul_and_subT, int, depth, int, lower, Matrix, a, Matrix, b, Matrix, r)
 
 Matrix mul_and_subT_CALL(lace_worker* worker, int depth, int lower, Matrix a, Matrix b, Matrix r)
 {
@@ -447,7 +447,7 @@ Matrix mul_and_subT_CALL(lace_worker* worker, int depth, int lower, Matrix a, Ma
  * Perform substitution to solve for B in BL = A
  * Returns B in place of A.
  */
-TASK_3(Matrix, backsub, int, depth, Matrix, a, Matrix, l)
+TASK(Matrix, backsub, int, depth, Matrix, a, Matrix, l)
 
 Matrix backsub_CALL(lace_worker* worker, int depth, Matrix a, Matrix l)
 {
@@ -497,7 +497,7 @@ Matrix backsub_CALL(lace_worker* worker, int depth, Matrix a, Matrix l)
 /*
  * Compute Cholesky factorization of A.
  */
-TASK_2(Matrix, cholesky, int, depth, Matrix, a)
+TASK(Matrix, cholesky, int, depth, Matrix, a)
 
 Matrix cholesky_CALL(lace_worker* worker, int depth, Matrix a)
 {

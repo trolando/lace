@@ -41,7 +41,7 @@ Using Lace in your project
 
 **With FetchContent:**
 
-.. parsed-literal::
+.. code-block:: cmake
 
    include(FetchContent)
    FetchContent_Declare(lace
@@ -54,14 +54,14 @@ Using Lace in your project
 
 **With find_package (after installing):**
 
-.. parsed-literal::
+.. code-block:: cmake
 
    find_package(lace |version| REQUIRED CONFIG)
    target_link_libraries(my_app PRIVATE lace::lace)
 
 A robust pattern that handles all three cases:
 
-.. parsed-literal::
+.. code-block:: cmake
 
    if(NOT TARGET lace::lace)
        find_package(lace |version| CONFIG QUIET)

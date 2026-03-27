@@ -41,7 +41,7 @@ static void fft_twiddle_gen1(COMPLEX * in, COMPLEX * out,
     }
 }
 
-VOID_TASK_9(fft_twiddle_gen, int, i, int, i1, COMPLEX*, in, COMPLEX*, out, COMPLEX*, W, int, nW, int, nWdn, int, r, int, m)
+TASK(void, fft_twiddle_gen, int, i, int, i1, COMPLEX*, in, COMPLEX*, out, COMPLEX*, W, int, nW, int, nWdn, int, r, int, m)
 
 void fft_twiddle_gen_CALL(lace_worker* worker, int i, int i1, COMPLEX* in, COMPLEX* out, COMPLEX* W, int nW, int nWdn, int r, int m){
     if (i == i1 - 1) {
@@ -71,7 +71,7 @@ static void fft_base_2(COMPLEX * in, COMPLEX * out)
     c_im(out[1]) = (i1_0 - i1_1);
 }
 
-VOID_TASK_8(fft_twiddle_2, int, a, int, b, COMPLEX*, in, COMPLEX*, out, COMPLEX*, W, int, nW, int, nWdn, int, m)
+TASK(void, fft_twiddle_2, int, a, int, b, COMPLEX*, in, COMPLEX*, out, COMPLEX*, W, int, nW, int, nWdn, int, m)
 void fft_twiddle_2_CALL(lace_worker* worker, int a, int b, COMPLEX* in, COMPLEX* out, COMPLEX* W, int nW, int nWdn, int m)
 {
     int l1, i;
@@ -107,7 +107,7 @@ void fft_twiddle_2_CALL(lace_worker* worker, int a, int b, COMPLEX* in, COMPLEX*
     }
 }
 
-VOID_TASK_5(fft_unshuffle_2, int, a, int, b, COMPLEX*, in, COMPLEX*, out, int, m)
+TASK(void, fft_unshuffle_2, int, a, int, b, COMPLEX*, in, COMPLEX*, out, int, m)
 void fft_unshuffle_2_CALL(lace_worker* worker, int a, int b, COMPLEX* in, COMPLEX* out, int m)
 {
     int i;
@@ -170,7 +170,7 @@ static void fft_base_4(COMPLEX * in, COMPLEX * out)
     c_im(out[3]) = (i1_2 + r1_3);
 }
 
-VOID_TASK_8(fft_twiddle_4, int, a, int, b, COMPLEX*, in, COMPLEX*, out, COMPLEX*, W, int, nW, int, nWdn, int, m)
+TASK(void, fft_twiddle_4, int, a, int, b, COMPLEX*, in, COMPLEX*, out, COMPLEX*, W, int, nW, int, nWdn, int, m)
 void fft_twiddle_4_CALL(lace_worker* worker, int a, int b, COMPLEX* in, COMPLEX* out, COMPLEX* W, int nW, int nWdn, int m)
 {
     int l1, i;
@@ -240,7 +240,7 @@ void fft_twiddle_4_CALL(lace_worker* worker, int a, int b, COMPLEX* in, COMPLEX*
     }
 }
 
-VOID_TASK_5(fft_unshuffle_4, int, a, int, b, COMPLEX*, in, COMPLEX*, out, int, m)
+TASK(void, fft_unshuffle_4, int, a, int, b, COMPLEX*, in, COMPLEX*, out, int, m)
 void fft_unshuffle_4_CALL(lace_worker* worker, int a, int b, COMPLEX* in, COMPLEX* out, int m)
 {
     int i;
@@ -378,7 +378,7 @@ static void fft_base_8(COMPLEX * in, COMPLEX * out)
     }
 }
 
-VOID_TASK_8(fft_twiddle_8, int, a, int, b, COMPLEX*, in, COMPLEX*, out, COMPLEX*, W, int, nW, int, nWdn, int, m)
+TASK(void, fft_twiddle_8, int, a, int, b, COMPLEX*, in, COMPLEX*, out, COMPLEX*, W, int, nW, int, nWdn, int, m)
 void fft_twiddle_8_CALL(lace_worker* worker, int a, int b, COMPLEX* in, COMPLEX* out, COMPLEX* W, int nW, int nWdn, int m)
 {
     int l1, i;
@@ -532,7 +532,7 @@ void fft_twiddle_8_CALL(lace_worker* worker, int a, int b, COMPLEX* in, COMPLEX*
     }
 }
 
-VOID_TASK_5(fft_unshuffle_8, int, a, int, b, COMPLEX*, in, COMPLEX*, out, int, m)
+TASK(void, fft_unshuffle_8, int, a, int, b, COMPLEX*, in, COMPLEX*, out, int, m)
 void fft_unshuffle_8_CALL(lace_worker* worker, int a, int b, COMPLEX* in, COMPLEX* out, int m)
 {
     int i;
@@ -846,7 +846,7 @@ static void fft_base_16(COMPLEX * in, COMPLEX * out)
     }
 }
 
-VOID_TASK_8(fft_twiddle_16, int, a, int, b, COMPLEX*, in, COMPLEX*, out, COMPLEX*, W, int, nW, int, nWdn, int, m)
+TASK(void, fft_twiddle_16, int, a, int, b, COMPLEX*, in, COMPLEX*, out, COMPLEX*, W, int, nW, int, nWdn, int, m)
 void fft_twiddle_16_CALL(lace_worker* worker, int a, int b, COMPLEX* in, COMPLEX* out, COMPLEX* W, int nW, int nWdn, int m)
 {
     int l1, i;
@@ -1200,7 +1200,7 @@ void fft_twiddle_16_CALL(lace_worker* worker, int a, int b, COMPLEX* in, COMPLEX
     }
 }
 
-VOID_TASK_5(fft_unshuffle_16, int, a, int, b, COMPLEX*, in, COMPLEX*, out, int, m)
+TASK(void, fft_unshuffle_16, int, a, int, b, COMPLEX*, in, COMPLEX*, out, int, m)
 void fft_unshuffle_16_CALL(lace_worker* worker, int a, int b, COMPLEX* in, COMPLEX* out, int m)
 {
     int i;
@@ -1930,7 +1930,7 @@ static void fft_base_32(COMPLEX * in, COMPLEX * out)
     }
 }
 
-VOID_TASK_8(fft_twiddle_32, int, a, int, b, COMPLEX*, in, COMPLEX*, out, COMPLEX*, W, int, nW, int, nWdn, int, m)
+TASK(void, fft_twiddle_32, int, a, int, b, COMPLEX*, in, COMPLEX*, out, COMPLEX*, W, int, nW, int, nWdn, int, m)
 void fft_twiddle_32_CALL(lace_worker* worker, int a, int b, COMPLEX* in, COMPLEX* out, COMPLEX* W, int nW, int nWdn, int m)
 {
     int l1, i;
@@ -2748,7 +2748,7 @@ void fft_twiddle_32_CALL(lace_worker* worker, int a, int b, COMPLEX* in, COMPLEX
     }
 }
 
-VOID_TASK_5(fft_unshuffle_32, int, a, int, b, COMPLEX*, in, COMPLEX*, out, int, m)
+TASK(void, fft_unshuffle_32, int, a, int, b, COMPLEX*, in, COMPLEX*, out, int, m)
 void fft_unshuffle_32_CALL(lace_worker* worker, int a, int b, COMPLEX* in, COMPLEX* out, int m)
 {
     int i;

@@ -5,7 +5,7 @@
 
 int counter;
 
-VOID_TASK_0(test_count)
+TASK(void, test_count)
 void test_count_CALL(lace_worker* worker)
 {
     counter++;
@@ -15,13 +15,13 @@ void test_count_CALL(lace_worker* worker)
 
 int *worker_counter;
 
-VOID_TASK_0(test_count_perworker)
+TASK(void, test_count_perworker)
 void test_count_perworker_CALL(lace_worker* worker)
 {
     worker_counter[lace_worker_id()]++;
 }
 
-VOID_TASK_1(test_only_newframe, int, depth)
+TASK(void, test_only_newframe, int, depth)
 void test_only_newframe_CALL(lace_worker* worker, int depth)
 {
     if (depth > 0) {
@@ -38,7 +38,7 @@ void test_only_newframe_CALL(lace_worker* worker, int depth)
     }
 }
 
-VOID_TASK_1(test_only_together, int, depth)
+TASK(void, test_only_together, int, depth)
 void test_only_together_CALL(lace_worker* worker, int depth)
 {
     if (depth > 0) {
@@ -55,8 +55,8 @@ void test_only_together_CALL(lace_worker* worker, int depth)
     }
 }
 
-VOID_TASK_1(test_together, int, depth)
-VOID_TASK_1(test_newframe, int, depth)
+TASK(void, test_together, int, depth)
+TASK(void, test_newframe, int, depth)
 
 void test_together_CALL(lace_worker* worker, int depth)
 {
@@ -90,7 +90,7 @@ void test_newframe_CALL(lace_worker* worker, int depth)
     }
 }
 
-VOID_TASK_0(test_report_id)
+TASK(void, test_report_id)
 void test_report_id_CALL(lace_worker* worker)
 {
     printf("running from worker %d\n", lace_worker_id());

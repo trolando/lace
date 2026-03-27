@@ -167,7 +167,7 @@ static void block_schur(Block B, Block A, Block C)
 /**
  * schur - Compute M' = M - VW.
  */
-VOID_TASK_4(schur, Matrix, M, Matrix, V, Matrix, W, int, nb)
+TASK(void, schur, Matrix, M, Matrix, V, Matrix, W, int, nb)
 void schur_CALL(lace_worker* worker, Matrix M, Matrix V, Matrix W, int nb)
 {
     Matrix M00, M01, M10, M11;
@@ -219,9 +219,9 @@ void schur_CALL(lace_worker* worker, Matrix M, Matrix V, Matrix W, int nb)
 /*
  * lower_solve - Compute M' where LM' = M.
  */
-VOID_TASK_3(lower_solve, Matrix, M, Matrix, L, int, nb)
+TASK(void, lower_solve, Matrix, M, Matrix, L, int, nb)
 
-VOID_TASK_4(aux_lower_solve, Matrix, Ma, Matrix, Mb, Matrix, L, int, nb)
+TASK(void, aux_lower_solve, Matrix, Ma, Matrix, Mb, Matrix, L, int, nb)
 void aux_lower_solve_CALL(lace_worker* worker, Matrix Ma, Matrix Mb, Matrix L, int nb)
 {
     Matrix L00, L10, L11;
@@ -266,9 +266,9 @@ void lower_solve_CALL(lace_worker* worker, Matrix M, Matrix L, int nb)
 /*
  * upper_solve - Compute M' where M'U = M.
  */
-VOID_TASK_3(upper_solve, Matrix, M, Matrix, U, int, nb)
+TASK(void, upper_solve, Matrix, M, Matrix, U, int, nb)
 
-VOID_TASK_4(aux_upper_solve, Matrix, Ma, Matrix, Mb, Matrix, U, int, nb)
+TASK(void, aux_upper_solve, Matrix, Ma, Matrix, Mb, Matrix, U, int, nb)
 void aux_upper_solve_CALL(lace_worker* worker, Matrix Ma, Matrix Mb, Matrix U, int nb)
 {
     Matrix U00, U01, U11;
@@ -315,7 +315,7 @@ void upper_solve_CALL(lace_worker* worker, Matrix M, Matrix U, int nb)
 /*
  * lu - Perform LU decomposition of matrix M.
  */
-VOID_TASK_2(lu, Matrix, M, int, nb)
+TASK(void, lu, Matrix, M, int, nb)
 void lu_CALL(lace_worker* worker, Matrix M, int nb)
 {
     Matrix M00, M01, M10, M11;
