@@ -147,6 +147,7 @@ foreach(_target lace lace32 lace128)
     elseif(MSVC)
         target_compile_options(${_target} PUBLIC
             /Zc:__STDC__
+            /Zc:preprocessor
             /experimental:c11atomics
         )
         target_compile_options(${_target} PRIVATE

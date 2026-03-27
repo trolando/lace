@@ -19,6 +19,7 @@ macro(set_compilation_settings NAME)
         target_compile_options(${NAME} PRIVATE $<$<CONFIG:Release>:/GL>)
         target_link_options(${NAME} PRIVATE $<$<CONFIG:Release>:/LTCG>)
     endif()
+
     # libm only on platforms that have it
     if(UNIX)
         target_link_libraries(${NAME} PRIVATE m)

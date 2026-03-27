@@ -1054,6 +1054,63 @@ static inline void lace_make_all_shared(void)
  *              be executed locally
  */
 int lace_sync(lace_worker *w, lace_task *head);
+
+#define LACE_PASTE_(a, b) a ## b
+#define LACE_PASTE(a, b)  LACE_PASTE_(a, b)
+
+#define LACE_NARG(...) LACE_NARG_(__VA_ARGS__ __VA_OPT__(,) \
+    30,29,28,27,26,25,24,23,22,21,20,19,18,17,16,15,14,13,12,11,10,9,8,7,6,5,4,3,2,1,0)
+#define LACE_NARG_( \
+    _1,_2,_3,_4,_5,_6,_7,_8,_9,_10, \
+    _11,_12,_13,_14,_15,_16,_17,_18,_19,_20,_21,_22,_23,_24,_25,_26,_27,_28,_29,_30,N,...) N
+
+#define LACE_SECOND_(a, b, ...) b
+#define LACE_PROBE() ~, 1
+#define LACE_IS_PROBE(...) LACE_SECOND_(__VA_ARGS__, 0, ~)
+#define LACE_IS_VOID(T) LACE_IS_PROBE(LACE_PASTE(LACE_IS_VOID_HELPER_, T))
+#define LACE_IS_VOID_HELPER_void LACE_PROBE()
+
+#define LACE_ARITY(n) LACE_ARITY_I(n)
+#define LACE_ARITY_I(n) LACE_ARITY_##n
+#define LACE_ARITY_2  0
+#define LACE_ARITY_4  1
+#define LACE_ARITY_6  2
+#define LACE_ARITY_8  3
+#define LACE_ARITY_10 4
+#define LACE_ARITY_12 5
+#define LACE_ARITY_14 6
+#define LACE_ARITY_16 7
+#define LACE_ARITY_18 8
+#define LACE_ARITY_20 9
+#define LACE_ARITY_22 10
+#define LACE_ARITY_24 11
+#define LACE_ARITY_26 12
+#define LACE_ARITY_28 13
+#define LACE_ARITY_30 14
+
+#define LACE_VARITY(n) LACE_VARITY_I(n)
+#define LACE_VARITY_I(n) LACE_VARITY_##n
+#define LACE_VARITY_1  0
+#define LACE_VARITY_3  1
+#define LACE_VARITY_5  2
+#define LACE_VARITY_7  3
+#define LACE_VARITY_9  4
+#define LACE_VARITY_11 5
+#define LACE_VARITY_13 6
+#define LACE_VARITY_15 7
+#define LACE_VARITY_17 8
+#define LACE_VARITY_19 9
+#define LACE_VARITY_21 10
+#define LACE_VARITY_23 11
+#define LACE_VARITY_25 12
+#define LACE_VARITY_27 13
+#define LACE_VARITY_29 14
+
+#define TASK(RTYPE, ...) LACE_PASTE(LACE_TASK_V_, LACE_IS_VOID(RTYPE))(RTYPE, __VA_ARGS__)
+#define LACE_TASK_V_0(RTYPE, ...) \
+    LACE_PASTE(TASK_, LACE_ARITY(LACE_NARG(RTYPE, __VA_ARGS__)))(RTYPE, __VA_ARGS__)
+#define LACE_TASK_V_1(RTYPE, ...) \
+    LACE_PASTE(VOID_TASK_, LACE_VARITY(LACE_NARG(__VA_ARGS__)))(__VA_ARGS__)
 '
 #
 # Create macros for each arity

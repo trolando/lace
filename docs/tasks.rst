@@ -11,7 +11,7 @@ provide the task body as a regular C function named ``NAME_CALL``.
    TASK_0(int, my_task)
    int my_task_CALL(lace_worker* lw) { ... }
 
-   TASK_1(int, fibonacci, int, n)
+   TASK(int, fibonacci, int, n)
    int fibonacci_CALL(lace_worker* lw, int n) { ... }
 
 For ``void`` return types, use the ``VOID_TASK_N`` variants:
