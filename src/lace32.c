@@ -519,7 +519,9 @@ typedef struct ext_lace_task {
     lace_sem_t sem;
 } ext_lace_task;
 
-static _Atomic(ext_lace_task*) external_task = NULL;
+#define LACE_EXT_SLOTS 64
+static _Atomic(ext_lace_task*)external_tasks[LACE_EXT_SLOTS];
+static atomic_int external_task_count = 0;
 
 void
 lace_run_task(lace_task *task)
@@ -528,42 +530,52 @@ lace_run_task(lace_task *task)
     lace_worker* self = lace_get_worker();
     if (self != 0) {
         task->f(self, task);
-    } else {
-        ext_lace_task et;
-        et.task = task;
-        atomic_store_explicit(&et.task->thief, 0, memory_order_relaxed);
-        if (lace_sem_init(&et.sem, 0) != 0) {
-            fprintf(stderr, "Lace error: unable to create semaphore for external task!\n");
-            exit(1);
-        }
-
-        ext_lace_task *exp = 0;
-        while (atomic_compare_exchange_weak(&external_task, &exp, &et) != 1) {
-            exp = 0; // keep expecting 0!
-        }
-
-        lace_sem_wait(&et.sem);
-        lace_sem_destroy(&et.sem);
+        return;
     }
+
+    ext_lace_task et;
+    et.task = task;
+    atomic_store_explicit(&et.task->thief, 0, memory_order_relaxed);
+    if (lace_sem_init(&et.sem, 0) != 0) {
+        fprintf(stderr, "Lace error: unable to create semaphore for external task!\n");
+        exit(1);
+    }
+
+    // Push into any empty slot
+    while (1) {
+        for (int i = 0; i < LACE_EXT_SLOTS; i++) {
+            ext_lace_task* expected = NULL;
+            if (atomic_compare_exchange_weak_explicit(&external_tasks[i],
+                &expected, &et, memory_order_release, memory_order_relaxed)) {
+                atomic_fetch_add_explicit(&external_task_count, 1, memory_order_release);
+                goto pushed;
+            }
+        }
+        lace_sleep_us(1);
+    }
+pushed:
+
+    lace_sem_wait(&et.sem);
+    lace_sem_destroy(&et.sem);
 }
 
 static inline void
 lace_steal_external(lace_worker *self) 
 {
-    ext_lace_task *stolen_task = atomic_exchange(&external_task, NULL);
-    if (stolen_task != 0) {
-        // execute task
-        atomic_store_explicit(&stolen_task->task->thief, self->_public, memory_order_relaxed);
-        lace_time_event(self, 1);
-        // atomic_thread_fence(memory_order_relaxed);
-        stolen_task->task->f(self, stolen_task->task);
-        // atomic_thread_fence(memory_order_relaxed);
-        lace_time_event(self, 2);
-        // atomic_thread_fence(memory_order_relaxed);
-        atomic_store_explicit(&stolen_task->task->thief, THIEF_COMPLETED, memory_order_relaxed);
-        // atomic_thread_fence(memory_order_relaxed);
-        lace_sem_post(&stolen_task->sem);
-        lace_time_event(self, 8);
+    for (int i = 0; i < LACE_EXT_SLOTS; i++) {
+        ext_lace_task* stolen = atomic_exchange_explicit(&external_tasks[i], NULL, memory_order_acquire);
+        if (stolen != NULL) {
+            // execute task
+            atomic_fetch_sub_explicit(&external_task_count, 1, memory_order_relaxed);
+            atomic_store_explicit(&stolen->task->thief, self->_public, memory_order_relaxed);
+            lace_time_event(self, 1);
+            stolen->task->f(self, stolen->task);
+            lace_time_event(self, 2);
+            atomic_store_explicit(&stolen->task->thief, THIEF_COMPLETED, memory_order_relaxed);
+            lace_sem_post(&stolen->sem);
+            lace_time_event(self, 8);
+            return;
+        }
     }
 }
 
@@ -574,8 +586,8 @@ void lace_steal_random(lace_worker *_lace_worker)
 {
     lace_check_yield(_lace_worker);
 
-    if (LACE_UNLIKELY(atomic_load_explicit(&external_task, memory_order_acquire) != 0)) {
-        lace_steal_external(_lace_worker);
+    if (LACE_UNLIKELY(atomic_load_explicit(&external_task_count, memory_order_acquire) > 0)) {
+        lace_steal_external(lw);
     } else if (n_workers > 1) {
         lace_worker_public *victim = workers[(_lace_worker->worker + 1U + (lace_rng(_lace_worker) % (n_workers-1))) % n_workers];
 
@@ -637,7 +649,7 @@ void lace_steal_loop_CALL(lace_worker* lw, atomic_int* quit)
 
         lace_check_yield(lw);
 
-        if (LACE_UNLIKELY(atomic_load_explicit(&external_task, memory_order_acquire) != 0)) {
+        if (LACE_UNLIKELY(atomic_load_explicit(&external_task_count, memory_order_acquire) > 0)) {
             lace_steal_external(lw);
 #if LACE_BACKOFF
             backoff = 0;
