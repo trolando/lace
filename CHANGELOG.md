@@ -2,6 +2,50 @@
 
 All notable changes to Lace will be documented in this file.
 
+## [2.3.0] - 2026-03-27
+
+### Added
+
+- Generic `TASK(rtype, name, ...)` macro that dispatches to `TASK_N` or
+  `VOID_TASK_N` automatically. Use `TASK(void, name, ...)` for void tasks.
+  The explicit `TASK_N` and `VOID_TASK_N` macros remain available.
+- New stress test `test_external` exercising concurrent external task
+  submission from 8 threads with simple tasks, fibonacci tasks, and
+  tree-recursive mixed workloads.
+
+### Changed
+
+- Default task deque size increased from 100 000 to 1 048 576 entries.
+  Since deques are backed by virtual memory (`mmap` / `VirtualAlloc`),
+  only pages actually touched consume physical memory.
+- Backoff tuning: reduced doublings from every 100 to every 50 steal
+  attempts, and lowered the sleep cap from 5 ms to 1 ms. Workers reach
+  full backoff in ~51 ms instead of ~819 ms, with lower worst-case
+  wake-up latency.
+- Checked return values of `pthread_create`, `pthread_attr_init`,
+  `pthread_attr_setstacksize`, `pthread_attr_setstack`, `getrlimit`,
+  and `lace_sem_init`. All failures now produce a diagnostic message
+  and exit.
+- Multi-threaded external task submission: `lace_run_task` can now be called
+  concurrently from up to 64 non-Lace threads without contention on a single
+  atomic slot.
+- Worker thread stacks are now explicitly allocated with `mmap` (Unix) or
+  `hwloc_alloc_membind` (when hwloc is enabled), with a guard page at the
+  low end. On NUMA systems this ensures stack pages are placed on the
+  correct memory node via first-touch policy or explicit hwloc binding.
+
+### Removed
+
+- Retired the `LACE_USE_MMAP` CMake option. Deques are now always
+  allocated with `mmap` or `VirtualAlloc`.
+
+### Fixed
+
+- Removed unnecessary TLS lookups (`lace_get_worker()`) in the steal
+  loop and worker thread where the worker pointer was already available
+  as a local variable.
+
+
 ## [2.2.4] - 2026-03-25
 
 ### Added
