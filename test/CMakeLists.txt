@@ -12,3 +12,8 @@ add_executable(test_backoff test_backoff.c)
 set_source_files_properties(test_backoff.c PROPERTIES LANGUAGE C)
 target_link_libraries(test_backoff PRIVATE lace::lace)
 add_test(NAME test_backoff COMMAND test_backoff)
+
+add_executable(test_external test_external.c)
+set_source_files_properties(test_external.c PROPERTIES LANGUAGE C)
+target_link_libraries(test_external PRIVATE lace::lace)
+add_test(NAME test_external COMMAND test_external)
