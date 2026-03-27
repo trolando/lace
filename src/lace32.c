@@ -614,8 +614,7 @@ void lace_steal_loop_CALL(lace_worker* lw, atomic_int* quit)
     const int worker_id = lw->worker;
 
     // Prepare self, victim
-    lace_worker_public ** const self = &workers[worker_id];
-    lace_worker_public ** victim = self;
+    lace_worker_public ** victim = NULL;
 
     lw->time = lace_gethrtime();
 
@@ -727,8 +726,45 @@ lace_set_verbosity(int level)
 }
 
 /**
- * Initialize Lace for work-stealing with <n> workers, where
- * each worker gets a task deque with <dqsize> elements.
+ * Start Lace and spawn worker threads.
+ *
+ * Allocates per-worker deques and launches @p n_workers threads.
+ * Workers begin busy-waiting for tasks immediately. If LACE_BACKOFF
+ * is enabled (the default), CPU usage drops to near zero after roughly
+ * one second of inactivity.
+ *
+ * **Deque allocation.** Each worker's task deque is allocated as a
+ * virtual memory mapping (mmap on Unix, VirtualAlloc on Windows).
+ * Physical pages are committed lazily on first access, so a large
+ * @p dqsize has no upfront memory cost.
+ *
+ * **Stack allocation.** Worker thread stacks are allocated explicitly
+ * rather than by pthreads, with a guard page at the low end to catch
+ * stack overflow. On Unix without hwloc, stacks are allocated with
+ * mmap and MAP_NORESERVE; the kernel's first-touch policy places
+ * physical pages on the NUMA node where the worker thread runs. When
+ * LACE_USE_HWLOC is enabled, stacks are allocated with
+ * hwloc_alloc_membind, which binds pages to the correct NUMA node at
+ * allocation time. On Windows without hwloc, the OS manages stacks.
+ * The @p stacksize parameter is rounded up to the system page size.
+ *
+ * **Thread pinning.** When LACE_USE_HWLOC is enabled, each worker
+ * thread is pinned to a CPU core. Workers are distributed across
+ * physical cores first (avoiding hyperthreading) before assigning
+ * multiple workers to the same core.
+ *
+ * @param n_workers  Number of worker threads. Pass 0 to auto-detect
+ *                   available cores (respects process affinity masks).
+ * @param dqsize     Task deque size per worker (number of task slots).
+ *                   Pass 0 for a default of 1 048 576. Each live SPAWN
+ *                   that has not yet been SYNCed occupies one slot.
+ *                   Since deques are backed by virtual memory, only
+ *                   pages actually touched consume physical memory.
+ * @param stacksize  Worker thread stack size in bytes. Pass 0 for the
+ *                   larger of RLIMIT_STACK and 16 MB (capped at 64 MB).
+ *                   Minimum enforced: 16 MB.
+ *
+ * @see lace_stop
  */
 void
 lace_start(unsigned int _n_workers, size_t dequesize, size_t stacksize)

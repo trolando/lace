@@ -614,8 +614,7 @@ void lace_steal_loop_CALL(lace_worker* lw, atomic_int* quit)
     const int worker_id = lw->worker;
 
     // Prepare self, victim
-    lace_worker_public ** const self = &workers[worker_id];
-    lace_worker_public ** victim = self;
+    lace_worker_public ** victim = NULL;
 
     lw->time = lace_gethrtime();
 
