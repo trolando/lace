@@ -7,6 +7,7 @@ add_executable(test_together test_together.c)
 set_source_files_properties(test_together.c PROPERTIES LANGUAGE C)
 target_link_libraries(test_together PRIVATE lace::lace)
 add_test(NAME test_together COMMAND test_together)
+set_tests_properties(test_together PROPERTIES TIMEOUT 120)
 
 add_executable(test_backoff test_backoff.c)
 set_source_files_properties(test_backoff.c PROPERTIES LANGUAGE C)

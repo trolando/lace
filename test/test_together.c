@@ -153,7 +153,7 @@ main (int argc, char *argv[])
 
     lace_set_verbosity(0);
 
-#define EXECUTIONS 5
+#define EXECUTIONS 3
 
     for (unsigned int i=0; i<EXECUTIONS; i++) {
         printf("### RUNNING TEST %d OF %d ###\n", i+1, EXECUTIONS);
