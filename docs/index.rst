@@ -35,6 +35,7 @@ Platform support
    building
    variants
    tasks
+   design
    benchmarks
    migrating
 
