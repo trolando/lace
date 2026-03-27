@@ -638,7 +638,7 @@ void lace_steal_loop_CALL(lace_worker* lw, atomic_int* quit)
         lace_check_yield(lw);
 
         if (LACE_UNLIKELY(atomic_load_explicit(&external_task, memory_order_acquire) != 0)) {
-            lace_steal_external(lace_get_worker());
+            lace_steal_external(lw);
 #if LACE_BACKOFF
             backoff = 0;
 #endif
@@ -686,10 +686,11 @@ lace_worker_thread(void* arg)
     lace_barrier();
 
     // Run the steal loop
-    lace_steal_loop_CALL(lace_get_worker(), &lace_quits);
+    lace_worker* lw = workers_p[worker];
+    lace_steal_loop_CALL(lw, &lace_quits);
 
     // Time worker exit event
-    lace_time_event(lace_get_worker(), 9);
+    lace_time_event(lw, 9);
 
     // Signal that we stopped
     atomic_fetch_sub_explicit(&workers_running, 1, memory_order_relaxed);
