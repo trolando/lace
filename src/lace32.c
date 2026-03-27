@@ -173,7 +173,7 @@ static lace_worker_public **workers = NULL;
 /**
  * Size of the task deque
  */
-static size_t dqsize = 100000;
+static size_t dqsize = 1048576; // 1M entries, virtual only, should be sufficient... (famous last words)
 
 /**
  * Verbosity flag, set with lace_set_verbosity
@@ -464,7 +464,7 @@ lace_init_worker(unsigned int worker)
         exit(1);
     }
 #else
-    workers_memory[worker] = mmap(NULL, workers_memory_size, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+    workers_memory[worker] = mmap(NULL, workers_memory_size, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS | MAP_NORESERVE, -1, 0);
     if (workers_memory[worker] == MAP_FAILED) {
         fprintf(stderr, "Lace error: Unable to allocate mmapped memory for the Lace worker!\n");
         exit(1);
