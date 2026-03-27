@@ -647,9 +647,8 @@ void lace_steal_loop_CALL(lace_worker* lw, atomic_int* quit)
 
 #if LACE_BACKOFF
         if (backoff > 1000) { // only back off after 1000 attempts
-            int64_t delay_us;
-            if (backoff > 2000) delay_us = 5000;
-            else delay_us = (((int64_t)1) << ((backoff-1000)/100)); // exponential backoff
+            int64_t delay_us = ((int64_t)1) << ((backoff - 1000) / 50);
+            if (delay_us > 1000) delay_us = 1000; // cap at 1ms
 #if LACE_PIE_TIMES
             uint64_t prev = lace_gethrtime();
 #endif
