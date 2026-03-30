@@ -309,31 +309,44 @@ us_elapsed(void)
 /**
  * Lace barrier implementation, that synchronizes on all workers.
  */
+#if LACE_MSVC
+#pragma warning(push)
+#pragma warning(disable: 4324)
+#endif
+
 typedef struct {
-    atomic_int __attribute__((aligned(PADDING_TARGET))) count;
-    atomic_int __attribute__((aligned(PADDING_TARGET))) leaving;
-    atomic_int __attribute__((aligned(PADDING_TARGET))) wait;
+    LACE_ALIGN(LACE_PADDING_TARGET) atomic_int count;
+    LACE_ALIGN(LACE_PADDING_TARGET) atomic_int leaving;
+    LACE_ALIGN(LACE_PADDING_TARGET) atomic_int wait;
 } barrier_t;
 
-barrier_t lace_bar;
+#if LACE_MSVC
+#pragma warning(pop)
+#endif
+
+static barrier_t lace_bar;
 
 /**
  * Enter the Lace barrier and wait until all workers have entered the Lace barrier.
  */
 void
-lace_barrier()
+lace_barrier(void)
 {
-    int wait = lace_bar.wait;
-    if ((int)n_workers == 1+(atomic_fetch_add_explicit(&lace_bar.count, 1, memory_order_relaxed))) {
-        // we know for sure no other thread can be here
+    int wait = atomic_load_explicit(&lace_bar.wait, memory_order_relaxed);
+    if ((int)n_workers == 1 + atomic_fetch_add_explicit(&lace_bar.count, 1, memory_order_acq_rel)) {
+        // This thread is the last to arrive (the leader)
         atomic_store_explicit(&lace_bar.count, 0, memory_order_relaxed);
-        atomic_store_explicit(&lace_bar.leaving, n_workers, memory_order_relaxed);
-        // flip wait
-        atomic_store_explicit(&lace_bar.wait, 1-wait, memory_order_relaxed);
-    } else {
-        while (wait == lace_bar.wait) {} // wait
+        atomic_store_explicit(&lace_bar.leaving, (int)n_workers, memory_order_relaxed);
+        atomic_fetch_xor_explicit(&lace_bar.wait, 1, memory_order_acq_rel);
     }
-    lace_bar.leaving -= 1;
+    else {
+        // Wait until leader flips the wait value
+        while (atomic_load_explicit(&lace_bar.wait, memory_order_acquire) == wait) {
+            // possibly pause/yield
+        }
+    }
+    // Needed for lace_barrier_destroy to observe all threads have exited
+    atomic_fetch_sub_explicit(&lace_bar.leaving, 1, memory_order_release);
 }
 
 /**
@@ -342,7 +355,9 @@ lace_barrier()
 static void
 lace_barrier_init(void)
 {
-    memset(&lace_bar, 0, sizeof(barrier_t));
+    atomic_init(&lace_bar.count, 0);
+    atomic_init(&lace_bar.leaving, 0);
+    atomic_init(&lace_bar.wait, 0);
 }
 
 /**
@@ -351,8 +366,9 @@ lace_barrier_init(void)
 static void
 lace_barrier_destroy(void)
 {
-    // wait for all to exit
-    while (lace_bar.leaving != 0) continue;
+    while (atomic_load_explicit(&lace_bar.leaving, memory_order_acquire) > 0) {
+        // possibly pause/yield
+    }
 }
 
 /**
