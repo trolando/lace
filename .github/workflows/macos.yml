@@ -1,29 +1,30 @@
 name: macOS
+
 on: [push, pull_request]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   clang-build:
-    name: 'macOS Clang ${{matrix.build_type}} macOS-${{matrix.version}}'
-    runs-on: macos-${{matrix.version}}
+    name: 'macOS-15 Apple Clang ${{matrix.build_type}}'
+    runs-on: macos-15
     strategy:
       fail-fast: false
       matrix:
         build_type: [Release, Debug]
-        version: [14, 15]
     steps:
-    - uses: actions/checkout@v3
-    - name: Install dependencies
-      shell: bash
-      run: |
-        brew update
-        brew install gawk
-    - name: Build
-      shell: bash
+    - uses: actions/checkout@v6
+    - name: Configure
       run: |
         export CC=clang CXX=clang++
-        cmake -S . -B build -DCMAKE_BUILD_TYPE=${{matrix.build_type}} -DLACE_BUILD_BENCHMARKS=ON
-        cmake --build build --config ${{matrix.build_type}}
+        cmake -S . -B build \
+          -DCMAKE_BUILD_TYPE=${{matrix.build_type}} \
+          -DLACE_BUILD_TESTS=ON \
+          -DLACE_BUILD_BENCHMARKS=${{ matrix.build_type == 'Release' && 'ON' || 'OFF' }}
+    - name: Build
+      run: cmake --build build
     - name: Test
-      shell: bash
       working-directory: build
       run: ctest --output-on-failure -C ${{matrix.build_type}} -VV --timeout 30

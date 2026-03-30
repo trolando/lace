@@ -2,56 +2,161 @@ name: Linux
 
 on: [push, pull_request]
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
-  gcc-build:
-    name: 'Linux GCC-${{matrix.version}} ${{matrix.build_type}}'
+  check-generated:
+    name: 'Check generated files are up to date'
     runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v6
+    - run: cd src && bash gen.sh
+    - run: git diff --exit-code -- src/
+
+  gcc-build:
+    needs: check-generated
+    name: 'Linux ${{matrix.name}} ${{matrix.build_type}}'
+    runs-on: ${{matrix.os}}
     strategy:
       fail-fast: false
       matrix:
-        build_type: [Release, Debug]
-        version: [9, 12]
+        include:
+          - { name: GCC-9,  os: ubuntu-22.04, cc: gcc-9,  cxx: g++-9,  pkg: gcc-9 g++-9,   build_type: Release }
+          - { name: GCC-14, os: ubuntu-latest, cc: gcc-14, cxx: g++-14, pkg: gcc-14 g++-14,  build_type: Release }
+          - { name: GCC-14, os: ubuntu-latest, cc: gcc-14, cxx: g++-14, pkg: gcc-14 g++-14,  build_type: Debug   }
     steps:
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@v6
     - name: Install dependencies
-      shell: bash
       run: |
         sudo apt update
-        sudo apt install -y cmake cmake-data build-essential gcc-${{matrix.version}} g++-${{matrix.version}}
-    - name: Build
-      shell: bash
+        sudo apt install -y cmake ninja-build ${{matrix.pkg}}
+    - name: Configure
       run: |
-        export CC=gcc-${{matrix.version}} CXX=g++-${{matrix.version}}
-        cmake -S . -B build -DCMAKE_BUILD_TYPE=${{matrix.build_type}} -DLACE_BUILD_BENCHMARKS=ON
-        cmake --build build --config ${{matrix.build_type}}
+        export CC=${{matrix.cc}} CXX=${{matrix.cxx}}
+        cmake -S . -B build -G Ninja \
+          -DCMAKE_BUILD_TYPE=${{matrix.build_type}} \
+          -DLACE_BUILD_TESTS=ON \
+          -DLACE_BUILD_BENCHMARKS=${{ matrix.build_type == 'Release' && 'ON' || 'OFF' }}
+    - name: Build
+      run: cmake --build build
     - name: Test
-      shell: bash
-      working-directory: build
-      run: ctest --output-on-failure -C ${{ matrix.build_type }} -VV --timeout 30
+      run: ctest --test-dir build --output-on-failure -VV --timeout 60
 
   clang-build:
-    name: 'Linux CLang-${{matrix.version}} ${{matrix.build_type}}'
+    needs: check-generated
+    name: 'Linux Clang-18 ${{matrix.build_type}}'
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
         build_type: [Release, Debug]
-        version: [15, 19]
     steps:
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@v6
     - name: Install dependencies
-      shell: bash
       run: |
         sudo apt update
-        sudo apt install -y cmake cmake-data build-essential clang-${{matrix.version}}
-    - name: Build
-      shell: bash
+        sudo apt install -y cmake ninja-build clang-18
+    - name: Configure
       run: |
-        export CC=clang-${{matrix.version}} CXX=clang++-${{matrix.version}}
-        cmake -S . -B build -DCMAKE_BUILD_TYPE=${{matrix.build_type}} -DLACE_BUILD_BENCHMARKS=ON
-        cmake --build build --config ${{matrix.build_type}}
+        export CC=clang-18 CXX=clang++-18
+        cmake -S . -B build -G Ninja \
+          -DCMAKE_BUILD_TYPE=${{matrix.build_type}} \
+          -DLACE_BUILD_TESTS=ON \
+          -DLACE_BUILD_BENCHMARKS=${{ matrix.build_type == 'Release' && 'ON' || 'OFF' }}
+    - name: Build
+      run: cmake --build build
     - name: Test
-      shell: bash
-      working-directory: build
-      run: ctest --output-on-failure -C ${{ matrix.build_type }} -VV --timeout 30
+      run: ctest --test-dir build --output-on-failure -VV --timeout 60
 
+  all-options:
+    needs: check-generated
+    name: 'Linux GCC all options enabled'
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v6
+    - name: Install dependencies
+      run: |
+        sudo apt update
+        sudo apt install -y cmake ninja-build gcc g++ libhwloc-dev
+    - name: Configure
+      run: |
+        cmake -S . -B build -G Ninja \
+          -DCMAKE_BUILD_TYPE=Release \
+          -DLACE_BUILD_TESTS=ON \
+          -DLACE_BUILD_BENCHMARKS=ON \
+          -DLACE_USE_HWLOC=ON \
+          -DLACE_COUNT_TASKS=ON \
+          -DLACE_COUNT_STEALS=ON \
+          -DLACE_COUNT_SPLITS=ON \
+          -DLACE_PIE_TIMES=ON \
+          -DBUILD_SHARED_LIBS=ON
+    - name: Build
+      run: cmake --build build
+    - name: Test
+      run: ctest --test-dir build --output-on-failure -VV --timeout 60
+
+  no-backoff:
+    needs: check-generated
+    name: 'Linux GCC BACKOFF=OFF'
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v6
+    - name: Install dependencies
+      run: |
+        sudo apt update
+        sudo apt install -y cmake ninja-build gcc g++
+    - name: Configure
+      run: |
+        cmake -S . -B build -G Ninja \
+          -DCMAKE_BUILD_TYPE=Release \
+          -DLACE_BUILD_TESTS=ON \
+          -DLACE_BUILD_BENCHMARKS=OFF \
+          -DLACE_BACKOFF=OFF
+    - name: Build
+      run: cmake --build build
+    - name: Test
+      run: ctest --test-dir build --output-on-failure -VV --timeout 60
+
+  i386-m32:
+    needs: check-generated
+    name: 'Linux i386 (-m32) Release'
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v6
+    - name: Install 32-bit toolchain
+      run: |
+        sudo dpkg --add-architecture i386
+        sudo apt update
+        sudo apt install -y cmake ninja-build gcc-multilib g++-multilib libc6-dev:i386
+    - name: Configure (32-bit)
+      run: |
+        cmake -S . -B build32 -G Ninja \
+          -DCMAKE_BUILD_TYPE=Release \
+          -DLACE_BUILD_TESTS=ON \
+          -DLACE_BUILD_BENCHMARKS=OFF \
+          -DCMAKE_C_FLAGS="-m32" \
+          -DCMAKE_CXX_FLAGS="-m32"
+    - name: Build
+      run: cmake --build build32
+    - name: Test
+      run: ctest --test-dir build32 --output-on-failure -VV --timeout 60 -j 1
+
+  armv7-qemu:
+    needs: check-generated
+    name: 'Linux armv7 (QEMU) Release'
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v6
+    - uses: uraimo/run-on-arch-action@v3
+      with:
+        arch: armv7
+        distro: ubuntu22.04
+        install: |
+          apt-get update
+          apt-get install -y cmake ninja-build gcc g++ pkg-config
+        run: |
+          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DLACE_BUILD_TESTS=ON -DLACE_BUILD_BENCHMARKS=OFF
+          cmake --build build
+          ctest --test-dir build --output-on-failure -VV --timeout 120 -j 1
