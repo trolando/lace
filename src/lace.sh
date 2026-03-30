@@ -3,11 +3,20 @@
 nparams=$1
 tasksize=$2
 
+# Extract version from CMakeLists.txt
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+CMAKE_FILE="$SCRIPT_DIR/../CMakeLists.txt"
+LACE_VERSION=$(sed -n '/^project(/,/)/{ s/.*VERSION \([0-9]*\.[0-9]*\.[0-9]*\).*/\1/p; }' "$CMAKE_FILE")
+LACE_MAJOR=${LACE_VERSION%%.*}
+_rest=${LACE_VERSION#*.}
+LACE_MINOR=${_rest%%.*}
+LACE_PATCH=${_rest#*.}
+
 # Copyright notice:
 echo "/* 
  * Copyright 2013-2016 Formal Methods and Tools, University of Twente
  * Copyright 2016-2017 Tom van Dijk, Johannes Kepler University Linz
- * Copyright 2019-2021 Tom van Dijk, Formal Methods and Tools, University of Twente
+ * Copyright 2019-2026 Tom van Dijk, Formal Methods and Tools, University of Twente
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -23,6 +32,13 @@ echo "/*
  */"
 
 echo '
+#pragma once
+
+// Lace version
+#define LACE_VERSION_MAJOR '$LACE_MAJOR'
+#define LACE_VERSION_MINOR '$LACE_MINOR'
+#define LACE_VERSION_PATCH '$LACE_PATCH'
+
 #include <assert.h>
 #include <unistd.h>
 #include <stdint.h>

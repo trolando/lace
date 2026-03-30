@@ -1,7 +1,7 @@
 /* 
  * Copyright 2013-2016 Formal Methods and Tools, University of Twente
  * Copyright 2016-2017 Tom van Dijk, Johannes Kepler University Linz
- * Copyright 2019-2021 Tom van Dijk, Formal Methods and Tools, University of Twente
+ * Copyright 2019-2026 Tom van Dijk, Formal Methods and Tools, University of Twente
  *
  * Licensed under the Apache License, Version 2.0 (the License);
  * you may not use this file except in compliance with the License.
@@ -15,6 +15,13 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
+#pragma once
+
+// Lace version
+#define LACE_VERSION_MAJOR 1
+#define LACE_VERSION_MINOR 5
+#define LACE_VERSION_PATCH 4
 
 #include <assert.h>
 #include <unistd.h>
