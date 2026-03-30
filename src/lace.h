@@ -61,8 +61,6 @@ extern "C" {
  *   set both parameters to 0 for reasonable defaults, using all available cores.
  *
  * After this, you can run tasks using the RUN(...)
- *
- * Use lace_suspend and lace_resume to temporarily stop running, or lace_stop to completely stop Lace.
  */
 
 /**
@@ -107,18 +105,6 @@ unsigned int lace_get_pu_count(void);
  * If <dqsize> is est to 0, uses a reasonable default value.
  */
 void lace_start(unsigned int n_workers, size_t dqsize);
-
-/**
- * Suspend all workers.
- * Call this method from outside Lace threads.
- */
-void lace_suspend(void);
-
-/**
- * Resume all workers.
- * Call this method from outside Lace threads.
- */
-void lace_resume(void);
 
 /**
  * Stop Lace.
