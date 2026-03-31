@@ -3,57 +3,92 @@
 
 #include <lace.h>
 
-VOID_TASK_DECL_1(test_together, int);
-VOID_TASK_DECL_1(test_newframe, int);
+int counter;
 
-VOID_TASK_IMPL_1(test_together, int, depth)
+TASK(void, test_count)
 {
-    if (depth != 0) {
-        SPAWN(test_together, depth-1);
-        SPAWN(test_together, depth-1);
-        SPAWN(test_together, depth-1);
-        SPAWN(test_together, depth-1);
-        NEWFRAME(test_newframe, depth-1);
+    counter++;
+}
+
+
+int* worker_counter;
+
+TASK(void, test_count_perworker)
+{
+    worker_counter[LACE_WORKER_ID]++;
+}
+
+TASK(void, test_only_newframe, int, depth)
+{
+    if (depth > 0) {
+        SPAWN(test_only_newframe, depth - 1);
+        SPAWN(test_only_newframe, depth - 1);
+        SPAWN(test_only_newframe, depth - 1);
+        SPAWN(test_only_newframe, depth - 1);
+        SYNC(test_only_newframe);
+        SYNC(test_only_newframe);
+        SYNC(test_only_newframe);
+        SYNC(test_only_newframe);
+    }
+    else {
+        NEWFRAME(test_count);
+    }
+}
+
+TASK(void, test_only_together, int, depth)
+{
+    if (depth > 0) {
+        SPAWN(test_only_together, depth - 1);
+        SPAWN(test_only_together, depth - 1);
+        SPAWN(test_only_together, depth - 1);
+        SPAWN(test_only_together, depth - 1);
+        SYNC(test_only_together);
+        SYNC(test_only_together);
+        SYNC(test_only_together);
+        SYNC(test_only_together);
+    }
+    else {
+        TOGETHER(test_count_perworker);
+    }
+}
+
+TASK(void, test_together, int, depth)
+{
+    if (depth > 0) {
+        SPAWN(test_together, depth - 1);
+        SPAWN(test_together, depth - 1);
+        SPAWN(test_together, depth - 1);
+        SPAWN(test_together, depth - 1);
         SYNC(test_together);
         SYNC(test_together);
         SYNC(test_together);
         SYNC(test_together);
     }
+    else {
+        CALL(test_only_newframe, 3);
+    }
 }
 
-VOID_TASK_IMPL_1(test_newframe, int, depth)
+TASK(void, test_newframe, int, depth)
 {
-    if (depth != 0) {
-        SPAWN(test_newframe, depth-1);
-        SPAWN(test_newframe, depth-1);
-        SPAWN(test_newframe, depth-1);
-        SPAWN(test_newframe, depth-1);
-        TOGETHER(test_together, depth-1);
+    if (depth > 0) {
+        SPAWN(test_newframe, depth - 1);
+        SPAWN(test_newframe, depth - 1);
+        SPAWN(test_newframe, depth - 1);
+        SPAWN(test_newframe, depth - 1);
         SYNC(test_newframe);
         SYNC(test_newframe);
         SYNC(test_newframe);
         SYNC(test_newframe);
     }
+    else {
+        CALL(test_only_together, 3);
+    }
 }
 
-VOID_TASK_0(test_something)
+TASK(void, test_report_id)
 {
     printf("running from worker %d\n", LACE_WORKER_ID);
-}
-
-VOID_TASK_1(_main, void*, arg)
-{
-    fprintf(stdout, "Testing TOGETHER and NEWFRAME with %u workers...\n", lace_workers());
-
-    for (int i=0; i<5; i++) {
-        NEWFRAME(test_newframe, 5);
-        TOGETHER(test_together, 5);
-    }
-
-    RUN(test_something);
-
-    // We didn't use arg
-    (void)arg;
 }
 
 void
@@ -62,32 +97,39 @@ runtests(int n_workers)
     // Initialize the Lace framework for <n_workers> workers.
     lace_start(n_workers, 0);
 
-    printf("Newframe:\n");
-    NEWFRAME(test_something);
+    worker_counter = (int*)malloc(lace_workers() * sizeof(int));
 
-    printf("Together:\n");
-    TOGETHER(test_something);
+    printf("Testing only newframe...\n");
+    counter = 0;
+    RUN(test_only_newframe, 6);
+    printf("Counter reads %d (expecting 4096)\n", counter);
+    if (counter != 4096) exit(1);
 
-    lace_suspend();
-    lace_resume();
-
-    // Spawn and start all worker pthreads; suspends current thread until done.
-    printf("Running (10x):\n");
-    for (int i=0; i<5; i++) {
-        printf("%d: ", i);
-        RUN(test_something);
+    printf("Testing only together...\n");
+    for (unsigned int i = 0; i < lace_workers(); i++) worker_counter[i] = 0;
+    RUN(test_only_together, 6);
+    for (unsigned int i = 0; i < lace_workers(); i++) {
+        printf("Counter %d reads %d (expecting 4096)\n", i, worker_counter[i]);
+        if (worker_counter[i] != 4096) exit(1);
     }
 
     // Spawn and start all worker pthreads; suspends current thread until done.
-    printf("Recursive test\n");
-    RUN(_main, NULL);
+    printf("Testing mixed newframe/together...\n");
+    worker_counter = (int*)calloc(lace_workers(), sizeof(int));
+    RUN(test_newframe, 5);
+    RUN(test_together, 5);
+    for (unsigned int i = 0; i < lace_workers(); i++) {
+        printf("Counter %d reads %d (expecting 65536)\n", i, worker_counter[i]);
+        if (worker_counter[i] != 65536) exit(1);
+    }
 
-    // The lace_startup command also exits Lace after _main is completed.
+    free(worker_counter);
+
     lace_stop();
 }
 
 int
-main (int argc, char *argv[])
+main(int argc, char* argv[])
 {
     int n_workers = 0; // automatically detect number of workers
 
@@ -95,10 +137,14 @@ main (int argc, char *argv[])
         n_workers = atoi(argv[1]);
     }
 
-    lace_set_verbosity(1);
+    lace_set_verbosity(0);
 
-    for (int i=0; i<5; i++) {
+#define EXECUTIONS 3
+
+    for (unsigned int i = 0; i < EXECUTIONS; i++) {
+        printf("### RUNNING TEST %d OF %d ###\n", i + 1, EXECUTIONS);
         runtests(n_workers);
+        printf("\n");
     }
 
     return 0;
