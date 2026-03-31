@@ -30,8 +30,8 @@
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <time.h>
-#include <getopt.h>
+
+#include <common.h>
 
 #define SizeAtWhichDivideAndConquerIsMoreEfficient 16
 #define SizeAtWhichNaiveAlgorithmIsMoreEfficient 8
@@ -676,13 +676,6 @@ void free_matrix(REAL *A)
     free(A);
 }
 
-static double wctime() 
-{
-    struct timespec tv;
-    clock_gettime(CLOCK_MONOTONIC, &tv);
-    return (tv.tv_sec + 1E-9 * tv.tv_nsec);
-}
-
 void usage(char *s)
 {
     fprintf(stderr, "Usage: %s [-c] <n>\n", s);
@@ -740,11 +733,6 @@ int main(int argc, char *argv[])
     OptimizedStrassenMultiply(C2, A, B, n, n, n, n);
     double t2=wctime();
 
-    free_matrix(A);
-    free_matrix(B);
-    free_matrix(C1);
-    free_matrix(C2);
-
     if (verify) {
         matrixmul(n, A, n, B, n, C1, n);
         verify = compare_matrix(n, C1, n, C2, n);
@@ -755,6 +743,11 @@ int main(int argc, char *argv[])
     else {	
         printf("Time: %f\n", t2-t1);
     }
+
+    free_matrix(A);
+    free_matrix(B);
+    free_matrix(C1);
+    free_matrix(C2);
 
     return 0;
 }

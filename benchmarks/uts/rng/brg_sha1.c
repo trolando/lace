@@ -82,7 +82,7 @@ void rng_spawn(RNG_state *mystate, RNG_state *newstate, int spawnnumber)
 
 int rng_rand(RNG_state *mystate){
         int r;
-	uint_32t b =  (mystate[16] << 24) | (mystate[17] << 16)
+	uint_32t b =  ((uint32_t)mystate[16] << 24) | (mystate[17] << 16)
 		| (mystate[18] << 8) | (mystate[19] << 0);
 	b = b & POS_MASK;
 	
@@ -294,8 +294,8 @@ VOID_RETURN sha1_end(unsigned char hval[], sha1_ctx ctx[1])
     /* a single 1 bit and as many zero bits as necessary. Note that */
     /* we can always add the first padding byte here because the    */
     /* buffer always has at least one empty slot                    */
-    ctx->wbuf[i >> 2] &= 0xffffff80 << 8 * (~i & 3);
-    ctx->wbuf[i >> 2] |= 0x00000080 << 8 * (~i & 3);
+    ctx->wbuf[i >> 2] &= (uint32_t)0xffffff80 << 8 * (~i & 3);
+    ctx->wbuf[i >> 2] |= (uint32_t)0x00000080 << 8 * (~i & 3);
 
     /* we need 9 or more empty positions, one for the padding byte  */
     /* (above) and eight for the length count. If there is not      */

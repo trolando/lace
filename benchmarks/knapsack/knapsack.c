@@ -28,8 +28,8 @@
 #include <stdlib.h>
 #include <limits.h>
 #include <string.h>
-#include <getopt.h>
-#include <time.h>
+
+#include <common.h>
 
 struct item {
     int value;
@@ -151,13 +151,6 @@ void init()
 void prep()
 {
     best_so_far = INT_MIN;
-}
-
-static double wctime() 
-{
-    struct timespec tv;
-    clock_gettime(CLOCK_MONOTONIC, &tv);
-    return (tv.tv_sec + 1E-9 * tv.tv_nsec);
 }
 
 void usage(char *s)

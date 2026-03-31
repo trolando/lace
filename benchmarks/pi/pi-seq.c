@@ -1,15 +1,10 @@
+#define _USE_MATH_DEFINES
 #include <math.h>
 #include <stdint.h>
 #include <stdio.h> // for printf, fprintf
 #include <stdlib.h> // for exit, atol
-#include <time.h>
 
-double wctime() 
-{
-    struct timespec tv;
-    clock_gettime(CLOCK_MONOTONIC, &tv);
-    return (tv.tv_sec + 1E-9 * tv.tv_nsec);
-}
+#include <common.h>
 
 /**
  * Simple random number generated (like rand) using the given seed.

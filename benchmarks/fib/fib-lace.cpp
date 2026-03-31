@@ -10,16 +10,16 @@ TASK(int, pfib, int, n)
         return n;
     } else {
         int m,k;
-        SPAWN( pfib, n-1 );
-        k = CALL( pfib, n-2 );
-        m = SYNC( pfib );
+        SPAWN(pfib, n-1);
+        k = CALL(pfib, n-2);
+        m = SYNC(pfib);
         return m+k;
     }
 }
 
 void usage(char *s)
 {
-    fprintf(stderr, "Usage: %s [-w <workers>] [-q <dqsize>] <n>\n", s);
+    fprintf(stderr, "%s -w <workers> [-q dqsize] <n>\n", s);
 }
 
 int main(int argc, char **argv)

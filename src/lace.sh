@@ -840,6 +840,7 @@ typedef enum {
     void (*f)(struct _WorkerP *, struct _Task *, struct _Task *);  \
     _Atomic(struct _Worker*) thief;
 
+struct _Worker; // forward declaration
 struct __lace_common_fields_only { TASK_COMMON_FIELDS(_Task) };
 #define LACE_COMMON_FIELD_SIZE sizeof(struct __lace_common_fields_only)
 

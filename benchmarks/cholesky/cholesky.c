@@ -33,7 +33,8 @@
 #include <string.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <time.h>
+
+#include <common.h>
 
 /*************************************************************\
  * Basic types
@@ -537,13 +538,6 @@ void init()
     for (i = n; i < (1 << depth); i++) {
         A = set_matrix(depth, A, i, i, 1.0);
     }
-}
-
-static double wctime() 
-{
-    struct timespec tv;
-    clock_gettime(CLOCK_MONOTONIC, &tv);
-    return (tv.tv_sec + 1E-9 * tv.tv_nsec);
 }
 
 int main( int argc, char **argv )

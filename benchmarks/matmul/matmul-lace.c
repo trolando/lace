@@ -1,19 +1,11 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <math.h>
-#include <time.h>
-#include <getopt.h>
 
 #include <lace.h>
+#include <common.h>
 
 #define REAL float
-
-double wctime() 
-{
-    struct timespec tv;
-    clock_gettime(CLOCK_MONOTONIC, &tv);
-    return (tv.tv_sec + 1E-9 * tv.tv_nsec);
-}
 
 void zero(REAL *A, int n)
 {
@@ -72,7 +64,7 @@ void iter_matmul(REAL *A, REAL *B, REAL *C, int n)
  * B \in M(n, p)
  * C \in M(m, p)
  */
-VOID_TASK_8(rec_matmul, REAL*, A, REAL*, B, REAL*, C, int, m, int, n, int, p, int, ld, int, add)
+TASK(void, rec_matmul, REAL*, A, REAL*, B, REAL*, C, int, m, int, n, int, p, int, ld, int, add)
 {
     if ((m + n + p) <= 64) {
         int i, j, k;

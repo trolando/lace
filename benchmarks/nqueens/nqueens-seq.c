@@ -1,7 +1,7 @@
 #include <stdlib.h>
 #include <stdio.h>
-#include <time.h>
-#include <getopt.h>
+
+#include <common.h>
 
 /**
  * N Queens problem
@@ -10,7 +10,11 @@
 int nqueens(const int* a, int n, int d, int i)
 {
     // copy queens from a to new array aa and check if ok
+#if defined(_MSC_VER) && !defined(__clang__)
+    int* aa = (int*)_alloca((d + 1) * sizeof(*aa));
+#else
     int aa[d + 1];
+#endif
 
     for (int j = 0; j < d; ++j) {
         aa[j] = a[j];
@@ -30,44 +34,39 @@ int nqueens(const int* a, int n, int d, int i)
     // if not reached, place the next queen recursively
     // and return the sum of the recursive counts
     int sum = 0;
-    for (int k=0; k<n; k++) {
+    for (int k = 0; k < n; k++) {
         sum += nqueens(aa, n, d, k);
     }
     return sum;
 }
 
-static double wctime() 
-{
-    struct timespec tv;
-    clock_gettime(CLOCK_MONOTONIC, &tv);
-    return (tv.tv_sec + 1E-9 * tv.tv_nsec);
-}
-
-static void usage(char *s)
+static void usage(char* s)
 {
     fprintf(stderr, "Usage: %s <n>\n", s);
 }
 
-int main(int argc, char *argv[])
+int main(int argc, char* argv[])
 {
     int c;
-    while ((c=getopt(argc, argv, "w:q:h")) != -1) {
+    while ((c = getopt(argc, argv, "w:q:h")) != -1) {
         switch (c) {
-            case 'h':
-                usage(argv[0]);
-                break;
-            default:
-                abort();
+        case 'h':
+            usage(argv[0]);
+            break;
+        default:
+            abort();
         }
     }
 
     int n;
     if (optind == argc) {
         n = 14;
-    } else if ((optind+1) != argc) {
+    }
+    else if ((optind + 1) != argc) {
         usage(argv[0]);
         exit(1);
-    } else {
+    }
+    else {
         n = atoi(argv[optind]);
     }
 
@@ -78,7 +77,7 @@ int main(int argc, char *argv[])
     double t2 = wctime();
 
     printf("Result: Q(%d) = %d\n", n, res);
-    printf("Time: %f\n", t2-t1);
+    printf("Time: %f\n", t2 - t1);
 
     return 0;
 }

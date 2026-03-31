@@ -1,10 +1,9 @@
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <time.h>
-#include <getopt.h>
 
-#include "lace.h"
+#include <lace.h>
+#include <common.h>
 
 static const double epsilon = 1.0e-9;
 
@@ -13,7 +12,7 @@ static double f(double x)
     return (x * x + 1.0) * x;
 }
 
-TASK_5(double, integrate, double, x1, double, y1, double, x2, double, y2, double, area)
+TASK(double, integrate, double, x1, double, y1, double, x2, double, y2, double, area)
 {
     double half = (x2 - x1) / 2;
     double x0 = x1 + half;
@@ -32,13 +31,6 @@ TASK_5(double, integrate, double, x1, double, y1, double, x2, double, y2, double
     area_x1x0 = SYNC(integrate);
 
     return area_x1x0 + area_x0x2;
-}
-
-static double wctime() 
-{
-    struct timespec tv;
-    clock_gettime(CLOCK_MONOTONIC, &tv);
-    return (tv.tv_sec + 1E-9 * tv.tv_nsec);
 }
 
 static void usage(char *s)

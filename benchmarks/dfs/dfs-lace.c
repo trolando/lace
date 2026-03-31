@@ -1,12 +1,12 @@
 #include <stdio.h>
 #include <stdlib.h>
-#include <time.h>
-#include <getopt.h>
+
 #include <lace.h>
+#include <common.h>
 
 static int w, n;
 
-int __attribute__((noinline)) loop()
+int LACE_NOINLINE loop()
 {
     int i, s=0;
 
@@ -21,7 +21,7 @@ int __attribute__((noinline)) loop()
     return s;
 }
 
-TASK_1(int, tree, int, d)
+TASK(int, tree, int, d)
 {
     if( d>0 ) {
         int i;
@@ -31,13 +31,6 @@ TASK_1(int, tree, int, d)
     } else {
         return loop();
     }
-}
-
-double wctime() 
-{
-    struct timespec tv;
-    clock_gettime(CLOCK_MONOTONIC, &tv);
-    return (tv.tv_sec + 1E-9 * tv.tv_nsec);
 }
 
 void usage(char *s)

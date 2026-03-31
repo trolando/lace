@@ -1,7 +1,8 @@
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <time.h>
+
+#include <common.h>
 
 int n = 8;
 static int * a, * b;
@@ -55,19 +56,12 @@ void init()
         size *= 10;
     }
 
-    a = malloc(sizeof(int [size]));
-    b = malloc(sizeof(int [size]));
+    a = malloc(size * sizeof *a);
+    b = malloc(size * sizeof *b);
 
     for (unsigned int i = 0; i < size; ++i) {
         b[i] = rand();
     }
-}
-
-static double wctime()
-{
-    struct timespec tv;
-    clock_gettime(CLOCK_MONOTONIC, &tv);
-    return (tv.tv_sec + 1E-9 * tv.tv_nsec);
 }
 
 static void usage(char *s)

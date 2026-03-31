@@ -17,13 +17,13 @@
  * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
  */
 
-#include <getopt.h>
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <time.h>
+
 #include <lace.h>
+#include <common.h>
 
 #include "fft-lace.h"
 
@@ -37,7 +37,7 @@ static const REAL pi = 3.1415926535897932384626434;
  * compute the W coefficients (that is, powers of the root of 1)
  * and store them into an array.
  */
-VOID_TASK_4(compute_w_coefficients, int, n, int, a, int, b, COMPLEX*, W)
+TASK(void, compute_w_coefficients, int, n, int, a, int, b, COMPLEX*, W)
 {
     register double twoPiOverN;
     register int k;
@@ -100,7 +100,7 @@ static int factor(int n)
     return n;
 }
 
-VOID_TASK_6(unshuffle, int, a, int, b, COMPLEX*, in, COMPLEX*, out, int, r, int, m)
+TASK(void, unshuffle, int, a, int, b, COMPLEX*, in, COMPLEX*, out, int, r, int, m)
 {
     int i, j;
     int r4 = r & (~0x3);
@@ -149,7 +149,7 @@ VOID_TASK_6(unshuffle, int, a, int, b, COMPLEX*, in, COMPLEX*, out, int, r, int,
  * nW: size of W, that is, size of the original transform
  *
  */
-VOID_TASK_6(fft_aux, int, n, COMPLEX*, in, COMPLEX*, out, int*,factors, COMPLEX*, W, int, nW)
+TASK(void, fft_aux, int, n, COMPLEX*, in, COMPLEX*, out, int*,factors, COMPLEX*, W, int, nW)
 {
     int r, m;
 
@@ -223,7 +223,7 @@ VOID_TASK_6(fft_aux, int, n, COMPLEX*, in, COMPLEX*, out, int*,factors, COMPLEX*
 /*
  * user interface for fft_aux
  */
-VOID_TASK_3(fft, int, n, COMPLEX*, in, COMPLEX*, out)
+TASK(void, fft, int, n, COMPLEX*, in, COMPLEX*, out)
 {
     int factors[40];		/* allows FFTs up to at least 3^40 */
     int *p = factors;
@@ -253,9 +253,9 @@ VOID_TASK_3(fft, int, n, COMPLEX*, in, COMPLEX*, out)
 void init()
 {
     size = (1 << n);
-    out = malloc(sizeof(COMPLEX [size]));
-    in  = malloc(sizeof(COMPLEX [size]));
-    W   = malloc(sizeof(COMPLEX [size + 1]));
+    out = malloc(size * sizeof *out);
+    in  = malloc(size * sizeof *in);
+    W   = malloc((size+1) * sizeof *W);
 
     for (int i = 0; i < size; ++i) {
         c_re(in[i]) = rand() / ((double)RAND_MAX + 1);
@@ -266,16 +266,9 @@ void init()
 void prep()
 {
     if (cp == NULL)
-        cp = malloc(sizeof(COMPLEX [size]));
+        cp = malloc(size * sizeof *cp);
 
-    memcpy(cp, in, sizeof(COMPLEX [size]));
-}
-
-static double wctime()
-{
-    struct timespec tv;
-    clock_gettime(CLOCK_MONOTONIC, &tv);
-    return (tv.tv_sec + 1E-9 * tv.tv_nsec);
+    memcpy(cp, in, size * sizeof *cp);
 }
 
 void usage(char *s)

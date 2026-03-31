@@ -22,10 +22,9 @@
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <time.h>
-#include <getopt.h>
-#include "lace.h"
 
+#include <lace.h>
+#include <common.h>
 
 #define f(x,y)     (sin(x)*sin(y))
 #define randa(x,t) (0.0)
@@ -43,7 +42,7 @@ double dtdxsq, dtdysq;
 double ** odd;
 double ** even;
 
-VOID_TASK_3(heat, double**, m, int, il, int, iu)
+TASK(void, heat, double**, m, int, il, int, iu)
 {
     if (iu - il > 1) {
         int im = (il + iu) / 2;
@@ -76,7 +75,7 @@ VOID_TASK_3(heat, double**, m, int, il, int, iu)
     }
 }
 
-VOID_TASK_5(diffuse, double**, out, double**, in, int, il, int, iu, double, t)
+TASK(void, diffuse, double**, out, double**, in, int, il, int, iu, double, t)
 {
     if (iu - il > 1) {
         int im = (il + iu) / 2;
@@ -130,13 +129,13 @@ void init(int n)
     dtdxsq = dt / (dx * dx);
     dtdysq = dt / (dy * dy);
 
-    even = malloc(sizeof(double * [nx]));
-    odd  = malloc(sizeof(double * [nx]));
+    even = malloc(nx * sizeof *even);
+    odd  = malloc(nx * sizeof *odd);
 
     int i;
     for (i = 0; i < nx; ++i) {
-        even[i] = malloc(sizeof(double [ny]));
-        odd [i] = malloc(sizeof(double [ny]));
+        even[i] = malloc(ny * sizeof *even[i]);
+        odd [i] = malloc(ny * sizeof *odd[i]);
     }
 }
 
@@ -145,7 +144,7 @@ void prep()
     RUN(heat, even, 0, nx);
 }
 
-VOID_TASK_0(test)
+TASK(void, test)
 {
     double t = tu;
     int i;
@@ -196,13 +195,6 @@ int verify()
     }
 
     return 0;
-}
-
-static double wctime() 
-{
-    struct timespec tv;
-    clock_gettime(CLOCK_MONOTONIC, &tv);
-    return (tv.tv_sec + 1E-9 * tv.tv_nsec);
 }
 
 static void usage(char *s)

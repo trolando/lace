@@ -1,17 +1,21 @@
 #include <stdlib.h>
 #include <stdio.h>
-#include <time.h>
-#include <getopt.h>
+
 #include <lace.h>
+#include <common.h>
 
 /**
  * N Queens problem
  * Given already placed queens in array a, and we want n queens, place a queen on row d at position i
  */
-TASK_4(long, nqueens, const int*, a, int, n, int, d, int, i)
+TASK(long, nqueens, const int*, a, int, n, int, d, int, i)
 {
     // copy queens from a to new array aa and check if ok
-    int aa[d + 1];
+#if defined(_MSC_VER) && !defined(__clang__)
+    int* aa = (int*)_alloca((d + 2) * sizeof(*aa));
+#else
+    int aa[d + 2]; // allocate one more to avoid UB
+#endif
 
     for (int j = 0; j < d; ++j) {
         aa[j] = a[j];
@@ -29,59 +33,54 @@ TASK_4(long, nqueens, const int*, a, int, n, int, d, int, i)
     if (++d == n) return 1;
 
     // if not reached, place the next queen recursively
-    for (int k = 0; k<n; k++) {
+    for (int k = 0; k < n; k++) {
         SPAWN(nqueens, aa, n, d, k);
     }
 
     // and return the sum of the recursive counts
     long sum = 0;
-    for (int k=0; k<n; k++) {
+    for (int k = 0; k < n; k++) {
         sum += SYNC(nqueens);
     }
     return sum;
 }
 
-static double wctime() 
-{
-    struct timespec tv;
-    clock_gettime(CLOCK_MONOTONIC, &tv);
-    return (tv.tv_sec + 1E-9 * tv.tv_nsec);
-}
-
-static void usage(char *s)
+static void usage(char* s)
 {
     fprintf(stderr, "%s -w <workers> [-q dqsize] <n>\n", s);
 }
 
-int main(int argc, char *argv[])
+int main(int argc, char* argv[])
 {
     int n = 14;
     int workers = 1;
     int dqsize = 100000;
 
     int c;
-    while ((c=getopt(argc, argv, "w:q:h")) != -1) {
+    while ((c = getopt(argc, argv, "w:q:h")) != -1) {
         switch (c) {
-            case 'w':
-                workers = atoi(optarg);
-                break;
-            case 'q':
-                dqsize = atoi(optarg);
-                break;
-            case 'h':
-                usage(argv[0]);
-                break;
-            default:
-                abort();
+        case 'w':
+            workers = atoi(optarg);
+            break;
+        case 'q':
+            dqsize = atoi(optarg);
+            break;
+        case 'h':
+            usage(argv[0]);
+            break;
+        default:
+            abort();
         }
     }
 
     if (optind == argc) {
         n = 14;
-    } else if ((optind+1) != argc) {
+    }
+    else if ((optind + 1) != argc) {
         usage(argv[0]);
         exit(1);
-    } else {
+    }
+    else {
         n = atoi(argv[optind]);
     }
 
@@ -90,11 +89,11 @@ int main(int argc, char *argv[])
     printf("Running nqueens n=%d with %u workers...\n", n, lace_workers());
 
     double t1 = wctime();
-    long res = nqueens_RUN(NULL, n, -1, 0);
+    long res = RUN(nqueens, NULL, n, -1, 0);
     double t2 = wctime();
 
     printf("Result: nqueens(%d) = %ld\n", n, res);
-    printf("Time: %f\n", t2-t1);
+    printf("Time: %f\n", t2 - t1);
 
     lace_stop();
 

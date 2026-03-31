@@ -23,9 +23,9 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <time.h>
-#include <getopt.h>
+
 #include <lace.h>
+#include <common.h>
 
 /* Define the size of a block. */
 #ifndef BLOCK_SIZE
@@ -167,7 +167,7 @@ static void block_schur(Block B, Block A, Block C)
 /**
  * schur - Compute M' = M - VW.
  */
-VOID_TASK_4(schur, Matrix, M, Matrix, V, Matrix, W, int, nb)
+TASK(void, schur, Matrix, M, Matrix, V, Matrix, W, int, nb)
 {
     Matrix M00, M01, M10, M11;
     Matrix V00, V01, V10, V11;
@@ -220,7 +220,7 @@ VOID_TASK_4(schur, Matrix, M, Matrix, V, Matrix, W, int, nb)
  */
 VOID_TASK_DECL_3(lower_solve, Matrix, Matrix, int)
 
-VOID_TASK_4(aux_lower_solve, Matrix, Ma, Matrix, Mb, Matrix, L, int, nb)
+TASK(void, aux_lower_solve, Matrix, Ma, Matrix, Mb, Matrix, L, int, nb)
 {
     Matrix L00, L10, L11;
 
@@ -266,7 +266,7 @@ VOID_TASK_IMPL_3(lower_solve, Matrix, M, Matrix, L, int, nb)
  */
 VOID_TASK_DECL_3(upper_solve, Matrix, Matrix, int)
 
-VOID_TASK_4(aux_upper_solve, Matrix, Ma, Matrix, Mb, Matrix, U, int, nb)
+TASK(void, aux_upper_solve, Matrix, Ma, Matrix, Mb, Matrix, U, int, nb)
 {
     Matrix U00, U01, U11;
 
@@ -312,7 +312,7 @@ VOID_TASK_IMPL_3(upper_solve, Matrix, M, Matrix, U, int, nb)
 /*
  * lu - Perform LU decomposition of matrix M.
  */
-VOID_TASK_2(lu, Matrix, M, int, nb)
+TASK(void, lu, Matrix, M, int, nb)
 {
     Matrix M00, M01, M10, M11;
     int hnb;
@@ -352,13 +352,6 @@ void init()
     nBlocks = n / BLOCK_SIZE;
     M = (Matrix) malloc(n * n * sizeof(double));
     init_matrix(M, nBlocks);
-}
-
-static double wctime()
-{
-    struct timespec tv;
-    clock_gettime(CLOCK_MONOTONIC, &tv);
-    return (tv.tv_sec + 1E-9 * tv.tv_nsec);
 }
 
 static void usage(char *s)

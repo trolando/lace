@@ -26,7 +26,8 @@
 
 #include <stdlib.h>
 #include <stdio.h>
-#include <time.h>
+
+#include <common.h>
 
 #define BLOCK_EDGE 16
 #define BLOCK_SIZE (BLOCK_EDGE * BLOCK_EDGE)
@@ -325,13 +326,6 @@ void init() {
 
     init_matrix(A, x, y, y, 1.0);
     init_matrix(B, y, z, z, 1.0);
-}
-
-static double wctime()
-{
-    struct timespec tv;
-    clock_gettime(CLOCK_MONOTONIC, &tv);
-    return (tv.tv_sec + 1E-9 * tv.tv_nsec);
 }
 
 static void usage(char *s)

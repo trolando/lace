@@ -54,11 +54,12 @@
  * log factor in the critical path (left as homework).
  */
 
-#include <lace.h>
-#include <time.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+
+#include <lace.h>
+#include <common.h>
 
 typedef long ELM;
 
@@ -67,13 +68,6 @@ typedef long ELM;
 #define MERGESIZE (2*KILO)
 #define QUICKSIZE (2*KILO)
 #define INSERTIONSIZE 20
-
-double wctime() 
-{
-    struct timespec tv;
-    clock_gettime(CLOCK_MONOTONIC, &tv);
-    return (tv.tv_sec + 1E-9 * tv.tv_nsec);
-}
 
 static unsigned long rand_nxt = 0;
 
@@ -298,7 +292,7 @@ ELM *binsplit(ELM val, ELM *low, ELM *high)
         return low;
 }
 
-VOID_TASK_5(cilkmerge, ELM*, low1, ELM*, high1, ELM*, low2, ELM*, high2, ELM*, lowdest)
+TASK(void, cilkmerge, ELM*, low1, ELM*, high1, ELM*, low2, ELM*, high2, ELM*, lowdest)
 {
     /*
      * Cilkmerge: Merges range [low1, high1] with range [low2, high2] 
@@ -357,7 +351,7 @@ VOID_TASK_5(cilkmerge, ELM*, low1, ELM*, high1, ELM*, low2, ELM*, high2, ELM*, l
     return;
 }
 
-VOID_TASK_3(cilksort, ELM*, low, ELM*, tmp, long, size)
+TASK(void, cilksort, ELM*, low, ELM*, tmp, long, size)
 {
     /*
      * divide the input in four parts of the same size (A, B, C, D)

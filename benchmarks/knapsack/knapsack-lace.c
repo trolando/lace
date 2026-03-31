@@ -28,8 +28,9 @@
 #include <stdlib.h>
 #include <limits.h>
 #include <string.h>
-#include <time.h>
+
 #include <lace.h>
+#include <common.h>
 
 #define __SYNC
 //#define __PRUNE
@@ -78,7 +79,7 @@ static struct item items[] = {
     { 18, 53 }
 };
 
-static int best_so_far = INT_MIN;
+static _Atomic int best_so_far = INT_MIN;
 
 static int compare(struct item *a, struct item *b)
 {
@@ -96,7 +97,7 @@ static int compare(struct item *a, struct item *b)
  * return the optimal solution for n items (first is e) and
  * capacity c. Value so far is v.
  */
-TASK_4(int, knapsack, struct item *,e, int, c, int, n, int, v)
+TASK(int, knapsack, struct item *,e, int, c, int, n, int, v)
 {
     int with, without, best;
 
@@ -109,8 +110,8 @@ TASK_4(int, knapsack, struct item *,e, int, c, int, n, int, v)
 
 #ifdef __PRUNE
 #ifdef __SYNC
-    double ub = (double) v + c * e->value / e->weight;
-    if (ub < __atomic_load_n(&best_so_far, __ATOMIC_ACQUIRE)) {
+    double ub = (double)v + c * e->value / e->weight;
+    if (ub < atomic_load_explicit(&best_so_far, memory_order_acquire)) {
         /* prune ! */
         return INT_MIN;
     }
@@ -146,11 +147,11 @@ TASK_4(int, knapsack, struct item *,e, int, c, int, n, int, v)
      * value. The program is highly non-deterministic.
      */
 #ifdef __SYNC
-    int bsf = __atomic_load_n(&best_so_far, __ATOMIC_ACQUIRE);
+    int bsf = atomic_load_explicit(&best_so_far, memory_order_acquire);
     do {
         if (bsf >= best)
             break;
-    } while (!__atomic_compare_exchange_n(&best_so_far, &bsf, best, 0, __ATOMIC_RELEASE, __ATOMIC_ACQUIRE));
+    } while (!atomic_compare_exchange_weak_explicit(&best_so_far, &bsf, best, memory_order_release, memory_order_acquire));
 #else
     if (best > best_so_far)
         best_so_far = best;
@@ -169,17 +170,10 @@ void init()
 void prep()
 {
 #ifdef __SYNC
-    __atomic_store_n(&best_so_far, INT_MIN, __ATOMIC_RELEASE);
+    atomic_store_explicit(&best_so_far, INT_MIN, memory_order_release);
 #else
     best_so_far = INT_MIN;
 #endif
-}
-
-static double wctime() 
-{
-    struct timespec tv;
-    clock_gettime(CLOCK_MONOTONIC, &tv);
-    return (tv.tv_sec + 1E-9 * tv.tv_nsec);
 }
 
 void usage(char *s)

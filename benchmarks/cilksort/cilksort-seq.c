@@ -54,10 +54,11 @@
  * log factor in the critical path (left as homework).
  */
 
-#include <time.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+
+#include <common.h>
 
 typedef long ELM;
 
@@ -66,13 +67,6 @@ typedef long ELM;
 #define MERGESIZE (2*KILO)
 #define QUICKSIZE (2*KILO)
 #define INSERTIONSIZE 20
-
-double wctime() 
-{
-    struct timespec tv;
-    clock_gettime(CLOCK_MONOTONIC, &tv);
-    return (tv.tv_sec + 1E-9 * tv.tv_nsec);
-}
 
 static unsigned long rand_nxt = 0;
 
@@ -342,7 +336,7 @@ void cilkmerge(ELM* low1, ELM* high1, ELM* low2, ELM* high2, ELM* lowdest)
 
     split1 = ((high1 - low1 + 1) / 2) + low1;
     split2 = binsplit(*split1, low2, high2);
-    lowsize = split1 - low1 + split2 - low2;
+    lowsize = (long)(split1 - low1 + split2 - low2);
 
     /* 
      * directly put the splitting element into

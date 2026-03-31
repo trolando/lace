@@ -33,9 +33,9 @@
 #include <string.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <time.h>
-#include <getopt.h>
+
 #include <lace.h>
+#include <common.h>
 
 /*************************************************************\
  * Basic types
@@ -349,7 +349,7 @@ static Matrix set_matrix(int depth, Matrix a, int r, int c, Real value)
  * Perform R -= A * Transpose(B)
  * if lower==1, update only lower-triangular part of R
  */
-TASK_5(Matrix, mul_and_subT, int, depth, int, lower, Matrix, a, Matrix, b, Matrix, r)
+TASK(Matrix, mul_and_subT, int, depth, int, lower, Matrix, a, Matrix, b, Matrix, r)
 {
     if (depth == BLOCK_DEPTH) {
         LeafNode *A = (LeafNode *) a;
@@ -445,7 +445,7 @@ TASK_5(Matrix, mul_and_subT, int, depth, int, lower, Matrix, a, Matrix, b, Matri
  * Perform substitution to solve for B in BL = A
  * Returns B in place of A.
  */
-TASK_3(Matrix, backsub, int, depth, Matrix, a, Matrix, l)
+TASK(Matrix, backsub, int, depth, Matrix, a, Matrix, l)
 {
     if (depth == BLOCK_DEPTH) {
         LeafNode *A = (LeafNode *) a;
@@ -493,7 +493,7 @@ TASK_3(Matrix, backsub, int, depth, Matrix, a, Matrix, l)
 /*
  * Compute Cholesky factorization of A.
  */
-TASK_2(Matrix, cholesky, int, depth, Matrix, a)
+TASK(Matrix, cholesky, int, depth, Matrix, a)
 {
     if (depth == BLOCK_DEPTH) {
         LeafNode *A = (LeafNode *) a;
@@ -561,13 +561,6 @@ void init()
     }
 
     R = copy_matrix(depth, A);
-}
-
-static double wctime() 
-{
-    struct timespec tv;
-    clock_gettime(CLOCK_MONOTONIC, &tv);
-    return (tv.tv_sec + 1E-9 * tv.tv_nsec);
 }
 
 static void usage(char *s)
