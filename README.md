@@ -8,7 +8,7 @@
 Lace is a C framework for fine-grained fork-join parallelism on multi-core computers.
 
 ```c
-TASK_1(int, fibonacci, int, n) {
+TASK(int, fibonacci, int, n) {
     if(n < 2) return n;
     SPAWN(fibonacci, n-1);
     int a = CALL(fibonacci, n-2);
@@ -31,18 +31,19 @@ int main(int argc, char **argv)
 Feature | Description
 ---------|------------
 Low overhead | Lace uses a **scalable** double-ended queue for its implementation of work-stealing, which is **wait-free** for the thread spawning tasks and **lock-free** for the threads stealing tasks. The design of the datastructure minimizes interaction between CPUs.
-Suspending | Lace threads can be manually suspended when the framework is not used to reduce CPU usage. This is used when part of a computation is not parallelized, since Lace workers busy-wait for work.
+Backoff | When idle, Lace workers sleep with exponential backoff (up to 1 ms), reducing CPU usage to near zero when there is no work. This is controlled by the `LACE_BACKOFF` option (enabled by default).
+Multi-threaded task submission | Non-Lace threads can submit tasks concurrently via `RUN`. Up to 64 external threads can submit tasks simultaneously without contention.
 Interrupting | Lace threads can be (cooperatively) interrupted to execute another task first. This is for example used by [Sylvan](https://github.com/trolando/sylvan) to perform garbage collection.
+Portable | Lace runs on Linux (GCC, Clang), macOS (Apple Clang), and Windows (MSVC, MSYS2/MinGW), with correct memory ordering on both x86 and ARM/AArch64.
 
 Please [let us know](https://github.com/trolando/lace/issues) if you need features that are currently not implemented in Lace.
 
 ## Installation
 
-Lace requires a modern compiler supporting C11. It is tested with the GNU and Clang compilers.
+Lace requires a modern compiler supporting C11. It is tested with GCC, Clang, and MSVC.
 Lace can use hwloc (`libhwloc-dev`) to pin workers and allocate memory on the correct CPUs/memory domains on NUMA systems.
-Lace works on Linux, Windows, and Mac OS X.
 
-It is possible to install Lace with `make install` if that is desired.
+It is possible to install Lace with `cmake --install build` if that is desired.
 We recommend using Lace as a submodule in your repository or as a dependency in your CMake script,
 for example using the `FetchContent` or `ExternalProject` features of CMake.
 
@@ -57,7 +58,7 @@ if(NOT TARGET lace)
     FetchContent_Declare(
         lace
         GIT_REPOSITORY https://github.com/trolando/lace.git
-        GIT_TAG        v1.4.2
+        GIT_TAG        v1.6.0
     )
     FetchContent_MakeAvailable(lace)
   endif()
@@ -78,60 +79,80 @@ cmake --build build
 ```
 
 Lace can be configured with the following CMake settings:
-Setting | Description
---------|------------
-`LACE_BUILD_TESTS` | Build the testing programs (not when subproject)
-`LACE_BUILD_BENCHMARKS` | Build the included set of benchmark programs (not when subproject)
-`LACE_USE_MMAP` | Use `mmap` to allocate memory instead of `posix_memalign`
-`LACE_USE_HWLOC` | Use the `hwloc` library to pin threads to CPUs
-`LACE_COUNT_TASKS` | Let Lace record the number of executed tasks
-`LACE_COUNT_STEALS` | Let Lace count how often tasks were stolen
-`LACE_COUNT_SPLITS` | Let Lace count how often the queue split point was moved
-`LACE_PIE_TIMES` | Let Lace record precise overhead times
 
-Ideally, `LACE_USE_MMAP` is set to let Lace allocate a large amount of virtual memory for the task queues instead of real memory.
-Real memory is only allocated and cleared by the OS when required, thus in most use cases this should minimize the memory overhead of Lace.
-If `LACE_USE_MMAP` is not set, then real memory is allocated using `posix_memalign`, and a more conservative queue size should be chosen when invoking `lace_start`.
+Setting | Description | Default
+--------|-------------|--------
+`LACE_USE_HWLOC` | Use the `hwloc` library to pin threads to CPUs and allocate memory on the correct NUMA node | OFF
+`LACE_BACKOFF` | Workers sleep with exponential backoff when no work is available, reducing CPU usage without affecting throughput | ON
+`LACE_NATIVE_OPT` | Optimise for the host CPU architecture (`-march=native`) | ON
+`LACE_ENABLE_PIC` | Compile with position-independent code (`-fPIC`) | OFF
+`BUILD_SHARED_LIBS` | Build shared libraries instead of static | OFF
+`LACE_COUNT_TASKS` | Let Lace record the number of executed tasks | OFF
+`LACE_COUNT_STEALS` | Let Lace count how often tasks were stolen | OFF
+`LACE_COUNT_SPLITS` | Let Lace count how often the queue split point was moved | OFF
+`LACE_PIE_TIMES` | Let Lace record precise overhead times | OFF
+
+The following options are only available when Lace is the top-level project:
+
+Setting | Description | Default
+--------|-------------|--------
+`LACE_BUILD_TESTS` | Build the test suite | ON
+`LACE_BUILD_BENCHMARKS` | Build the benchmark programs | ON
+`LACE_SANITIZE_ADDRESS` | Build with AddressSanitizer | OFF
+`LACE_SANITIZE_THREAD` | Build with ThreadSanitizer | OFF
+`LACE_SANITIZE_UB` | Build with UndefinedBehaviorSanitizer | OFF
+
+Worker deques are allocated using virtual memory (`mmap` on Unix, `VirtualAlloc` on Windows).
+The default deque size is 1 048 576 task slots, but only pages actually touched consume physical memory.
 
 ## Using Lace
 
 There are two versions of Lace:
-- The standard version `lace` consisting of `lace.h` and `lace.c` uses 64 bytes per task and supports at most 6 parameters per task.
+- The standard version `lace` consisting of `lace.h` and `lace.c` uses 64 bytes per task and supports at most 10 parameters per task.
 - The extended version `lace14` consisting of `lace14.h` and `lace14.c` uses 128 bytes per task and supports at most 14 parameters per task.
 
 ### Starting and stopping Lace
-Start the Lace framework using the `lace_start(unsigned int n_workers, size_t dqsize)` method.
-This creates `n_workers` new threads that will immediately start busy-waiting for work. Each threads will allocate its own task queue for `dqsize` tasks. The entire queue is preallocated, requiring 64 bytes per tasks (or 128 bytes for `lace14`).
-* When `n_workers` is set to 0, Lace automatically detects the maximum number of workers for the system using `lace_get_pu_count()`.
-* When `dqsize` is set to 0, the default is used, which is currently 100000 tasks.
+
+Start the Lace framework using `lace_start(unsigned int n_workers, size_t dqsize)`.
+This creates `n_workers` new threads that will immediately start work-stealing.
+Each thread allocates its own task deque for `dqsize` tasks.
+* When `n_workers` is set to 0, Lace automatically detects the available cores.
+* When `dqsize` is set to 0, the default of 1 048 576 is used.
 
 Use `lace_stop()` to stop the framework, terminating all workers.
+Use `lace_is_running()` to check whether Lace is currently active.
 
-Lace workers busy-wait for tasks to steal, increasing the CPU load to 100%.
-Use `lace_suspend` and `lace_resume` (in a non-Lace thread) to temporarily stop the work-stealing framework.
-Suspending and resuming typically requires less than 1-2 ms.
+When idle, workers automatically sleep with exponential backoff (if `LACE_BACKOFF` is enabled),
+so there is no need to manually manage worker activity.
 
 ### Defining tasks
 
-Lace tasks are defined using the `TASK_n` macro, where `n` is the number of parameters.
-For example, `TASK_1(int, fib, int, n) { ... }` defines a Lace task with an int return value and one parameter of type int and variable name n.
-Declaration and implementation can be separated using the `TASK_DECL_n` and `TASK_IMPL_n` macros.
-To declare tasks with no return value, use the `VOID_TASK_n` macros, for example, `VOID_TASK_1(do_something, int, n)`.
+Tasks are defined using the `TASK` macro:
+
+```c
+TASK(int, fib, int, n) { ... }          // task with int return and one int parameter
+TASK(void, do_work, int, n) { ... }     // void task with one parameter
+TASK(void, init) { ... }                // void task with no parameters
+```
+
+The explicit `TASK_n` and `VOID_TASK_n` macros also remain available.
+Declaration and implementation can be separated using `TASK_DECL_n` and `TASK_IMPL_n`.
 
 From Lace tasks (running in a Lace thread):
 - Use `SPAWN` to create a task and `SYNC` to obtain the result (if stolen) or execute the task (if not stolen)
 - Use `CALL` to directly execute a task without putting it in the queue
 - Use `DROP` instead of `SYNC` to not execute a task (unless already stolen)
 
-From external methods (not running in a Lace thread):
-- Use `RUN` to offer the task to the Lace framework. This method halts until the task is fully executed
+From external threads (not running in a Lace thread):
+- Use `RUN` to submit a task to the Lace framework. This method blocks until the task is completed.
+- Multiple external threads can call `RUN` concurrently (up to 64 concurrent submissions).
 
 See the `benchmarks` directory for examples.
 
 ### Interrupting
 
 Lace offers two methods to interrupt currently running tasks and run something else:
-- the `NEWFRAME` macro, e.g. `NEWFRAME(fib, 40)` macro halts current tasks and offers the `fib` method to the framework.
+- the `NEWFRAME` macro, e.g. `NEWFRAME(fib, 40)` halts current tasks and offers the `fib` task to the framework.
 - the `TOGETHER` macro halts current tasks and lets **all Lace workers** execute a copy of the given task.
 
 The `TOGETHER` macro is useful to initialize thread-local variables on each worker.
@@ -164,4 +185,3 @@ T. van Dijk and J.C. van de Pol (2014) [Lace: Non-blocking Split Deque for Work-
 ## License
 
 Lace is licensed with the [Apache 2.0 license](https://opensource.org/licenses/Apache-2.0). 
-

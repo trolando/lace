@@ -2,6 +2,97 @@
 
 All notable changes to Lace will be documented in this file.
 
+## [1.6.0] - 2026-03-31
+
+This release backports correctness fixes, portable abstractions, and
+performance improvements from Lace v2.3.0 into the v1 branch. The v1
+task macro API (`SPAWN`/`SYNC`/`CALL`/`RUN`, `TASK_N`/`VOID_TASK_N`,
+`__lace_worker`/`__lace_dq_head` parameters) is preserved. Existing
+code using the v1 API should continue to work, with the exception of
+the removed `lace_suspend`/`lace_resume` functions and the repurposed
+`TASK` macro (the old `TASK(foo)` shorthand for `foo_CALL` is replaced
+by the new generic `TASK(rtype, name, ...)` dispatch macro).
+
+Instead of `VOID_TASK_N` and `TASK_N` macros, users can now use the more
+convenient `TASK(rtype, name, ...)` macro for defining tasks. For void
+tasks, use `TASK(void, name, ...)`. The explicit `TASK_N`, `VOID_TASK_N`,
+`TASK_DECL_N`, and `TASK_IMPL_N` macros remain available.
+
+### Added
+
+- Generic `TASK(rtype, name, ...)` macro that dispatches to `TASK_N` or
+  `VOID_TASK_N` automatically. Use `TASK(void, name, ...)` for void tasks.
+  The explicit `TASK_N`, `VOID_TASK_N`, `TASK_DECL_N`, and `TASK_IMPL_N`
+  macros remain available. The old `TASK(foo)` macro is replaced; use
+  `foo_CALL` instead.
+- `LACE_BACKOFF` option (default ON): idle workers sleep with exponential
+  backoff (50 iterations per doubling, 1 ms cap), reducing CPU usage to
+  near zero when there is no work.
+- `lace_is_running()` returns 1 if Lace is running, 0 otherwise.
+- `lace_sleep_us()` portable microsecond sleep. On Windows uses a
+  per-thread waitable timer with QPC spin-wait for sub-300 µs delays.
+- Multi-threaded external task submission: using `RUN` to run a task can
+  now be called concurrently from up to 64 non-Lace threads without
+  contention on a single atomic slot.
+- New stress test `test_external` exercising concurrent external task
+  submission with simple tasks, fibonacci tasks, and tree-recursive
+  mixed workloads.
+- New test `test_backoff` for verifying backoff behavior.
+- New test `test_barrier` for verifying barrier correctness.
+- Portable abstraction layer backported from Lace v2: `lace_sem_t`,
+  `lace_mutex_t`, `lace_cond_t`, `LACE_TLS`, `LACE_LIKELY`/`LACE_UNLIKELY`,
+  `LACE_NOINLINE`, `LACE_NORETURN`, `LACE_ALIGN`, `LACE_UNUSED`.
+- Portable high-resolution timer `lace_gethrtime()` replacing the
+  x86-only `rdtsc` inline assembly. Supports x86 (rdtsc/rdtscp),
+  Windows (QueryPerformanceCounter), macOS (mach_absolute_time), and
+  POSIX (clock_gettime).
+- Worker thread stacks are now explicitly allocated with `mmap` (Unix)
+  or `hwloc_alloc_membind` (when hwloc is enabled), with a guard page
+  at the low end. On NUMA systems this ensures stack pages are placed
+  on the correct memory node.
+
+### Changed
+
+- Default task deque size increased from 100 000 to 1 048 576 entries.
+  Since deques are now backed by virtual memory (`mmap` / `VirtualAlloc`),
+  only pages actually touched consume physical memory.
+- Random number generator replaced: LCG (`LACE_TRNG`) replaced by
+  xoroshiro128** (`lace_rng`). `LACE_TRNG` remains as a compatibility
+  alias.
+- Barrier implementation now uses correct memory ordering: `acq_rel` on
+  the arrival counter, `acq_rel` on the wait flip, `acquire` on the
+  spin loop, and `release` on the leaving counter. Previously used
+  `relaxed` everywhere, which was incorrect on ARM/POWER.
+- SPAWN fence corrected from `memory_order_acquire` to
+  `memory_order_release`. The purpose is to prevent task data stores
+  from reordering past the split update. The old fence direction was
+  incorrect on weak-memory architectures (correct on x86 by accident).
+- Steal, shrink, and leapfrog functions now use explicit
+  `atomic_load_explicit` / `atomic_store_explicit` instead of plain
+  reads/writes of `TailSplit` members.
+- TOGETHER and NEWFRAME wrappers now have a `release` fence before
+  the CAS on `lace_newframe.t`, ensuring task data is visible to
+  workers on weak-memory architectures.
+- `YIELD_NEWFRAME` now includes an `acquire` fence after observing
+  a non-NULL `lace_newframe.t`, ensuring the task data read by
+  `lace_yield` is consistent.
+- `TASK_IS_STOLEN` and `TASK_IS_COMPLETED` macros now use
+  `atomic_load_explicit` instead of plain reads.
+- Checked return values of `pthread_create`, `pthread_attr_init`,
+  `pthread_attr_setstack`, `getrlimit`, and `lace_sem_init`. All
+  failures now produce a diagnostic message and exit.
+
+### Removed
+
+- `lace_suspend` and `lace_resume` are removed. Use `LACE_BACKOFF`
+  (enabled by default) instead — idle workers sleep automatically.
+- `lace_run_task_exclusive` and `RUNEX` are removed.
+- Retired the `LACE_USE_MMAP` CMake option. Deques are now always
+  allocated with `mmap` (Unix) or `VirtualAlloc` (Windows).
+- Removed the old macOS semaphore `#define` hacks. Replaced by the
+  portable `lace_sem_t` abstraction using GCD dispatch semaphores.
+
+
 ## [1.5.4] - 2026-03-26
 
 ### Changed
