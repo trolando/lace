@@ -158,6 +158,10 @@ foreach(_target lace lace14)
         target_link_libraries(${_target} PUBLIC Threads::Threads)
     endif()
 
+    if(WIN32)
+        target_link_libraries(${_target} PRIVATE synchronization)
+    endif()
+
     if(LACE_USE_HWLOC)
         target_link_libraries(${_target} PUBLIC HWLOC::hwloc)
     endif()
