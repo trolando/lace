@@ -113,23 +113,129 @@ This release-acquire pair ensures the task contents are fully
 visible before any worker copies them.
 
 
-External task submission
+xternal task submission
 ------------------------
-
+ 
 Non-Lace threads submit tasks via ``lace_run_task``. The task is
 placed into one of 64 atomic slots (a fixed-size array). Workers
-check an atomic counter ``external_task_count`` on each steal loop
-iteration; when non-zero, they scan the array and claim a task with
-``atomic_exchange``. The exchange atomically reads and clears the
-slot, preventing double-execution.
-
-The submitting thread blocks on a per-task semaphore until the worker
-signals completion. The ``ext_lace_task`` struct lives on the
-submitting thread's stack, so no heap allocation is needed.
-
+check an atomic counter ``external_task_count`` periodically in the
+steal loop; when non-zero, they scan the array and claim a task.
+The scan uses a two-step approach: a relaxed ``atomic_load`` to
+skip empty slots (read-only, no cache line invalidation), followed
+by ``atomic_exchange`` only on non-NULL slots. This minimises
+write traffic on the shared slot array when most slots are empty.
+ 
+The submitting thread blocks on a per-task ``atomic_int done``
+field, using a futex wait. Before falling back to the futex, the
+submitter briefly spins (256 PAUSE iterations) to avoid a kernel
+transition when the task completes quickly (typical for fine-grained
+BDD operations). The worker signals completion with an atomic store
+and ``futex_wake``. The ``ext_lace_task`` struct lives on the
+submitting thread's stack, so no heap allocation is needed and no
+initialisation or destruction is required for the futex word.
+ 
+When an external task is published, the submitter wakes one sleeping
+worker via ``futex_wake``. This ensures that even when all workers
+are in deep futex sleep, external tasks are picked up promptly.
+ 
 Multiple external threads can submit concurrently without contention
 on a single slot. The atomic counter keeps the fast path (no external
 tasks) to a single relaxed load.
+
+
+Worker idle strategy
+--------------------
+ 
+When a worker fails to find work, it progresses through idle stages
+of increasing aggressiveness to balance responsiveness against CPU
+and cache-bus overhead.
+ 
+**Stage 1: Yield (0–256 failed attempts).** The worker calls
+``sched_yield()`` (or ``SwitchToThread()`` on Windows) on each
+iteration. This gives the OS scheduler an opportunity to run other
+threads while remaining responsive to new work. No PAUSE stage
+precedes this: on modern out-of-order CPUs, PAUSE instructions
+provide insufficient throttling and the core continues to drive
+cache-coherence traffic at near-full rate.
+ 
+**Stage 2: Futex sleep with ramping timeout (256+ failed attempts).**
+The worker increments an ``n_sleeping`` counter, then enters
+``futex_wait`` on a shared ``wake_futex`` word. The timeout starts
+at 100 µs and increases by 100 µs per futex cycle, capping at
+1 ms. This ramp avoids two failure modes:
+ 
+- Too-short timeouts cause excessive futex syscall overhead
+  (each ``futex_wait``/return is ~3–5 µs of kernel entry/exit).
+- Too-long timeouts cause barrier-synchronized workloads
+  (cholesky, LU) to miss the start of a new parallel phase.
+ 
+The 1 ms cap was determined empirically: 10 ms caused measurable
+regressions in LU decomposition; 100 ms caused severe regressions
+in multiple structured benchmarks.
+ 
+**Wake signals.** Workers can be woken from futex sleep by:
+ 
+1. ``lace_run_task``: always wakes one worker when an external task
+   is submitted. This is the primary mechanism for external task
+   responsiveness.
+ 
+2. Successful steal with remaining work (``LACE_STOLEN``, not
+   ``LACE_STOLEN_LAST``): the thief knows the victim still has
+   stealable tasks, so it wakes one sleeping worker to help.
+   This creates a cascade: workers wake proportionally to
+   available parallelism. The ``LACE_STOLEN_LAST`` distinction
+   prevents spurious wakes when the stolen task was the last one.
+ 
+3. ``lace_stop``: wakes all sleeping workers so they observe the
+   quit flag and exit promptly.
+ 
+The ``wake_futex`` word is incremented (``fetch_add``) before each
+``futex_wake`` call. This ensures the futex value has changed,
+preventing the lost-wake race where a worker enters ``futex_wait``
+between the value change and the wake signal.
+ 
+**Steal result signalling.** ``lace_steal`` returns one of:
+ 
+- ``LACE_STOLEN`` — task stolen, victim still has more work
+  (``tail < split`` after CAS). Triggers a wake signal.
+- ``LACE_STOLEN_LAST`` — task stolen, but it was the last
+  stealable task. No wake signal.
+- ``LACE_BUSY`` — CAS failed, another thief was concurrent.
+- ``LACE_NOWORK`` — victim has no stealable tasks.
+ 
+ 
+Futex portability
+-----------------
+ 
+Lace uses address-based wait/wake primitives (commonly called
+"futex") for the idle system and external task completion. These
+operate on plain ``atomic_int`` values with no initialisation or
+destruction required. The kernel maintains wait queues internally,
+keyed by virtual address.
+ 
+Platform implementations:
+ 
+- **Linux**: ``futex(FUTEX_WAIT_PRIVATE)`` /
+  ``futex(FUTEX_WAKE_PRIVATE)`` via ``syscall(SYS_futex, ...)``.
+  The ``_PRIVATE`` variants avoid the overhead of shared-memory
+  mapping lookups since all threads are in the same process.
+ 
+- **FreeBSD**: ``_umtx_op(UMTX_OP_WAIT_UINT_PRIVATE)`` /
+  ``_umtx_op(UMTX_OP_WAKE_PRIVATE)``. Timeout is passed via
+  a ``struct _umtx_time`` for relative timeouts.
+ 
+- **macOS 14.4+**: ``os_sync_wait_on_address_with_timeout`` /
+  ``os_sync_wake_by_address_any`` / ``os_sync_wake_by_address_all``.
+  This is the public, documented Apple API introduced in macOS 14.4.
+ 
+- **macOS < 14.4**: ``__ulock_wait`` / ``__ulock_wake``. This is
+  a private Darwin API used by the Rust standard library, Go
+  runtime, and LLVM libc++. It has been stable since macOS 10.12.
+ 
+- **Windows**: ``WaitOnAddress`` / ``WakeByAddressSingle`` /
+  ``WakeByAddressAll`` from ``synchapi.h`` (Windows 8+). Requires
+  linking with ``Synchronization.lib`` (``-lsynchronization`` for
+  MinGW).
 
 
 Barrier
