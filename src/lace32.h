@@ -889,10 +889,6 @@ static inline uint64_t lace_gethrtime(void)
 #define THIEF_TASK      ((struct lace_worker_public*)0x1)
 #define THIEF_COMPLETED ((struct lace_worker_public*)0x2)
 
-#define LACE_STOLEN   ((lace_worker_public*)0)
-#define LACE_BUSY     ((lace_worker_public*)1)
-#define LACE_NOWORK   ((lace_worker_public*)2)
-
 #if LACE_PIE_TIMES
 static LACE_UNUSED void lace_time_event( lace_worker *w, int event )
 {

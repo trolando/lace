@@ -26,6 +26,7 @@
 
 #include <errno.h> // for errno
 #include <inttypes.h> // for PRIu64
+#include <limits.h> // for INT_MAX
 #include <stddef.h> // for size_t
 #include <stdio.h>  // for fprintf
 #include <stdlib.h> // for memalign, malloc
@@ -148,6 +149,217 @@ static size_t get_cache_line_size(void)
 static size_t cache_line_size;
 
 /**
+ * Portable futex support
+ */
+
+#if defined(__linux__)
+#include <linux/futex.h>
+#include <sys/syscall.h>
+
+LACE_UNUSED
+static int lace_futex_wait(atomic_int *addr, int expected, int64_t timeout_us)
+{
+    if (timeout_us < 0) {
+        return (int)syscall(SYS_futex, addr, FUTEX_WAIT_PRIVATE, expected, NULL, NULL, 0);
+    }
+    struct timespec ts;
+    ts.tv_sec = (time_t)(timeout_us / 1000000);
+    ts.tv_nsec = (long)((timeout_us % 1000000) * 1000);
+    return (int)syscall(SYS_futex, addr, FUTEX_WAIT_PRIVATE, expected, &ts, NULL, 0);
+}
+
+LACE_UNUSED
+static int lace_futex_wake_one(atomic_int *addr)
+{
+    return (int)syscall(SYS_futex, addr, FUTEX_WAKE_PRIVATE, 1, NULL, NULL, 0);
+}
+
+LACE_UNUSED
+static int lace_futex_wake_all(atomic_int *addr)
+{
+    return (int)syscall(SYS_futex, addr, FUTEX_WAKE_PRIVATE, INT_MAX, NULL, NULL, 0);
+}
+
+#elif defined(__FreeBSD__)
+#include <sys/umtx.h>
+
+LACE_UNUSED
+static int lace_futex_wait(atomic_int *addr, int expected, int64_t timeout_us)
+{
+    struct _umtx_time ut;
+    if (timeout_us < 0) {
+        return _umtx_op(addr, UMTX_OP_WAIT_UINT_PRIVATE, (unsigned long)expected, NULL, NULL);
+    }
+    ut._flags = UMTX_ABSTIME;  /* we want relative, but FreeBSD wants this struct */
+    ut._clockid = CLOCK_MONOTONIC;
+    ut._timeout.tv_sec = (time_t)(timeout_us / 1000000);
+    ut._timeout.tv_nsec = (timeout_us % 1000000) * 1000;
+    /* Actually for relative timeout, don't set UMTX_ABSTIME */
+    ut._flags = 0;
+    return _umtx_op(addr, UMTX_OP_WAIT_UINT_PRIVATE, (unsigned long)expected,
+                    (void *)(uintptr_t)sizeof(ut), &ut);
+}
+
+LACE_UNUSED
+static int lace_futex_wake_one(atomic_int *addr)
+{
+    return _umtx_op(addr, UMTX_OP_WAKE_PRIVATE, 1, NULL, NULL);
+}
+
+LACE_UNUSED
+static int lace_futex_wake_all(atomic_int *addr)
+{
+    return _umtx_op(addr, UMTX_OP_WAKE_PRIVATE, INT_MAX, NULL, NULL);
+}
+
+#elif defined(__APPLE__)
+#include <Availability.h>
+
+#if defined(__MAC_OS_X_VERSION_MIN_REQUIRED) && __MAC_OS_X_VERSION_MIN_REQUIRED >= 140400
+/* macOS 14.4+: public os_sync API */
+#include <os/os_sync_wait_on_address.h>
+
+LACE_UNUSED
+static int lace_futex_wait(atomic_int *addr, int expected, int64_t timeout_us)
+{
+    if (timeout_us < 0) {
+        return os_sync_wait_on_address(addr, (uint64_t)(unsigned int)expected,
+            sizeof(int), OS_SYNC_WAIT_ON_ADDRESS_NONE);
+    }
+    uint64_t timeout_ns = (uint64_t)timeout_us * 1000;
+    return os_sync_wait_on_address_with_timeout(addr, (uint64_t)(unsigned int)expected,
+        sizeof(int), OS_SYNC_WAIT_ON_ADDRESS_NONE,
+        OS_CLOCK_MACH_ABSOLUTE_TIME, timeout_ns);
+}
+
+LACE_UNUSED
+static int lace_futex_wake_one(atomic_int *addr)
+{
+    return os_sync_wake_by_address_any(addr, sizeof(int), OS_SYNC_WAKE_BY_ADDRESS_NONE);
+}
+
+LACE_UNUSED
+static int lace_futex_wake_all(atomic_int *addr)
+{
+    return os_sync_wake_by_address_all(addr, sizeof(int), OS_SYNC_WAKE_BY_ADDRESS_NONE);
+}
+
+#else
+/* macOS < 14.4: private __ulock API (used by Rust stdlib, Go runtime, libc++) */
+extern int __ulock_wait(uint32_t op, void *addr, uint64_t val, uint32_t timeout_us);
+extern int __ulock_wake(uint32_t op, void *addr, uint64_t val);
+#define UL_COMPARE_AND_WAIT 1
+#define ULF_WAKE_ALL        0x00000100
+
+LACE_UNUSED
+static int lace_futex_wait(atomic_int *addr, int expected, int64_t timeout_us)
+{
+    uint32_t tus = (timeout_us < 0) ? 0 : (uint32_t)timeout_us;
+    return __ulock_wait(UL_COMPARE_AND_WAIT, addr, (uint64_t)(unsigned int)expected, tus);
+}
+
+LACE_UNUSED
+static int lace_futex_wake_one(atomic_int *addr)
+{
+    return __ulock_wake(UL_COMPARE_AND_WAIT, addr, 0);
+}
+
+LACE_UNUSED
+static int lace_futex_wake_all(atomic_int *addr)
+{
+    return __ulock_wake(UL_COMPARE_AND_WAIT | ULF_WAKE_ALL, addr, 0);
+}
+#endif /* macOS version check */
+
+#elif defined(_WIN32)
+/* WaitOnAddress / WakeByAddress* — available since Windows 8 */
+/* synchapi.h is already included above for LACE_MSVC; link with Synchronization.lib */
+
+LACE_UNUSED
+static int lace_futex_wait(atomic_int *addr, int expected, int64_t timeout_us)
+{
+    DWORD ms;
+    if (timeout_us < 0) {
+        ms = INFINITE;
+    } else {
+        ms = (DWORD)((timeout_us + 999) / 1000);
+        if (ms == 0) ms = 1;
+    }
+    return WaitOnAddress((volatile void*)addr, &expected, sizeof(int), ms) ? 0 : -1;
+}
+
+LACE_UNUSED
+static int lace_futex_wake_one(atomic_int *addr)
+{
+    WakeByAddressSingle((void*)addr);
+    return 0;
+}
+
+LACE_UNUSED
+static int lace_futex_wake_all(atomic_int *addr)
+{
+    WakeByAddressAll((void*)addr);
+    return 0;
+}
+
+#else
+#error "No futex implementation available for this platform"
+#endif
+
+/**
+ * CPU pause/yield helpers
+ */
+
+#if defined(_MSC_VER)
+# include <intrin.h>
+#endif
+
+#if defined(__i386__) || defined(__x86_64__)
+# if !defined(_MSC_VER)
+#  include <emmintrin.h>   /* _mm_pause on Clang/GCC */
+# endif
+#endif
+
+LACE_UNUSED
+static inline void lace_cpu_pause(void)
+{
+#if defined(__i386__) || defined(__x86_64__) || defined(_M_IX86) || defined(_M_X64)
+    /* x86/x64: use intrinsics/builtins, no inline asm needed */
+# if defined(_MSC_VER)
+    _mm_pause();
+# elif defined(__clang__) || defined(__GNUC__)
+    _mm_pause();
+# else
+    __asm__ __volatile__("pause");
+# endif
+#elif defined(__arm__) || defined(__aarch64__) || defined(_M_ARM) || defined(_M_ARM64)
+    /* ARM/AArch64 */
+# if defined(_MSC_VER)
+    __yield();
+# else
+    __asm__ __volatile__("yield");
+# endif
+#else
+    /* no-op on other architectures */
+#endif
+}
+
+LACE_UNUSED
+static inline void lace_cpu_yield(void)
+{
+#if defined(_WIN32)
+    SwitchToThread();
+#else
+    sched_yield();
+#endif
+}
+
+#define LACE_STOLEN      ((lace_worker_public*)0)
+#define LACE_BUSY        ((lace_worker_public*)1)
+#define LACE_NOWORK      ((lace_worker_public*)2)
+#define LACE_STOLEN_LAST ((lace_worker_public*)3)
+
+/**
  * Thread handles
  */
 #if !LACE_MSVC
@@ -227,7 +439,16 @@ static lace_worker **workers_p;
 static atomic_int lace_quits = 0;
 static int is_running = 0;
 
+/**
+ * Futex-based idle system for progressive worker sleeping
+ */
+static atomic_int wake_futex = 0;   /* futex word: incremented to wake sleeping workers */
+static atomic_int n_sleeping = 0;   /* count of workers currently in futex_wait */
 
+/* Progressive idle thresholds (failed steal iterations before transitioning) */
+#define LACE_IDLE_STAGE1_LIMIT  256   /* yield */
+#define LACE_IDLE_FUTEX_TIMEOUT_MIN 100
+#define LACE_IDLE_FUTEX_TIMEOUT_MAX 1000
 
 /**
  * Thread-specific mechanism to access current worker data
@@ -556,6 +777,10 @@ lace_run_task(lace_task *task)
     }
 pushed:
 
+    /* Wake a sleeping worker to pick up the external task */
+    atomic_fetch_add_explicit(&wake_futex, 1, memory_order_release);
+    lace_futex_wake_one(&wake_futex);
+
     lace_sem_wait(&et.sem);
     lace_sem_destroy(&et.sem);
 }
@@ -564,6 +789,7 @@ static inline void
 lace_steal_external(lace_worker *self) 
 {
     for (int i = 0; i < LACE_EXT_SLOTS; i++) {
+        if (atomic_load_explicit(&external_tasks[i], memory_order_relaxed) == NULL) continue;
         ext_lace_task* stolen = atomic_exchange_explicit(&external_tasks[i], NULL, memory_order_acquire);
         if (stolen != NULL) {
             // execute task
@@ -594,7 +820,7 @@ void lace_steal_random(lace_worker *_lace_worker)
 
         PR_COUNTSTEALS(_lace_worker, CTR_steal_tries);
         lace_worker_public *res = lace_steal(_lace_worker, victim);
-        if (res == LACE_STOLEN) {
+        if (res == LACE_STOLEN || res == LACE_STOLEN_LAST) {
             PR_COUNTSTEALS(_lace_worker, CTR_steals);
         } else if (res == LACE_BUSY) {
             PR_COUNTSTEALS(_lace_worker, CTR_steal_busy);
@@ -612,7 +838,7 @@ LACE_NO_SANITIZE_THREAD
 void lace_steal_loop_CALL(lace_worker* lw, atomic_int* quit)
 {
     // Determine who I am
-    const int worker_id = lw->worker;
+    const unsigned int worker_id = lw->worker;
 
     // Prepare self, victim
     lace_worker_public ** victim = NULL;
@@ -620,54 +846,73 @@ void lace_steal_loop_CALL(lace_worker* lw, atomic_int* quit)
     lw->time = lace_gethrtime();
 
     unsigned int n = n_workers;
-#if LACE_BACKOFF
-    unsigned int backoff=0;
-#endif
+    unsigned int last_victim = worker_id; // means no last victim
+    unsigned int idle_count = 0;
 
     while(1) {
-#if LACE_BACKOFF
-        backoff++;
-#endif
         if (n > 1) {
-            victim = workers + ((lace_rng(lw) % (n-1)) + (uint64_t)worker_id + 1) % n;
+            if ((idle_count&1) == 0 && last_victim != worker_id) {
+                victim = workers + last_victim;
+            } else {
+                victim = workers + ((lace_rng(lw) % (n - 1)) + (uint64_t)worker_id + 1) % n;
+            }
 
             PR_COUNTSTEALS(lw, CTR_steal_tries);
             lace_worker_public *res = lace_steal(lw, *victim);
-            if (res == LACE_STOLEN) {
+            if (res == LACE_STOLEN || res == LACE_STOLEN_LAST) {
                 PR_COUNTSTEALS(lw, CTR_steals);
-#if LACE_BACKOFF
-                backoff = 0;
-#endif
+                last_victim = (unsigned int)(victim - workers);
+                idle_count = 0;
+                // If workers are sleeping, wake one to help
+                if (res == LACE_STOLEN &&
+                    atomic_load_explicit(&n_sleeping, memory_order_relaxed) > 0) {
+                    atomic_fetch_add_explicit(&wake_futex, 1, memory_order_release);
+                    lace_futex_wake_one(&wake_futex);
+                }
             } else if (res == LACE_BUSY) {
                 PR_COUNTSTEALS(lw, CTR_steal_busy);
-#if LACE_BACKOFF
-                backoff = 0;
-#endif
+                idle_count = 0;
             } else { // LACE_NOWORK
+                idle_count++;
             }
         }
 
         lace_check_yield(lw);
 
-        if (LACE_UNLIKELY(atomic_load_explicit(&external_task_count, memory_order_acquire) > 0)) {
+        if (LACE_UNLIKELY(idle_count % 4 == 0 &&
+            atomic_load_explicit(&external_task_count, memory_order_acquire) > 0)) {
             lace_steal_external(lw);
-#if LACE_BACKOFF
-            backoff = 0;
-#endif
+            idle_count = 0;
             continue;
         }
 
 #if LACE_BACKOFF
-        if (backoff > 1000) { // only back off after 1000 attempts
-            int64_t delay_us = ((int64_t)1) << ((backoff - 1000) / 50);
-            if (delay_us > 1000) delay_us = 1000; // cap at 1ms
+        // Progressive idle: yield → futex sleep
+        if (idle_count > LACE_IDLE_STAGE1_LIMIT) {
+            /* Stage 2: futex wait with bounded timeout */
 #if LACE_PIE_TIMES
             uint64_t prev = lace_gethrtime();
 #endif
-            lace_sleep_us(delay_us);
+            unsigned int futex_iters = idle_count - LACE_IDLE_STAGE1_LIMIT;
+            int64_t timeout_us = LACE_IDLE_FUTEX_TIMEOUT_MIN * (1 + (int64_t)futex_iters);
+            if (timeout_us > LACE_IDLE_FUTEX_TIMEOUT_MAX) timeout_us = LACE_IDLE_FUTEX_TIMEOUT_MAX;
+
+            atomic_fetch_add_explicit(&n_sleeping, 1, memory_order_relaxed);
+            int val = atomic_load_explicit(&wake_futex, memory_order_acquire);
+            lace_futex_wait(&wake_futex, val, timeout_us);
+            atomic_fetch_sub_explicit(&n_sleeping, 1, memory_order_relaxed);
 #if LACE_PIE_TIMES
-            PR_ADD(lw, CTR_backoff, lace_gethrtime()-prev);
+            PR_ADD(lw, CTR_backoff, lace_gethrtime() - prev);
 #endif
+
+            if (atomic_load_explicit(&external_task_count, memory_order_acquire) > 0) {
+                lace_steal_external(lw);
+                idle_count = 0;
+                continue;
+            }
+        } else {
+            /* Stage 1: yield the CPU briefly */
+            lace_cpu_yield();
         }
 #endif
 
@@ -1250,6 +1495,10 @@ void lace_stop(void)
 {
     atomic_store_explicit(&lace_quits, 1, memory_order_relaxed);
 
+    /* Wake all sleeping workers so they observe the quit flag */
+    atomic_fetch_add_explicit(&wake_futex, 1, memory_order_release);
+    lace_futex_wake_all(&wake_futex);
+
     for (unsigned int i = 0; i < n_workers; i++) {
 #if !LACE_MSVC
         pthread_join(handles[i], NULL);
@@ -1614,7 +1863,7 @@ lace_leapfrog(lace_worker *worker)
                     lace_steal_random(worker);
                     attempts = 32;
                 }
-            } else if (res == LACE_STOLEN) {
+            } else if (res == LACE_STOLEN || res == LACE_STOLEN_LAST) {
                 PR_COUNTSTEALS(worker, CTR_leaps);
             } else if (res == LACE_BUSY) {
                 PR_COUNTSTEALS(worker, CTR_leap_busy);
