@@ -225,8 +225,9 @@ static lace_worker **workers_p;
  * Flag to signal all workers to quit.
  */
 static atomic_int lace_quits = 0;
-static atomic_uint workers_running = 0;
 static int is_running = 0;
+
+
 
 /**
  * Thread-specific mechanism to access current worker data
@@ -689,21 +690,12 @@ lace_worker_thread(void* arg)
     // Pin CPU
     lace_pin_worker();
 
-    // Signal that we are running
-    atomic_fetch_add_explicit(&workers_running, 1, memory_order_relaxed);
-
-    // Barrier to make sure we've all increased workers_running
-    lace_barrier();
-
     // Run the steal loop
     lace_worker* lw = workers_p[worker];
     lace_steal_loop_CALL(lw, &lace_quits);
 
     // Time worker exit event
     lace_time_event(lw, 9);
-
-    // Signal that we stopped
-    atomic_fetch_sub_explicit(&workers_running, 1, memory_order_relaxed);
 
     return NULL;
 }
@@ -841,7 +833,6 @@ lace_start(unsigned int _n_workers, size_t dequesize, size_t stacksize)
     n_workers = _n_workers == 0 ? n_pus : _n_workers;
     dqsize = dequesize > 0 ? dequesize : 100000;
     atomic_store_explicit(&lace_quits, 0, memory_order_relaxed);
-    atomic_store_explicit(&workers_running, 0, memory_order_relaxed);
 
 #if LACE_USE_HWLOC
     // Distribute workers over cores.
