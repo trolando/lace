@@ -2,7 +2,7 @@ cmake_minimum_required(VERSION 3.15)
 cmake_policy(SET CMP0092 NEW) # do not automatically add /W3 for MSVC
 
 project(lace
-    VERSION 1.6.0
+    VERSION 1.6.1
     DESCRIPTION "Lace, a work-stealing framework for multi-core fork-join parallelism"
     HOMEPAGE_URL "https://github.com/trolando/lace"
     LANGUAGES C

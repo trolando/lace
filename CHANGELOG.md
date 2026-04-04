@@ -2,6 +2,27 @@
 
 All notable changes to Lace will be documented in this file.
 
+## [1.6.1] - 2026-04-04
+
+### Changed
+
+- Replaced nanosleep-based backoff with a futex-based progressive idle
+  system. Workers yield briefly, then enter `futex_wait` with a ramping
+  timeout (100 µs → 1 ms). Sleeping workers are woken promptly when
+  work appears (external task submission, successful steal with
+  remaining work). Uses platform-native futex primitives on Linux,
+  FreeBSD, macOS, and Windows.
+- Various changes to reduce external task overhead: per-task semaphore
+  replaced by futex on `atomic_int`, spin-before-futex on the
+  completion path, load-before-exchange in slot scanning, and
+  `LACE_STOLEN_LAST` to avoid spurious wake signals.
+- External-task-heavy workloads (e.g., JNI bridge of NDD): 77.8 s → 25.9 s
+  (3× improvement) on NQueens-12 with 20 workers. Single-worker
+  external task throughput improved from 80 s to 17 s. Standard Lace
+  benchmarks show no regression.
+- On Windows, now requires linking with `Synchronization.lib`.
+
+
 ## [1.6.0] - 2026-03-31
 
 This release backports correctness fixes, portable abstractions, and
