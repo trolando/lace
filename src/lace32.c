@@ -738,7 +738,7 @@ lace_init_worker(unsigned int worker)
  */
 typedef struct ext_lace_task {
     lace_task *task;
-    lace_sem_t sem;
+    atomic_int done;
 } ext_lace_task;
 
 #define LACE_EXT_SLOTS 64
@@ -758,10 +758,7 @@ lace_run_task(lace_task *task)
     ext_lace_task et;
     et.task = task;
     atomic_store_explicit(&et.task->thief, 0, memory_order_relaxed);
-    if (lace_sem_init(&et.sem, 0) != 0) {
-        fprintf(stderr, "Lace error: unable to create semaphore for external task!\n");
-        exit(1);
-    }
+    atomic_store_explicit(&et.done, 0, memory_order_relaxed);
 
     // Push into any empty slot
     while (1) {
@@ -781,8 +778,14 @@ pushed:
     atomic_fetch_add_explicit(&wake_futex, 1, memory_order_release);
     lace_futex_wake_one(&wake_futex);
 
-    lace_sem_wait(&et.sem);
-    lace_sem_destroy(&et.sem);
+    for (int spin = 0; spin < 256; spin++) {
+        if (atomic_load_explicit(&et.done, memory_order_acquire)) return;
+        lace_cpu_pause();
+    }
+
+    while (!atomic_load_explicit(&et.done, memory_order_acquire)) {
+        lace_futex_wait(&et.done, 0, LACE_IDLE_FUTEX_TIMEOUT_MIN);
+    }
 }
 
 static inline void
@@ -799,7 +802,8 @@ lace_steal_external(lace_worker *self)
             stolen->task->f(self, stolen->task);
             lace_time_event(self, 2);
             atomic_store_explicit(&stolen->task->thief, THIEF_COMPLETED, memory_order_relaxed);
-            lace_sem_post(&stolen->sem);
+            atomic_store_explicit(&stolen->done, 1, memory_order_release);
+            lace_futex_wake_one(&stolen->done);
             lace_time_event(self, 8);
             return;
         }
