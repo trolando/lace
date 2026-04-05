@@ -2,6 +2,13 @@
 
 All notable changes to Lace will be documented in this file.
 
+## [1.6.2] - 2026-04-06
+
+### Changed
+
+- Fixed libraries in the pkg-config files on Windows systems.
+- 
+
 ## [1.6.1] - 2026-04-04
 
 ### Changed
