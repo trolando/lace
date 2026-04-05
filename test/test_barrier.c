@@ -3,6 +3,8 @@
 
 #include <lace.h>
 
+#include "test_crash_handler.h"
+
 #if LACE_MSVC
 #define WIN32_LEAN_AND_MEAN
 #define NOMINMAX
@@ -59,6 +61,8 @@ TASK(void, test_barrier)
 int
 main (int argc, char *argv[])
 {
+    crash_handler_install();
+
     int n_workers = 0; // automatically detect number of workers
 
     if (argc > 1) {

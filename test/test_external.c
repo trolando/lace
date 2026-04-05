@@ -12,6 +12,8 @@
 
 #include <lace.h>
 
+#include "test_crash_handler.h"
+
 #if LACE_MSVC
 #include <process.h>
 #else
@@ -229,6 +231,8 @@ static void test_mixed(void)
 
 int main(int argc, char* argv[])
 {
+    crash_handler_install();
+
     int n_workers = 0;
     if (argc > 1) n_workers = atoi(argv[1]);
 

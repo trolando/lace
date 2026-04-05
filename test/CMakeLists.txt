@@ -1,20 +1,37 @@
-add_executable(test_barrier test_barrier.c)
-set_source_files_properties(test_barrier.c PROPERTIES LANGUAGE C)
-target_link_libraries(test_barrier PRIVATE lace::lace)
-add_test(NAME test_barrier COMMAND test_barrier)
+# Discover all test_*.c files in this directory.
+file(GLOB test_sources CONFIGURE_DEPENDS
+    "${CMAKE_CURRENT_SOURCE_DIR}/test_*.c"
+)
+list(SORT test_sources)
 
-add_executable(test_together test_together.c)
-set_source_files_properties(test_together.c PROPERTIES LANGUAGE C)
-target_link_libraries(test_together PRIVATE lace::lace)
-add_test(NAME test_together COMMAND test_together)
-set_tests_properties(test_together PROPERTIES TIMEOUT 120)
+function(add_lace_test_from_source src)
+    get_filename_component(name "${src}" NAME_WE)
 
-add_executable(test_backoff test_backoff.c)
-set_source_files_properties(test_backoff.c PROPERTIES LANGUAGE C)
-target_link_libraries(test_backoff PRIVATE lace::lace)
-add_test(NAME test_backoff COMMAND test_backoff)
+    add_executable(${name} "${src}")
+    target_link_libraries(${name} PRIVATE lace::lace)
 
-add_executable(test_external test_external.c)
-set_source_files_properties(test_external.c PROPERTIES LANGUAGE C)
-target_link_libraries(test_external PRIVATE lace::lace)
-add_test(NAME test_external COMMAND test_external)
+    # Better symbol names in backtraces on Linux.
+    if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+        target_link_options(${name} PRIVATE -rdynamic)
+    endif()
+
+    # Keep frame pointers in Debug / RelWithDebInfo for better stack traces.
+    if(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
+        target_compile_options(${name} PRIVATE
+            $<$<CONFIG:Debug>:-fno-omit-frame-pointer>
+            $<$<CONFIG:RelWithDebInfo>:-fno-omit-frame-pointer>
+        )
+    endif()
+
+    # FreeBSD may need libexecinfo for backtrace support.
+    if(CMAKE_SYSTEM_NAME STREQUAL "FreeBSD")
+        target_link_libraries(${name} PRIVATE execinfo)
+    endif()
+
+    add_test(NAME ${name} COMMAND ${name})
+    set_tests_properties(${name} PROPERTIES TIMEOUT 30)
+endfunction()
+
+foreach(test_src IN LISTS test_sources)
+    add_lace_test_from_source("${test_src}")
+endforeach()

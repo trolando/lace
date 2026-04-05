@@ -3,13 +3,14 @@
 
 #include <lace.h>
 
+#include "test_crash_handler.h"
+
 int counter;
 
 TASK(void, test_count)
 {
     counter++;
 }
-
 
 int* worker_counter;
 
@@ -131,6 +132,8 @@ runtests(int n_workers)
 int
 main(int argc, char* argv[])
 {
+    crash_handler_install();
+
     int n_workers = 0; // automatically detect number of workers
 
     if (argc > 1) {
