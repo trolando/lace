@@ -40,6 +40,15 @@ if(lace_IS_TOP_LEVEL)
     option(LACE_SANITIZE_UB      "Enable UndefinedBehaviorSanitizer"                 OFF)
 endif()
 
+if(BUILD_SHARED_LIBS)
+    message(WARNING
+        "Building Lace as a shared library is not recommended. PLT indirection "
+        "on hot paths hurts performance, and Lace must be instantiated exactly "
+        "once per process. Instead, build Lace as a static library with LACE_ENABLE_PIC "
+        "and link it into your shared library or executable."
+    )
+endif()
+
 # ── Platform feature detection ───────────────────────────────────────────────
  
 include(CheckSymbolExists)
