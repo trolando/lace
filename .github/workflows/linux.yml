@@ -152,7 +152,7 @@ jobs:
     - uses: uraimo/run-on-arch-action@v3
       with:
         arch: armv7
-        distro: ubuntu22.04
+        distro: ubuntu24.04
         install: |
           apt-get update
           apt-get install -y cmake ninja-build gcc g++ pkg-config
