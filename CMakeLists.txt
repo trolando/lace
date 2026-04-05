@@ -280,9 +280,10 @@ install(
     FILES
         ${CMAKE_CURRENT_BINARY_DIR}/cmake/lace-config.cmake
         ${CMAKE_CURRENT_BINARY_DIR}/cmake/lace-config-version.cmake
+        ${CMAKE_CURRENT_SOURCE_DIR}/cmake/FindHWLOC.cmake
     DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/lace
 )
- 
+
 # ── pkg-config ───────────────────────────────────────────────────────────────
  
 set(_PC_EXTRA_CFLAGS "")
@@ -327,7 +328,7 @@ message(STATUS "")
 message(STATUS "Lace ${PROJECT_VERSION} configuration summary:")
 message(STATUS "  Build type        : ${CMAKE_BUILD_TYPE}")
 message(STATUS "  Shared libraries  : ${BUILD_SHARED_LIBS}")
-message(STATUS "  Top-level project : ${lace_is_top_level}")
+message(STATUS "  Top-level project : ${lace_IS_TOP_LEVEL}")
 message(STATUS "  Use HWLOC         : ${LACE_USE_HWLOC}")
 message(STATUS "  Use -march=native : ${LACE_NATIVE_OPT}")
 message(STATUS "  Use -fPIC         : ${LACE_ENABLE_PIC}")
