@@ -5,5 +5,6 @@ Name: @PROJECT_NAME@
 Description: @PROJECT_DESCRIPTION@
 URL: @PROJECT_HOMEPAGE_URL@
 Version: @PROJECT_VERSION@
-Cflags: -I${includedir} @PC_EXTRA_CFLAGS@
-Libs: -L${libdir} -lpthread -llace128 @PC_EXTRA_LIBS@
+Cflags: -I${includedir}
+Libs: -L${libdir} -lpthread -llace128
+Libs.private: @PC_EXTRA_LIBS@
