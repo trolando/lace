@@ -14,9 +14,9 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - { arch: x86_64,  build_type: Release }
+          - { arch: x86_64,  build_type: RelWithDebInfo }
           - { arch: x86_64,  build_type: Debug }
-          - { arch: aarch64, build_type: Release }
+          - { arch: aarch64, build_type: RelWithDebInfo }
     steps:
     - uses: actions/checkout@v6
     - name: Build and test in FreeBSD
@@ -43,21 +43,21 @@ jobs:
           cd test/install/consumer-cmake && sh test.sh
 
   freebsd-i386:
-    name: 'FreeBSD 14.3 i386 (-m32) Release'
+    name: 'FreeBSD 15.0 i386 (-m32) RelWithDebInfo'
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v6
     - name: Build and test 32-bit in FreeBSD
       uses: vmactions/freebsd-vm@v1
       with:
-        release: "14.3"
+        release: "15.0"
         copyback: false
         usesh: true
         prepare: |
           pkg install -y cmake ninja pkgconf
         run: |
           cmake -S . -B build -G Ninja \
-            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_BUILD_TYPE=RelWithDebInfo \
             -DLACE_BUILD_TESTS=ON \
             -DLACE_BUILD_BENCHMARKS=OFF \
             -DCMAKE_C_FLAGS="-m32" \

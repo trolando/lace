@@ -14,10 +14,10 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - { icon: '🟦', sys: mingw64, build_type: Release }
-          - { icon: '🟨', sys: ucrt64,  build_type: Release }
+          - { icon: '🟦', sys: mingw64, build_type: RelWithDebInfo }
+          - { icon: '🟨', sys: ucrt64,  build_type: RelWithDebInfo }
           - { icon: '🟨', sys: ucrt64,  build_type: Debug   }
-          - { icon: '🟧', sys: clang64, build_type: Release }
+          - { icon: '🟧', sys: clang64, build_type: RelWithDebInfo }
     defaults:
       run:
         shell: msys2 {0}
@@ -44,7 +44,7 @@ jobs:
           -DCMAKE_BUILD_TYPE=${{matrix.build_type}} \
           -DCMAKE_INSTALL_PREFIX=$HOME/lace-install \
           -DLACE_BUILD_TESTS=ON \
-          -DLACE_BUILD_BENCHMARKS=${{ matrix.build_type == 'Release' && 'ON' || 'OFF' }}
+          -DLACE_BUILD_BENCHMARKS=${{ matrix.build_type == 'RelWithDebInfo' && 'ON' || 'OFF' }}
         cmake --build build
     - name: '🧪 Test'
       working-directory: build
@@ -68,7 +68,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        build_type: [Release, Debug]
+        build_type: [RelWithDebInfo, Debug]
     steps:
     - name: 🧰 Checkout
       uses: actions/checkout@v6

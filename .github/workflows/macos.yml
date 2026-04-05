@@ -13,7 +13,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        build_type: [Release, Debug]
+        build_type: [RelWithDebInfo, Debug]
     steps:
     - uses: actions/checkout@v6
     - name: Configure
@@ -23,7 +23,7 @@ jobs:
           -DCMAKE_BUILD_TYPE=${{matrix.build_type}} \
           -DCMAKE_INSTALL_PREFIX=$HOME/lace-install \
           -DLACE_BUILD_TESTS=ON \
-          -DLACE_BUILD_BENCHMARKS=${{ matrix.build_type == 'Release' && 'ON' || 'OFF' }}
+          -DLACE_BUILD_BENCHMARKS=${{ matrix.build_type == 'RelWithDebInfo' && 'ON' || 'OFF' }}
     - name: Build
       run: cmake --build build
     - name: Test

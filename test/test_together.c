@@ -3,6 +3,8 @@
 
 #include <lace.h>
 
+#include "test_crash_handler.h"
+
 int counter;
 
 TASK(void, test_count)
@@ -12,8 +14,7 @@ void test_count_CALL(lace_worker* worker)
     (void)worker;
 }
 
-
-int *worker_counter;
+int* worker_counter;
 
 TASK(void, test_count_perworker)
 void test_count_perworker_CALL(lace_worker* worker)
@@ -145,6 +146,8 @@ runtests(int n_workers)
 int
 main (int argc, char *argv[])
 {
+    crash_handler_install();
+
     int n_workers = 0; // automatically detect number of workers
 
     if (argc > 1) {
