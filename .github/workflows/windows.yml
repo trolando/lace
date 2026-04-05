@@ -42,12 +42,25 @@ jobs:
       run: |
         cmake -G Ninja -S . -B build \
           -DCMAKE_BUILD_TYPE=${{matrix.build_type}} \
+          -DCMAKE_INSTALL_PREFIX=$HOME/lace-install \
           -DLACE_BUILD_TESTS=ON \
           -DLACE_BUILD_BENCHMARKS=${{ matrix.build_type == 'Release' && 'ON' || 'OFF' }}
         cmake --build build
     - name: '🧪 Test'
       working-directory: build
       run: ctest --output-on-failure -C ${{ matrix.build_type }} -VV --timeout 30
+    - name: Install
+      run: cmake --install build
+    - name: Run pkg-config consumer test
+      working-directory: test/install/consumer-pkgconfig
+      run: |
+        export PKG_CONFIG_PATH=$HOME/lace-install/lib/pkgconfig
+        bash test.sh
+    - name: Run CMake consumer test
+      working-directory: test/install/consumer-cmake
+      run: |
+        export CMAKE_PREFIX_PATH=$HOME/lace-install
+        bash test.sh
 
   msvc-build:
     name: '🧱 MSVC ${{ matrix.build_type }}'
@@ -69,10 +82,26 @@ jobs:
 
     - name: 🛠️ Configure
       run: |
-        cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=${{ matrix.build_type }} -DLACE_BUILD_TESTS=ON -DLACE_BUILD_BENCHMARKS=ON
+        $prefix = Join-Path $env:RUNNER_TEMP "lace-install"
+        cmake -S . -B build -G Ninja `
+          -DCMAKE_BUILD_TYPE=${{ matrix.build_type }} `
+          "-DCMAKE_INSTALL_PREFIX=$prefix" `
+          -DLACE_BUILD_TESTS=ON `
+          -DLACE_BUILD_BENCHMARKS=ON
 
     - name: 🏗️ Build
       run: cmake --build build
 
     - name: 🧪 Test
       run: ctest --test-dir build --output-on-failure -VV --timeout 30
+
+    - name: Install
+      run: cmake --install build
+
+    - name: Run CMake consumer test
+      working-directory: test/install/consumer-cmake
+      run: |
+        $env:CMAKE_PREFIX_PATH = "$env:RUNNER_TEMP\lace-install"
+        cmake -S . -B build -G Ninja
+        cmake --build build
+        .\build\test-lace.exe

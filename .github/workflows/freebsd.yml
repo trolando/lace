@@ -27,14 +27,20 @@ jobs:
         copyback: false
         usesh: true
         prepare: |
-          pkg install -y cmake ninja
+          pkg install -y cmake ninja pkgconf
         run: |
           cmake -S . -B build -G Ninja \
             -DCMAKE_BUILD_TYPE=${{matrix.build_type}} \
+            -DCMAKE_INSTALL_PREFIX=$HOME/lace-install \
             -DLACE_BUILD_TESTS=ON \
             -DLACE_BUILD_BENCHMARKS=OFF
           cmake --build build
-          ctest --test-dir build --output-on-failure -VV --timeout 120
+          ctest --test-dir build --output-on-failure -VV --timeout 60
+          cmake --install build
+          export PKG_CONFIG_PATH=$HOME/lace-install/lib/pkgconfig
+          cd test/install/consumer-pkgconfig && sh test.sh && cd -
+          export CMAKE_PREFIX_PATH=$HOME/lace-install
+          cd test/install/consumer-cmake && sh test.sh
 
   freebsd-i386:
     name: 'FreeBSD 14.3 i386 (-m32) Release'
@@ -48,7 +54,7 @@ jobs:
         copyback: false
         usesh: true
         prepare: |
-          pkg install -y cmake ninja
+          pkg install -y cmake ninja pkgconf
         run: |
           cmake -S . -B build -G Ninja \
             -DCMAKE_BUILD_TYPE=Release \

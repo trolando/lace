@@ -37,12 +37,25 @@ jobs:
         export CC=${{matrix.cc}} CXX=${{matrix.cxx}}
         cmake -S . -B build -G Ninja \
           -DCMAKE_BUILD_TYPE=${{matrix.build_type}} \
+          -DCMAKE_INSTALL_PREFIX=$HOME/lace-install \
           -DLACE_BUILD_TESTS=ON \
           -DLACE_BUILD_BENCHMARKS=${{ matrix.build_type == 'Release' && 'ON' || 'OFF' }}
     - name: Build
       run: cmake --build build
     - name: Test
       run: ctest --test-dir build --output-on-failure -VV --timeout 60
+    - name: Install
+      run: cmake --install build
+    - name: Run pkg-config consumer test
+      working-directory: test/install/consumer-pkgconfig
+      run: |
+        export PKG_CONFIG_PATH=$HOME/lace-install/lib/pkgconfig
+        bash test.sh
+    - name: Run CMake consumer test
+      working-directory: test/install/consumer-cmake
+      run: |
+        export CMAKE_PREFIX_PATH=$HOME/lace-install
+        bash test.sh
 
   clang-build:
     needs: check-generated
