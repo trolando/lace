@@ -192,7 +192,7 @@ static int lace_futex_wait(atomic_int *addr, int expected, int64_t timeout_us)
     }
     ut._flags = UMTX_ABSTIME;  /* we want relative, but FreeBSD wants this struct */
     ut._clockid = CLOCK_MONOTONIC;
-    ut._timeout.tv_sec = timeout_us / 1000000;
+    ut._timeout.tv_sec = (time_t)(timeout_us / 1000000);
     ut._timeout.tv_nsec = (timeout_us % 1000000) * 1000;
     /* Actually for relative timeout, don't set UMTX_ABSTIME */
     ut._flags = 0;
