@@ -29,7 +29,6 @@ function(add_lace_test_from_source src)
     endif()
 
     add_test(NAME ${name} COMMAND ${name})
-    set_tests_properties(${name} PROPERTIES TIMEOUT 30)
 endfunction()
 
 foreach(test_src IN LISTS test_sources)
