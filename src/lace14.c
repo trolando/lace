@@ -366,7 +366,7 @@ static HANDLE* handles = NULL;
 /**
  * Worker thread program stacks
  */
-#if LACE_USE_HWLOC || !defined(_WIN32)
+#if LACE_USE_HWLOC || (!defined(_WIN32) && !defined(__FreeBSD__))
 static void** worker_stacks = NULL;
 static size_t worker_stack_size = 0;
 static size_t worker_stack_page_size = 0;
@@ -1272,7 +1272,7 @@ lace_start(unsigned int _n_workers, size_t dequesize)
             worker_stacks[i] = stack;
             }
         }
-#elif !defined(_WIN32)
+#elif !defined(_WIN32) && !defined(__FreeBSD__)
     // Use mmap so first-touch places pages on the right NUMA node after pinning
     {
         long ps = sysconf(_SC_PAGESIZE);
@@ -1306,7 +1306,7 @@ lace_start(unsigned int _n_workers, size_t dequesize)
         }
     }
 #else
-    // _WIN32 without HWLOC: just set stack size, let the OS handle it
+    // _WIN32 or FreeBSD without HWLOC: just set stack size, let the OS handle it
     if (pthread_attr_setstacksize(&worker_attr, stacksize) != 0) {
         fprintf(stderr, "Lace error: unable to set stack size to %zu bytes!\n", stacksize);
         exit(1);
@@ -1359,7 +1359,7 @@ lace_start(unsigned int _n_workers, size_t dequesize)
     /* Spawn all workers */
     for (unsigned int i = 0; i < n_workers; i++) {
 #if !LACE_MSVC
-#if LACE_USE_HWLOC || !defined(_WIN32)
+#if LACE_USE_HWLOC || (!defined(_WIN32) && !defined(__FreeBSD__))
         if (pthread_attr_setstack(&worker_attr,
             (char*)worker_stacks[i] + worker_stack_page_size,
             worker_stack_size - worker_stack_page_size) != 0) {
@@ -1568,7 +1568,7 @@ void lace_stop(void)
         free(worker_stacks);
         worker_stacks = NULL;
     }
-#elif !defined(_WIN32)
+#elif !defined(_WIN32) && !defined(__FreeBSD__)
     if (worker_stacks != NULL) {
         for (unsigned int i = 0; i < n_workers; i++) {
             munmap(worker_stacks[i], worker_stack_size);
