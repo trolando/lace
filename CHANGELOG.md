@@ -2,12 +2,26 @@
 
 All notable changes to Lace will be documented in this file.
 
-## [1.6.2] - 2026-04-06
+## [1.6.3] - 2026-04-06
+
+### Added
+
+- Now also tests FreeBSD in the CI.
+- Added crash handler to the test programs to get better diagnostics on
+  CI failures.
+
+### Fixed
+
+- Minor fixes for FreeBSD systems.
+
+
+## [1.6.2] - 2026-04-05
 
 ### Changed
 
 - Fixed libraries in the pkg-config files on Windows systems.
-- 
+- Tests now check if Lace can be installed and used correctly with pkg-config
+  and CMake.
 
 ## [1.6.1] - 2026-04-04
 
