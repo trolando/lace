@@ -1,0 +1,66 @@
+name: FreeBSD
+
+on: [push, pull_request]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  freebsd-build:
+    name: 'FreeBSD 15.0 ${{matrix.arch}} ${{matrix.build_type}}'
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { arch: x86_64,  build_type: RelWithDebInfo }
+          - { arch: x86_64,  build_type: Debug }
+          - { arch: aarch64, build_type: RelWithDebInfo }
+    steps:
+    - uses: actions/checkout@v6
+    - name: Build and test in FreeBSD
+      uses: vmactions/freebsd-vm@v1
+      with:
+        release: "15.0"
+        arch: ${{matrix.arch}}
+        copyback: false
+        usesh: true
+        prepare: |
+          pkg install -y cmake ninja pkgconf
+        run: |
+          cmake -S . -B build -G Ninja \
+            -DCMAKE_BUILD_TYPE=${{matrix.build_type}} \
+            -DCMAKE_INSTALL_PREFIX=$HOME/lace-install \
+            -DLACE_BUILD_TESTS=ON \
+            -DLACE_BUILD_BENCHMARKS=OFF
+          cmake --build build
+          ctest --test-dir build --output-on-failure -VV --timeout 60
+          cmake --install build
+          export PKG_CONFIG_PATH=$HOME/lace-install/lib/pkgconfig
+          cd test/install/consumer-pkgconfig && sh test.sh && cd -
+          export CMAKE_PREFIX_PATH=$HOME/lace-install
+          cd test/install/consumer-cmake && sh test.sh
+
+  freebsd-i386:
+    name: 'FreeBSD 15.0 i386 (-m32) RelWithDebInfo'
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v6
+    - name: Build and test 32-bit in FreeBSD
+      uses: vmactions/freebsd-vm@v1
+      with:
+        release: "15.0"
+        copyback: false
+        usesh: true
+        prepare: |
+          pkg install -y cmake ninja
+        run: |
+          cmake -S . -B build -G Ninja \
+            -DCMAKE_BUILD_TYPE=RelWithDebInfo \
+            -DLACE_BUILD_TESTS=ON \
+            -DLACE_BUILD_BENCHMARKS=OFF \
+            -DCMAKE_C_FLAGS="-m32" \
+            -DCMAKE_CXX_FLAGS="-m32"
+          cmake --build build
+          ctest --test-dir build --output-on-failure -VV --timeout 120
