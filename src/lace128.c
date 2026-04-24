@@ -1683,6 +1683,10 @@ lace_wrap_together_CALL(lace_worker* worker, lace_task* task)
         lace_yield(worker);
     }
 
+    /* Wake sleeping workers so they see the newframe and enter lace_yield */
+    atomic_fetch_add_explicit(&wake_futex, 1, memory_order_release);
+    lace_futex_wake_all(&wake_futex);
+
     // wait until other workers have made a local copy
     lace_barrier();
 
@@ -1724,6 +1728,10 @@ lace_wrap_newframe_CALL(lace_worker* worker, lace_task* task)
         if (atomic_compare_exchange_weak(&lace_newframe.t, &expected, &_s)) break;
         lace_yield(worker);
     }
+
+    /* Wake sleeping workers so they see the newframe and enter lace_yield */
+    atomic_fetch_add_explicit(&wake_futex, 1, memory_order_release);
+    lace_futex_wake_all(&wake_futex);
 
     // wait until other workers have made a local copy
     lace_barrier();
