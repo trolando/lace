@@ -881,7 +881,9 @@ void lace_steal_loop_CALL(lace_worker* lw, atomic_int* quit)
             }
         }
 
-        lace_check_yield(lw);
+        if (lace_check_yield(lw)) {
+            idle_count = 0;
+        }
 
         if (LACE_UNLIKELY(idle_count % 4 == 0 &&
             atomic_load_explicit(&external_task_count, memory_order_acquire) > 0)) {

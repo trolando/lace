@@ -510,8 +510,9 @@ void lace_steal_random(lace_worker* lw);
  * interruptions (e.g. stop-the-world garbage collection).
  *
  * @param lw  Pointer to the current worker
+ * @return    1 if yielded to an interruption, 0 otherwise.
  */
-static inline void lace_check_yield(lace_worker* lw) LACE_UNUSED;
+static inline int lace_check_yield(lace_worker* lw) LACE_UNUSED;
 
 /**
  * Make all tasks on the current worker's deque stealable.
@@ -1006,11 +1007,14 @@ extern lace_newframe_t lace_newframe;
  */
 void lace_yield(lace_worker* lw);
 
-static inline void lace_check_yield(lace_worker *lw)
+static inline int lace_check_yield(lace_worker *lw)
 {
     if (LACE_UNLIKELY(atomic_load_explicit(&lace_newframe.t, memory_order_relaxed) != NULL)) {
         atomic_thread_fence(memory_order_acquire);
         lace_yield(lw);
+        return 1;
+    } else {
+        return 0;
     }
 }
 
