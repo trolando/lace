@@ -241,6 +241,7 @@ static void test_mixed(void)
 
 int main(int argc, char* argv[])
 {
+    setvbuf(stdout, NULL, _IONBF, 0);
     crash_handler_install();
 
     int n_workers = 0;

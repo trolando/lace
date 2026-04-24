@@ -62,6 +62,7 @@ void test_barrier_CALL(lace_worker* worker)
 int
 main (int argc, char *argv[])
 {
+    setvbuf(stdout, NULL, _IONBF, 0);
     crash_handler_install();
 
     int n_workers = 0; // automatically detect number of workers
