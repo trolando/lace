@@ -27,6 +27,9 @@ jobs:
         copyback: false
         usesh: true
         prepare: |
+          mkdir -p /usr/local/etc/pkg/repos
+          echo 'FreeBSD-ports: { enabled: yes, signature_type: "none" }' > /usr/local/etc/pkg/repos/FreeBSD-ports.conf
+          pkg update -f
           pkg install -y cmake ninja pkgconf
         run: |
           cmake -S . -B build -G Ninja \
@@ -54,6 +57,9 @@ jobs:
         copyback: false
         usesh: true
         prepare: |
+          mkdir -p /usr/local/etc/pkg/repos
+          echo 'FreeBSD-ports: { enabled: yes, signature_type: "none" }' > /usr/local/etc/pkg/repos/FreeBSD-ports.conf
+          pkg update -f
           pkg install -y cmake ninja pkgconf
         run: |
           cmake -S . -B build -G Ninja \
