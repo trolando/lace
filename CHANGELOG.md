@@ -2,6 +2,27 @@
 
 All notable changes to Lace will be documented in this file.
 
+## [2.3.2] - 2026-04-25
+
+### Added
+
+- Added crash handler to the test programs to get better diagnostics on
+  CI failures (except FreeBSD where it causes crashes).
+
+### Changed
+
+- Tests now check if Lace can be installed and used correctly with pkg-config
+  and CMake.
+- Small adjustments to futex handling: wake up all workers if there is a
+  `NEWFRAME` or `TOGETHER` task; reset backoff after yielding to an external
+  task.
+
+### Fixed
+
+- Fixed libraries in the pkg-config files on Windows systems.
+- No longer allocate program stacks with `mmap` on FreeBSD (it crashes).
+
+
 ## [2.3.1] - 2026-04-04
 
 ### Changed
