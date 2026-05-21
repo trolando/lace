@@ -10,7 +10,7 @@ static int * a, * b;
 static size_t size;
 
 TASK(void, quicksort, int*, a, size_t, n)
-void quicksort_CALL(lace_worker* worker, int* a, size_t n)
+void quicksort_IMPL(lace_worker* worker, int* a, size_t n)
 {
     if (n < 2) return;
 

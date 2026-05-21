@@ -32,7 +32,7 @@
  * #include <lace.h>
  *
  * TASK(int, fibonacci, int, n)
- * int fibonacci_CALL(lace_worker* lw, int n) {
+ * int fibonacci_IMPL(lace_worker* lw, int n) {
  *     if (n < 2) return n;
  *     fibonacci_SPAWN(lw, n-1);
  *     int a = fibonacci_CALL(lw, n-2);
@@ -46,6 +46,10 @@
  *     lace_stop();
  * }
  * @endcode
+ *
+ * Define the task body as @c NAME_IMPL. Lace automatically generates an
+ * inline @c NAME_CALL wrapper that manages the scratch arena around each
+ * invocation; use @c NAME_CALL at every call site (including recursive ones).
  *
  * @see @ref lace_lifecycle "Lifecycle" for starting and stopping Lace.
  * @see @ref lace_task_macros "Task Macros" for defining parallel tasks.
@@ -387,6 +391,38 @@ int lace_is_running(void);
  */
 void lace_set_verbosity(int level);
 
+/**
+ * Configure the per-worker scratch arena reservation size.
+ *
+ * Call before lace_start(). Each worker reserves this many bytes of
+ * virtual address space for its private scratch arena. No physical
+ * memory is committed until the first allocation in the arena. The
+ * default is 1 GiB per worker, which costs nothing until used.
+ *
+ * Pass 0 to disable the scratch arena entirely.
+ *
+ * @param size  Virtual reservation per worker in bytes (default 1 GiB)
+ * @see lace_set_scratch_band, lace_scratch_alloc
+ */
+void lace_set_scratchsize(size_t size);
+
+/**
+ * Configure the per-worker scratch committed band.
+ *
+ * Call before lace_start(). The band is the number of extra bytes kept
+ * committed above the current allocation top, providing hysteresis so
+ * that small allocations and deallocations near the top do not trigger
+ * commit/decommit syscalls. Rounded up to a page-size multiple.
+ *
+ * The default band is 1 MiB. A larger band absorbs more push/pop
+ * oscillation; a smaller band releases pages back to the OS sooner
+ * after a deep operation.
+ *
+ * @param size  Committed band per worker in bytes (default 1 MiB)
+ * @see lace_set_scratchsize, lace_scratch_alloc
+ */
+void lace_set_scratch_band(size_t size);
+
 /** @} */ /* end lace_lifecycle */
 
 /**
@@ -434,6 +470,72 @@ static inline int lace_worker_id(void) LACE_UNUSED;
 static inline uint64_t lace_rng(lace_worker *lw) LACE_UNUSED;
 
 /** @} */ /* end lace_worker_ctx */
+
+/**
+ * @defgroup lace_scratch Scratch Arena
+ * @brief Per-worker virtual-memory arena for task-scoped temporary storage.
+ *
+ * Each worker owns a private, thread-local bump arena backed by a large
+ * virtual-memory reservation (1 GiB by default). Physical memory is
+ * committed lazily on first use and grows in page-sized chunks; idle
+ * workers release pages back to the OS during deep backoff.
+ *
+ * The arena is task-scoped: every time a TASK function body is entered
+ * (whether via SPAWN/SYNC, recursive _CALL, or external invocation),
+ * the framework saves the current arena top, runs the body, and resets
+ * the top on return. Any scratch allocated inside the body is freed
+ * automatically. Application code only needs to call lace_scratch_alloc().
+ *
+ * The arena uses a strict LIFO discipline that matches Lace's fork-join
+ * model. A scratch pointer is valid for the duration of the allocating
+ * task body and any descendants it transitively spawns or calls; it
+ * must not be stored where it could outlive that task body.
+ *
+ * For sub-task scopes (multiple independent allocations within a single
+ * task body), lace_scratch_mark() / lace_scratch_reset() are available
+ * for manual control.
+ * @{
+ */
+
+/**
+ * Allocate @p size bytes from the calling worker's scratch arena.
+ *
+ * Allocations are aligned to 16 bytes (max_align_t). The returned
+ * pointer is valid until the enclosing TASK function body returns;
+ * it is freed automatically by the framework, no matching free is
+ * required. If the reservation is exhausted, the program aborts.
+ *
+ * @param lw    Pointer to the current worker
+ * @param size  Number of bytes to allocate
+ * @return      Pointer to allocated memory
+ */
+static inline void *lace_scratch_alloc(lace_worker *lw, size_t size) LACE_UNUSED;
+
+/**
+ * Save the current scratch arena position (advanced).
+ *
+ * Most code does not need this: scratch is freed automatically when
+ * the enclosing TASK body returns. Use mark/reset only when multiple
+ * independent scratch lifetimes are needed within a single task body.
+ *
+ * @param lw  Pointer to the current worker
+ * @return    Opaque mark representing the current top-of-arena position
+ */
+static inline void *lace_scratch_mark(lace_worker *lw) LACE_UNUSED;
+
+/**
+ * Reset the scratch arena to a previously saved mark (advanced).
+ *
+ * Frees all scratch allocations made after the corresponding
+ * lace_scratch_mark() call. The @p mark must have been obtained
+ * from the same worker.
+ *
+ * @param lw    Pointer to the current worker
+ * @param mark  Mark previously returned by lace_scratch_mark()
+ */
+static inline void lace_scratch_reset(lace_worker *lw, void *mark) LACE_UNUSED;
+
+/** @} */ /* end lace_scratch */
 
 /**
  * @defgroup lace_task_ops Task Operations
@@ -704,9 +806,18 @@ typedef struct lace_worker {
     lace_task *end;                  // dq+dq_size
     lace_task *dq;                   // my queue
     lace_worker_public *_public;     // pointer to public lace_worker_public struct
+
+    /* Scratch arena fast-path fields: hot, kept adjacent for cache locality. */
+    char *scratch_top;               // current top of scratch arena (next byte)
+    char *scratch_committed_end;     // one past end of committed scratch (fast-path bound)
+
     lace_rng_state rng;              // my random seed (for lace_rng)
     uint16_t worker;                 // what is my worker id?
     uint8_t allstolen;               // my allstolen
+
+    /* Scratch arena slow-path fields: only touched on grow/trim/teardown. */
+    char *scratch_base;              // base of scratch VM reservation (NULL if disabled)
+    char *scratch_reserve_end;       // one past end of VM reservation
 
     uint64_t time;
 #if LACE_COUNT_EVENTS
@@ -1029,6 +1140,37 @@ static inline void lace_make_all_shared(void)
 
 /**
  * @ingroup lace_internals
+ * Out-of-line slow path for lace_scratch_alloc(). Commits more pages
+ * from the worker's VM reservation, then completes the allocation.
+ * Aborts if the reservation is exhausted.
+ */
+void *lace_scratch_grow(lace_worker *lw, size_t aligned_size);
+
+static inline void *lace_scratch_alloc(lace_worker *lw, size_t size)
+{
+    /* 16-byte alignment matches max_align_t on x86-64 and aarch64. */
+    size = (size + 15) & ~(size_t)15;
+    char *result = lw->scratch_top;
+    char *new_top = result + size;
+    if (LACE_UNLIKELY(new_top > lw->scratch_committed_end)) {
+        return lace_scratch_grow(lw, size);
+    }
+    lw->scratch_top = new_top;
+    return result;
+}
+
+static inline void *lace_scratch_mark(lace_worker *lw)
+{
+    return lw->scratch_top;
+}
+
+static inline void lace_scratch_reset(lace_worker *lw, void *mark)
+{
+    lw->scratch_top = (char *)mark;
+}
+
+/**
+ * @ingroup lace_internals
  * Helper for SYNC implementations. Handles the slow path when a task
  * may have been stolen.
  *
@@ -1105,7 +1247,9 @@ int lace_sync(lace_worker *w, lace_task *head);
  * return type RTYPE. Use VOID_TASK_N(NAME, ...) for void tasks.
  *
  * Each macro generates the following functions:
- * - \b NAME_CALL(lw, ...)   — the task body; you implement this.
+ * - \b NAME_IMPL(lw, ...)   — the task body; you implement this.
+ * - \b NAME_CALL(lw, ...)   — auto-generated wrapper; manages the scratch arena.
+ *                             Call this at every invocation site, including recursion.
  * - \b NAME(...)            — run the task (works from any thread).
  * - \b NAME_SPAWN(lw, ...)  — fork: push task onto the deque.
  * - \b NAME_SYNC(lw)        — join: retrieve spawned result (LIFO order).
@@ -1129,7 +1273,17 @@ typedef struct task_##NAME {                                                    
                                                                                       \
 static_assert(sizeof(task_##NAME) <= sizeof(lace_task), "task_" #NAME " is too large to fit in the lace_task struct!");\
                                                                                       \
-RTYPE NAME##_CALL(lace_worker*);                                                      \
+RTYPE NAME##_IMPL(lace_worker*);                                                      \
+                                                                                      \
+LACE_NO_SANITIZE_THREAD                                                               \
+static inline LACE_UNUSED                                                             \
+RTYPE NAME##_CALL(lace_worker* _lw)                                                   \
+{                                                                                     \
+    char *_lace_scratch_mark = _lw->scratch_top;                                      \
+    RTYPE _r = NAME##_IMPL(_lw);                                                      \
+    _lw->scratch_top = _lace_scratch_mark;                                            \
+    return _r;                                                                        \
+}                                                                                     \
                                                                                       \
 LACE_NO_SANITIZE_THREAD                                                               \
 static void NAME##_WRAP(lace_worker* lw, lace_task* t)                                \
@@ -1268,7 +1422,17 @@ typedef struct task_##NAME {                                                    
                                                                                       \
 static_assert(sizeof(task_##NAME) <= sizeof(lace_task), "task_" #NAME " is too large to fit in the lace_task struct!");\
                                                                                       \
-void NAME##_CALL(lace_worker*);                                                       \
+void NAME##_IMPL(lace_worker*);                                                       \
+                                                                                      \
+LACE_NO_SANITIZE_THREAD                                                               \
+static inline LACE_UNUSED                                                             \
+void NAME##_CALL(lace_worker* _lw)                                                    \
+{                                                                                     \
+    char *_lace_scratch_mark = _lw->scratch_top;                                      \
+     NAME##_IMPL(_lw);                                                                \
+    _lw->scratch_top = _lace_scratch_mark;                                            \
+                                                                                      \
+}                                                                                     \
                                                                                       \
 LACE_NO_SANITIZE_THREAD                                                               \
 static void NAME##_WRAP(lace_worker* lw, lace_task* t)                                \
@@ -1410,7 +1574,17 @@ typedef struct task_##NAME {                                                    
                                                                                       \
 static_assert(sizeof(task_##NAME) <= sizeof(lace_task), "task_" #NAME " is too large to fit in the lace_task struct!");\
                                                                                       \
-RTYPE NAME##_CALL(lace_worker*, ATYPE_1);                                             \
+RTYPE NAME##_IMPL(lace_worker*, ATYPE_1);                                             \
+                                                                                      \
+LACE_NO_SANITIZE_THREAD                                                               \
+static inline LACE_UNUSED                                                             \
+RTYPE NAME##_CALL(lace_worker* _lw, ATYPE_1 arg_1)                                    \
+{                                                                                     \
+    char *_lace_scratch_mark = _lw->scratch_top;                                      \
+    RTYPE _r = NAME##_IMPL(_lw, arg_1);                                               \
+    _lw->scratch_top = _lace_scratch_mark;                                            \
+    return _r;                                                                        \
+}                                                                                     \
                                                                                       \
 LACE_NO_SANITIZE_THREAD                                                               \
 static void NAME##_WRAP(lace_worker* lw, lace_task* t)                                \
@@ -1549,7 +1723,17 @@ typedef struct task_##NAME {                                                    
                                                                                       \
 static_assert(sizeof(task_##NAME) <= sizeof(lace_task), "task_" #NAME " is too large to fit in the lace_task struct!");\
                                                                                       \
-void NAME##_CALL(lace_worker*, ATYPE_1);                                              \
+void NAME##_IMPL(lace_worker*, ATYPE_1);                                              \
+                                                                                      \
+LACE_NO_SANITIZE_THREAD                                                               \
+static inline LACE_UNUSED                                                             \
+void NAME##_CALL(lace_worker* _lw, ATYPE_1 arg_1)                                     \
+{                                                                                     \
+    char *_lace_scratch_mark = _lw->scratch_top;                                      \
+     NAME##_IMPL(_lw, arg_1);                                                         \
+    _lw->scratch_top = _lace_scratch_mark;                                            \
+                                                                                      \
+}                                                                                     \
                                                                                       \
 LACE_NO_SANITIZE_THREAD                                                               \
 static void NAME##_WRAP(lace_worker* lw, lace_task* t)                                \
@@ -1691,7 +1875,17 @@ typedef struct task_##NAME {                                                    
                                                                                       \
 static_assert(sizeof(task_##NAME) <= sizeof(lace_task), "task_" #NAME " is too large to fit in the lace_task struct!");\
                                                                                       \
-RTYPE NAME##_CALL(lace_worker*, ATYPE_1, ATYPE_2);                                    \
+RTYPE NAME##_IMPL(lace_worker*, ATYPE_1, ATYPE_2);                                    \
+                                                                                      \
+LACE_NO_SANITIZE_THREAD                                                               \
+static inline LACE_UNUSED                                                             \
+RTYPE NAME##_CALL(lace_worker* _lw, ATYPE_1 arg_1, ATYPE_2 arg_2)                     \
+{                                                                                     \
+    char *_lace_scratch_mark = _lw->scratch_top;                                      \
+    RTYPE _r = NAME##_IMPL(_lw, arg_1, arg_2);                                        \
+    _lw->scratch_top = _lace_scratch_mark;                                            \
+    return _r;                                                                        \
+}                                                                                     \
                                                                                       \
 LACE_NO_SANITIZE_THREAD                                                               \
 static void NAME##_WRAP(lace_worker* lw, lace_task* t)                                \
@@ -1830,7 +2024,17 @@ typedef struct task_##NAME {                                                    
                                                                                       \
 static_assert(sizeof(task_##NAME) <= sizeof(lace_task), "task_" #NAME " is too large to fit in the lace_task struct!");\
                                                                                       \
-void NAME##_CALL(lace_worker*, ATYPE_1, ATYPE_2);                                     \
+void NAME##_IMPL(lace_worker*, ATYPE_1, ATYPE_2);                                     \
+                                                                                      \
+LACE_NO_SANITIZE_THREAD                                                               \
+static inline LACE_UNUSED                                                             \
+void NAME##_CALL(lace_worker* _lw, ATYPE_1 arg_1, ATYPE_2 arg_2)                      \
+{                                                                                     \
+    char *_lace_scratch_mark = _lw->scratch_top;                                      \
+     NAME##_IMPL(_lw, arg_1, arg_2);                                                  \
+    _lw->scratch_top = _lace_scratch_mark;                                            \
+                                                                                      \
+}                                                                                     \
                                                                                       \
 LACE_NO_SANITIZE_THREAD                                                               \
 static void NAME##_WRAP(lace_worker* lw, lace_task* t)                                \
@@ -1972,7 +2176,17 @@ typedef struct task_##NAME {                                                    
                                                                                       \
 static_assert(sizeof(task_##NAME) <= sizeof(lace_task), "task_" #NAME " is too large to fit in the lace_task struct!");\
                                                                                       \
-RTYPE NAME##_CALL(lace_worker*, ATYPE_1, ATYPE_2, ATYPE_3);                           \
+RTYPE NAME##_IMPL(lace_worker*, ATYPE_1, ATYPE_2, ATYPE_3);                           \
+                                                                                      \
+LACE_NO_SANITIZE_THREAD                                                               \
+static inline LACE_UNUSED                                                             \
+RTYPE NAME##_CALL(lace_worker* _lw, ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3)      \
+{                                                                                     \
+    char *_lace_scratch_mark = _lw->scratch_top;                                      \
+    RTYPE _r = NAME##_IMPL(_lw, arg_1, arg_2, arg_3);                                 \
+    _lw->scratch_top = _lace_scratch_mark;                                            \
+    return _r;                                                                        \
+}                                                                                     \
                                                                                       \
 LACE_NO_SANITIZE_THREAD                                                               \
 static void NAME##_WRAP(lace_worker* lw, lace_task* t)                                \
@@ -2111,7 +2325,17 @@ typedef struct task_##NAME {                                                    
                                                                                       \
 static_assert(sizeof(task_##NAME) <= sizeof(lace_task), "task_" #NAME " is too large to fit in the lace_task struct!");\
                                                                                       \
-void NAME##_CALL(lace_worker*, ATYPE_1, ATYPE_2, ATYPE_3);                            \
+void NAME##_IMPL(lace_worker*, ATYPE_1, ATYPE_2, ATYPE_3);                            \
+                                                                                      \
+LACE_NO_SANITIZE_THREAD                                                               \
+static inline LACE_UNUSED                                                             \
+void NAME##_CALL(lace_worker* _lw, ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3)       \
+{                                                                                     \
+    char *_lace_scratch_mark = _lw->scratch_top;                                      \
+     NAME##_IMPL(_lw, arg_1, arg_2, arg_3);                                           \
+    _lw->scratch_top = _lace_scratch_mark;                                            \
+                                                                                      \
+}                                                                                     \
                                                                                       \
 LACE_NO_SANITIZE_THREAD                                                               \
 static void NAME##_WRAP(lace_worker* lw, lace_task* t)                                \
@@ -2253,7 +2477,17 @@ typedef struct task_##NAME {                                                    
                                                                                       \
 static_assert(sizeof(task_##NAME) <= sizeof(lace_task), "task_" #NAME " is too large to fit in the lace_task struct!");\
                                                                                       \
-RTYPE NAME##_CALL(lace_worker*, ATYPE_1, ATYPE_2, ATYPE_3, ATYPE_4);                  \
+RTYPE NAME##_IMPL(lace_worker*, ATYPE_1, ATYPE_2, ATYPE_3, ATYPE_4);                  \
+                                                                                      \
+LACE_NO_SANITIZE_THREAD                                                               \
+static inline LACE_UNUSED                                                             \
+RTYPE NAME##_CALL(lace_worker* _lw, ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4)\
+{                                                                                     \
+    char *_lace_scratch_mark = _lw->scratch_top;                                      \
+    RTYPE _r = NAME##_IMPL(_lw, arg_1, arg_2, arg_3, arg_4);                          \
+    _lw->scratch_top = _lace_scratch_mark;                                            \
+    return _r;                                                                        \
+}                                                                                     \
                                                                                       \
 LACE_NO_SANITIZE_THREAD                                                               \
 static void NAME##_WRAP(lace_worker* lw, lace_task* t)                                \
@@ -2392,7 +2626,17 @@ typedef struct task_##NAME {                                                    
                                                                                       \
 static_assert(sizeof(task_##NAME) <= sizeof(lace_task), "task_" #NAME " is too large to fit in the lace_task struct!");\
                                                                                       \
-void NAME##_CALL(lace_worker*, ATYPE_1, ATYPE_2, ATYPE_3, ATYPE_4);                   \
+void NAME##_IMPL(lace_worker*, ATYPE_1, ATYPE_2, ATYPE_3, ATYPE_4);                   \
+                                                                                      \
+LACE_NO_SANITIZE_THREAD                                                               \
+static inline LACE_UNUSED                                                             \
+void NAME##_CALL(lace_worker* _lw, ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4)\
+{                                                                                     \
+    char *_lace_scratch_mark = _lw->scratch_top;                                      \
+     NAME##_IMPL(_lw, arg_1, arg_2, arg_3, arg_4);                                    \
+    _lw->scratch_top = _lace_scratch_mark;                                            \
+                                                                                      \
+}                                                                                     \
                                                                                       \
 LACE_NO_SANITIZE_THREAD                                                               \
 static void NAME##_WRAP(lace_worker* lw, lace_task* t)                                \
@@ -2534,7 +2778,17 @@ typedef struct task_##NAME {                                                    
                                                                                       \
 static_assert(sizeof(task_##NAME) <= sizeof(lace_task), "task_" #NAME " is too large to fit in the lace_task struct!");\
                                                                                       \
-RTYPE NAME##_CALL(lace_worker*, ATYPE_1, ATYPE_2, ATYPE_3, ATYPE_4, ATYPE_5);         \
+RTYPE NAME##_IMPL(lace_worker*, ATYPE_1, ATYPE_2, ATYPE_3, ATYPE_4, ATYPE_5);         \
+                                                                                      \
+LACE_NO_SANITIZE_THREAD                                                               \
+static inline LACE_UNUSED                                                             \
+RTYPE NAME##_CALL(lace_worker* _lw, ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, ATYPE_5 arg_5)\
+{                                                                                     \
+    char *_lace_scratch_mark = _lw->scratch_top;                                      \
+    RTYPE _r = NAME##_IMPL(_lw, arg_1, arg_2, arg_3, arg_4, arg_5);                   \
+    _lw->scratch_top = _lace_scratch_mark;                                            \
+    return _r;                                                                        \
+}                                                                                     \
                                                                                       \
 LACE_NO_SANITIZE_THREAD                                                               \
 static void NAME##_WRAP(lace_worker* lw, lace_task* t)                                \
@@ -2673,7 +2927,17 @@ typedef struct task_##NAME {                                                    
                                                                                       \
 static_assert(sizeof(task_##NAME) <= sizeof(lace_task), "task_" #NAME " is too large to fit in the lace_task struct!");\
                                                                                       \
-void NAME##_CALL(lace_worker*, ATYPE_1, ATYPE_2, ATYPE_3, ATYPE_4, ATYPE_5);          \
+void NAME##_IMPL(lace_worker*, ATYPE_1, ATYPE_2, ATYPE_3, ATYPE_4, ATYPE_5);          \
+                                                                                      \
+LACE_NO_SANITIZE_THREAD                                                               \
+static inline LACE_UNUSED                                                             \
+void NAME##_CALL(lace_worker* _lw, ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, ATYPE_5 arg_5)\
+{                                                                                     \
+    char *_lace_scratch_mark = _lw->scratch_top;                                      \
+     NAME##_IMPL(_lw, arg_1, arg_2, arg_3, arg_4, arg_5);                             \
+    _lw->scratch_top = _lace_scratch_mark;                                            \
+                                                                                      \
+}                                                                                     \
                                                                                       \
 LACE_NO_SANITIZE_THREAD                                                               \
 static void NAME##_WRAP(lace_worker* lw, lace_task* t)                                \
@@ -2815,7 +3079,17 @@ typedef struct task_##NAME {                                                    
                                                                                       \
 static_assert(sizeof(task_##NAME) <= sizeof(lace_task), "task_" #NAME " is too large to fit in the lace_task struct!");\
                                                                                       \
-RTYPE NAME##_CALL(lace_worker*, ATYPE_1, ATYPE_2, ATYPE_3, ATYPE_4, ATYPE_5, ATYPE_6);\
+RTYPE NAME##_IMPL(lace_worker*, ATYPE_1, ATYPE_2, ATYPE_3, ATYPE_4, ATYPE_5, ATYPE_6);\
+                                                                                      \
+LACE_NO_SANITIZE_THREAD                                                               \
+static inline LACE_UNUSED                                                             \
+RTYPE NAME##_CALL(lace_worker* _lw, ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, ATYPE_5 arg_5, ATYPE_6 arg_6)\
+{                                                                                     \
+    char *_lace_scratch_mark = _lw->scratch_top;                                      \
+    RTYPE _r = NAME##_IMPL(_lw, arg_1, arg_2, arg_3, arg_4, arg_5, arg_6);            \
+    _lw->scratch_top = _lace_scratch_mark;                                            \
+    return _r;                                                                        \
+}                                                                                     \
                                                                                       \
 LACE_NO_SANITIZE_THREAD                                                               \
 static void NAME##_WRAP(lace_worker* lw, lace_task* t)                                \
@@ -2954,7 +3228,17 @@ typedef struct task_##NAME {                                                    
                                                                                       \
 static_assert(sizeof(task_##NAME) <= sizeof(lace_task), "task_" #NAME " is too large to fit in the lace_task struct!");\
                                                                                       \
-void NAME##_CALL(lace_worker*, ATYPE_1, ATYPE_2, ATYPE_3, ATYPE_4, ATYPE_5, ATYPE_6); \
+void NAME##_IMPL(lace_worker*, ATYPE_1, ATYPE_2, ATYPE_3, ATYPE_4, ATYPE_5, ATYPE_6); \
+                                                                                      \
+LACE_NO_SANITIZE_THREAD                                                               \
+static inline LACE_UNUSED                                                             \
+void NAME##_CALL(lace_worker* _lw, ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, ATYPE_5 arg_5, ATYPE_6 arg_6)\
+{                                                                                     \
+    char *_lace_scratch_mark = _lw->scratch_top;                                      \
+     NAME##_IMPL(_lw, arg_1, arg_2, arg_3, arg_4, arg_5, arg_6);                      \
+    _lw->scratch_top = _lace_scratch_mark;                                            \
+                                                                                      \
+}                                                                                     \
                                                                                       \
 LACE_NO_SANITIZE_THREAD                                                               \
 static void NAME##_WRAP(lace_worker* lw, lace_task* t)                                \
@@ -3096,7 +3380,17 @@ typedef struct task_##NAME {                                                    
                                                                                       \
 static_assert(sizeof(task_##NAME) <= sizeof(lace_task), "task_" #NAME " is too large to fit in the lace_task struct!");\
                                                                                       \
-RTYPE NAME##_CALL(lace_worker*, ATYPE_1, ATYPE_2, ATYPE_3, ATYPE_4, ATYPE_5, ATYPE_6, ATYPE_7);\
+RTYPE NAME##_IMPL(lace_worker*, ATYPE_1, ATYPE_2, ATYPE_3, ATYPE_4, ATYPE_5, ATYPE_6, ATYPE_7);\
+                                                                                      \
+LACE_NO_SANITIZE_THREAD                                                               \
+static inline LACE_UNUSED                                                             \
+RTYPE NAME##_CALL(lace_worker* _lw, ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, ATYPE_5 arg_5, ATYPE_6 arg_6, ATYPE_7 arg_7)\
+{                                                                                     \
+    char *_lace_scratch_mark = _lw->scratch_top;                                      \
+    RTYPE _r = NAME##_IMPL(_lw, arg_1, arg_2, arg_3, arg_4, arg_5, arg_6, arg_7);     \
+    _lw->scratch_top = _lace_scratch_mark;                                            \
+    return _r;                                                                        \
+}                                                                                     \
                                                                                       \
 LACE_NO_SANITIZE_THREAD                                                               \
 static void NAME##_WRAP(lace_worker* lw, lace_task* t)                                \
@@ -3235,7 +3529,17 @@ typedef struct task_##NAME {                                                    
                                                                                       \
 static_assert(sizeof(task_##NAME) <= sizeof(lace_task), "task_" #NAME " is too large to fit in the lace_task struct!");\
                                                                                       \
-void NAME##_CALL(lace_worker*, ATYPE_1, ATYPE_2, ATYPE_3, ATYPE_4, ATYPE_5, ATYPE_6, ATYPE_7);\
+void NAME##_IMPL(lace_worker*, ATYPE_1, ATYPE_2, ATYPE_3, ATYPE_4, ATYPE_5, ATYPE_6, ATYPE_7);\
+                                                                                      \
+LACE_NO_SANITIZE_THREAD                                                               \
+static inline LACE_UNUSED                                                             \
+void NAME##_CALL(lace_worker* _lw, ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, ATYPE_5 arg_5, ATYPE_6 arg_6, ATYPE_7 arg_7)\
+{                                                                                     \
+    char *_lace_scratch_mark = _lw->scratch_top;                                      \
+     NAME##_IMPL(_lw, arg_1, arg_2, arg_3, arg_4, arg_5, arg_6, arg_7);               \
+    _lw->scratch_top = _lace_scratch_mark;                                            \
+                                                                                      \
+}                                                                                     \
                                                                                       \
 LACE_NO_SANITIZE_THREAD                                                               \
 static void NAME##_WRAP(lace_worker* lw, lace_task* t)                                \
@@ -3377,7 +3681,17 @@ typedef struct task_##NAME {                                                    
                                                                                       \
 static_assert(sizeof(task_##NAME) <= sizeof(lace_task), "task_" #NAME " is too large to fit in the lace_task struct!");\
                                                                                       \
-RTYPE NAME##_CALL(lace_worker*, ATYPE_1, ATYPE_2, ATYPE_3, ATYPE_4, ATYPE_5, ATYPE_6, ATYPE_7, ATYPE_8);\
+RTYPE NAME##_IMPL(lace_worker*, ATYPE_1, ATYPE_2, ATYPE_3, ATYPE_4, ATYPE_5, ATYPE_6, ATYPE_7, ATYPE_8);\
+                                                                                      \
+LACE_NO_SANITIZE_THREAD                                                               \
+static inline LACE_UNUSED                                                             \
+RTYPE NAME##_CALL(lace_worker* _lw, ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, ATYPE_5 arg_5, ATYPE_6 arg_6, ATYPE_7 arg_7, ATYPE_8 arg_8)\
+{                                                                                     \
+    char *_lace_scratch_mark = _lw->scratch_top;                                      \
+    RTYPE _r = NAME##_IMPL(_lw, arg_1, arg_2, arg_3, arg_4, arg_5, arg_6, arg_7, arg_8);\
+    _lw->scratch_top = _lace_scratch_mark;                                            \
+    return _r;                                                                        \
+}                                                                                     \
                                                                                       \
 LACE_NO_SANITIZE_THREAD                                                               \
 static void NAME##_WRAP(lace_worker* lw, lace_task* t)                                \
@@ -3516,7 +3830,17 @@ typedef struct task_##NAME {                                                    
                                                                                       \
 static_assert(sizeof(task_##NAME) <= sizeof(lace_task), "task_" #NAME " is too large to fit in the lace_task struct!");\
                                                                                       \
-void NAME##_CALL(lace_worker*, ATYPE_1, ATYPE_2, ATYPE_3, ATYPE_4, ATYPE_5, ATYPE_6, ATYPE_7, ATYPE_8);\
+void NAME##_IMPL(lace_worker*, ATYPE_1, ATYPE_2, ATYPE_3, ATYPE_4, ATYPE_5, ATYPE_6, ATYPE_7, ATYPE_8);\
+                                                                                      \
+LACE_NO_SANITIZE_THREAD                                                               \
+static inline LACE_UNUSED                                                             \
+void NAME##_CALL(lace_worker* _lw, ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, ATYPE_5 arg_5, ATYPE_6 arg_6, ATYPE_7 arg_7, ATYPE_8 arg_8)\
+{                                                                                     \
+    char *_lace_scratch_mark = _lw->scratch_top;                                      \
+     NAME##_IMPL(_lw, arg_1, arg_2, arg_3, arg_4, arg_5, arg_6, arg_7, arg_8);        \
+    _lw->scratch_top = _lace_scratch_mark;                                            \
+                                                                                      \
+}                                                                                     \
                                                                                       \
 LACE_NO_SANITIZE_THREAD                                                               \
 static void NAME##_WRAP(lace_worker* lw, lace_task* t)                                \
@@ -3658,7 +3982,17 @@ typedef struct task_##NAME {                                                    
                                                                                       \
 static_assert(sizeof(task_##NAME) <= sizeof(lace_task), "task_" #NAME " is too large to fit in the lace_task struct!");\
                                                                                       \
-RTYPE NAME##_CALL(lace_worker*, ATYPE_1, ATYPE_2, ATYPE_3, ATYPE_4, ATYPE_5, ATYPE_6, ATYPE_7, ATYPE_8, ATYPE_9);\
+RTYPE NAME##_IMPL(lace_worker*, ATYPE_1, ATYPE_2, ATYPE_3, ATYPE_4, ATYPE_5, ATYPE_6, ATYPE_7, ATYPE_8, ATYPE_9);\
+                                                                                      \
+LACE_NO_SANITIZE_THREAD                                                               \
+static inline LACE_UNUSED                                                             \
+RTYPE NAME##_CALL(lace_worker* _lw, ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, ATYPE_5 arg_5, ATYPE_6 arg_6, ATYPE_7 arg_7, ATYPE_8 arg_8, ATYPE_9 arg_9)\
+{                                                                                     \
+    char *_lace_scratch_mark = _lw->scratch_top;                                      \
+    RTYPE _r = NAME##_IMPL(_lw, arg_1, arg_2, arg_3, arg_4, arg_5, arg_6, arg_7, arg_8, arg_9);\
+    _lw->scratch_top = _lace_scratch_mark;                                            \
+    return _r;                                                                        \
+}                                                                                     \
                                                                                       \
 LACE_NO_SANITIZE_THREAD                                                               \
 static void NAME##_WRAP(lace_worker* lw, lace_task* t)                                \
@@ -3797,7 +4131,17 @@ typedef struct task_##NAME {                                                    
                                                                                       \
 static_assert(sizeof(task_##NAME) <= sizeof(lace_task), "task_" #NAME " is too large to fit in the lace_task struct!");\
                                                                                       \
-void NAME##_CALL(lace_worker*, ATYPE_1, ATYPE_2, ATYPE_3, ATYPE_4, ATYPE_5, ATYPE_6, ATYPE_7, ATYPE_8, ATYPE_9);\
+void NAME##_IMPL(lace_worker*, ATYPE_1, ATYPE_2, ATYPE_3, ATYPE_4, ATYPE_5, ATYPE_6, ATYPE_7, ATYPE_8, ATYPE_9);\
+                                                                                      \
+LACE_NO_SANITIZE_THREAD                                                               \
+static inline LACE_UNUSED                                                             \
+void NAME##_CALL(lace_worker* _lw, ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, ATYPE_5 arg_5, ATYPE_6 arg_6, ATYPE_7 arg_7, ATYPE_8 arg_8, ATYPE_9 arg_9)\
+{                                                                                     \
+    char *_lace_scratch_mark = _lw->scratch_top;                                      \
+     NAME##_IMPL(_lw, arg_1, arg_2, arg_3, arg_4, arg_5, arg_6, arg_7, arg_8, arg_9); \
+    _lw->scratch_top = _lace_scratch_mark;                                            \
+                                                                                      \
+}                                                                                     \
                                                                                       \
 LACE_NO_SANITIZE_THREAD                                                               \
 static void NAME##_WRAP(lace_worker* lw, lace_task* t)                                \
@@ -3939,7 +4283,17 @@ typedef struct task_##NAME {                                                    
                                                                                       \
 static_assert(sizeof(task_##NAME) <= sizeof(lace_task), "task_" #NAME " is too large to fit in the lace_task struct!");\
                                                                                       \
-RTYPE NAME##_CALL(lace_worker*, ATYPE_1, ATYPE_2, ATYPE_3, ATYPE_4, ATYPE_5, ATYPE_6, ATYPE_7, ATYPE_8, ATYPE_9, ATYPE_10);\
+RTYPE NAME##_IMPL(lace_worker*, ATYPE_1, ATYPE_2, ATYPE_3, ATYPE_4, ATYPE_5, ATYPE_6, ATYPE_7, ATYPE_8, ATYPE_9, ATYPE_10);\
+                                                                                      \
+LACE_NO_SANITIZE_THREAD                                                               \
+static inline LACE_UNUSED                                                             \
+RTYPE NAME##_CALL(lace_worker* _lw, ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, ATYPE_5 arg_5, ATYPE_6 arg_6, ATYPE_7 arg_7, ATYPE_8 arg_8, ATYPE_9 arg_9, ATYPE_10 arg_10)\
+{                                                                                     \
+    char *_lace_scratch_mark = _lw->scratch_top;                                      \
+    RTYPE _r = NAME##_IMPL(_lw, arg_1, arg_2, arg_3, arg_4, arg_5, arg_6, arg_7, arg_8, arg_9, arg_10);\
+    _lw->scratch_top = _lace_scratch_mark;                                            \
+    return _r;                                                                        \
+}                                                                                     \
                                                                                       \
 LACE_NO_SANITIZE_THREAD                                                               \
 static void NAME##_WRAP(lace_worker* lw, lace_task* t)                                \
@@ -4078,7 +4432,17 @@ typedef struct task_##NAME {                                                    
                                                                                       \
 static_assert(sizeof(task_##NAME) <= sizeof(lace_task), "task_" #NAME " is too large to fit in the lace_task struct!");\
                                                                                       \
-void NAME##_CALL(lace_worker*, ATYPE_1, ATYPE_2, ATYPE_3, ATYPE_4, ATYPE_5, ATYPE_6, ATYPE_7, ATYPE_8, ATYPE_9, ATYPE_10);\
+void NAME##_IMPL(lace_worker*, ATYPE_1, ATYPE_2, ATYPE_3, ATYPE_4, ATYPE_5, ATYPE_6, ATYPE_7, ATYPE_8, ATYPE_9, ATYPE_10);\
+                                                                                      \
+LACE_NO_SANITIZE_THREAD                                                               \
+static inline LACE_UNUSED                                                             \
+void NAME##_CALL(lace_worker* _lw, ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, ATYPE_5 arg_5, ATYPE_6 arg_6, ATYPE_7 arg_7, ATYPE_8 arg_8, ATYPE_9 arg_9, ATYPE_10 arg_10)\
+{                                                                                     \
+    char *_lace_scratch_mark = _lw->scratch_top;                                      \
+     NAME##_IMPL(_lw, arg_1, arg_2, arg_3, arg_4, arg_5, arg_6, arg_7, arg_8, arg_9, arg_10);\
+    _lw->scratch_top = _lace_scratch_mark;                                            \
+                                                                                      \
+}                                                                                     \
                                                                                       \
 LACE_NO_SANITIZE_THREAD                                                               \
 static void NAME##_WRAP(lace_worker* lw, lace_task* t)                                \
@@ -4220,7 +4584,17 @@ typedef struct task_##NAME {                                                    
                                                                                       \
 static_assert(sizeof(task_##NAME) <= sizeof(lace_task), "task_" #NAME " is too large to fit in the lace_task struct!");\
                                                                                       \
-RTYPE NAME##_CALL(lace_worker*, ATYPE_1, ATYPE_2, ATYPE_3, ATYPE_4, ATYPE_5, ATYPE_6, ATYPE_7, ATYPE_8, ATYPE_9, ATYPE_10, ATYPE_11);\
+RTYPE NAME##_IMPL(lace_worker*, ATYPE_1, ATYPE_2, ATYPE_3, ATYPE_4, ATYPE_5, ATYPE_6, ATYPE_7, ATYPE_8, ATYPE_9, ATYPE_10, ATYPE_11);\
+                                                                                      \
+LACE_NO_SANITIZE_THREAD                                                               \
+static inline LACE_UNUSED                                                             \
+RTYPE NAME##_CALL(lace_worker* _lw, ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, ATYPE_5 arg_5, ATYPE_6 arg_6, ATYPE_7 arg_7, ATYPE_8 arg_8, ATYPE_9 arg_9, ATYPE_10 arg_10, ATYPE_11 arg_11)\
+{                                                                                     \
+    char *_lace_scratch_mark = _lw->scratch_top;                                      \
+    RTYPE _r = NAME##_IMPL(_lw, arg_1, arg_2, arg_3, arg_4, arg_5, arg_6, arg_7, arg_8, arg_9, arg_10, arg_11);\
+    _lw->scratch_top = _lace_scratch_mark;                                            \
+    return _r;                                                                        \
+}                                                                                     \
                                                                                       \
 LACE_NO_SANITIZE_THREAD                                                               \
 static void NAME##_WRAP(lace_worker* lw, lace_task* t)                                \
@@ -4359,7 +4733,17 @@ typedef struct task_##NAME {                                                    
                                                                                       \
 static_assert(sizeof(task_##NAME) <= sizeof(lace_task), "task_" #NAME " is too large to fit in the lace_task struct!");\
                                                                                       \
-void NAME##_CALL(lace_worker*, ATYPE_1, ATYPE_2, ATYPE_3, ATYPE_4, ATYPE_5, ATYPE_6, ATYPE_7, ATYPE_8, ATYPE_9, ATYPE_10, ATYPE_11);\
+void NAME##_IMPL(lace_worker*, ATYPE_1, ATYPE_2, ATYPE_3, ATYPE_4, ATYPE_5, ATYPE_6, ATYPE_7, ATYPE_8, ATYPE_9, ATYPE_10, ATYPE_11);\
+                                                                                      \
+LACE_NO_SANITIZE_THREAD                                                               \
+static inline LACE_UNUSED                                                             \
+void NAME##_CALL(lace_worker* _lw, ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, ATYPE_5 arg_5, ATYPE_6 arg_6, ATYPE_7 arg_7, ATYPE_8 arg_8, ATYPE_9 arg_9, ATYPE_10 arg_10, ATYPE_11 arg_11)\
+{                                                                                     \
+    char *_lace_scratch_mark = _lw->scratch_top;                                      \
+     NAME##_IMPL(_lw, arg_1, arg_2, arg_3, arg_4, arg_5, arg_6, arg_7, arg_8, arg_9, arg_10, arg_11);\
+    _lw->scratch_top = _lace_scratch_mark;                                            \
+                                                                                      \
+}                                                                                     \
                                                                                       \
 LACE_NO_SANITIZE_THREAD                                                               \
 static void NAME##_WRAP(lace_worker* lw, lace_task* t)                                \
@@ -4501,7 +4885,17 @@ typedef struct task_##NAME {                                                    
                                                                                       \
 static_assert(sizeof(task_##NAME) <= sizeof(lace_task), "task_" #NAME " is too large to fit in the lace_task struct!");\
                                                                                       \
-RTYPE NAME##_CALL(lace_worker*, ATYPE_1, ATYPE_2, ATYPE_3, ATYPE_4, ATYPE_5, ATYPE_6, ATYPE_7, ATYPE_8, ATYPE_9, ATYPE_10, ATYPE_11, ATYPE_12);\
+RTYPE NAME##_IMPL(lace_worker*, ATYPE_1, ATYPE_2, ATYPE_3, ATYPE_4, ATYPE_5, ATYPE_6, ATYPE_7, ATYPE_8, ATYPE_9, ATYPE_10, ATYPE_11, ATYPE_12);\
+                                                                                      \
+LACE_NO_SANITIZE_THREAD                                                               \
+static inline LACE_UNUSED                                                             \
+RTYPE NAME##_CALL(lace_worker* _lw, ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, ATYPE_5 arg_5, ATYPE_6 arg_6, ATYPE_7 arg_7, ATYPE_8 arg_8, ATYPE_9 arg_9, ATYPE_10 arg_10, ATYPE_11 arg_11, ATYPE_12 arg_12)\
+{                                                                                     \
+    char *_lace_scratch_mark = _lw->scratch_top;                                      \
+    RTYPE _r = NAME##_IMPL(_lw, arg_1, arg_2, arg_3, arg_4, arg_5, arg_6, arg_7, arg_8, arg_9, arg_10, arg_11, arg_12);\
+    _lw->scratch_top = _lace_scratch_mark;                                            \
+    return _r;                                                                        \
+}                                                                                     \
                                                                                       \
 LACE_NO_SANITIZE_THREAD                                                               \
 static void NAME##_WRAP(lace_worker* lw, lace_task* t)                                \
@@ -4640,7 +5034,17 @@ typedef struct task_##NAME {                                                    
                                                                                       \
 static_assert(sizeof(task_##NAME) <= sizeof(lace_task), "task_" #NAME " is too large to fit in the lace_task struct!");\
                                                                                       \
-void NAME##_CALL(lace_worker*, ATYPE_1, ATYPE_2, ATYPE_3, ATYPE_4, ATYPE_5, ATYPE_6, ATYPE_7, ATYPE_8, ATYPE_9, ATYPE_10, ATYPE_11, ATYPE_12);\
+void NAME##_IMPL(lace_worker*, ATYPE_1, ATYPE_2, ATYPE_3, ATYPE_4, ATYPE_5, ATYPE_6, ATYPE_7, ATYPE_8, ATYPE_9, ATYPE_10, ATYPE_11, ATYPE_12);\
+                                                                                      \
+LACE_NO_SANITIZE_THREAD                                                               \
+static inline LACE_UNUSED                                                             \
+void NAME##_CALL(lace_worker* _lw, ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, ATYPE_5 arg_5, ATYPE_6 arg_6, ATYPE_7 arg_7, ATYPE_8 arg_8, ATYPE_9 arg_9, ATYPE_10 arg_10, ATYPE_11 arg_11, ATYPE_12 arg_12)\
+{                                                                                     \
+    char *_lace_scratch_mark = _lw->scratch_top;                                      \
+     NAME##_IMPL(_lw, arg_1, arg_2, arg_3, arg_4, arg_5, arg_6, arg_7, arg_8, arg_9, arg_10, arg_11, arg_12);\
+    _lw->scratch_top = _lace_scratch_mark;                                            \
+                                                                                      \
+}                                                                                     \
                                                                                       \
 LACE_NO_SANITIZE_THREAD                                                               \
 static void NAME##_WRAP(lace_worker* lw, lace_task* t)                                \
@@ -4782,7 +5186,17 @@ typedef struct task_##NAME {                                                    
                                                                                       \
 static_assert(sizeof(task_##NAME) <= sizeof(lace_task), "task_" #NAME " is too large to fit in the lace_task struct!");\
                                                                                       \
-RTYPE NAME##_CALL(lace_worker*, ATYPE_1, ATYPE_2, ATYPE_3, ATYPE_4, ATYPE_5, ATYPE_6, ATYPE_7, ATYPE_8, ATYPE_9, ATYPE_10, ATYPE_11, ATYPE_12, ATYPE_13);\
+RTYPE NAME##_IMPL(lace_worker*, ATYPE_1, ATYPE_2, ATYPE_3, ATYPE_4, ATYPE_5, ATYPE_6, ATYPE_7, ATYPE_8, ATYPE_9, ATYPE_10, ATYPE_11, ATYPE_12, ATYPE_13);\
+                                                                                      \
+LACE_NO_SANITIZE_THREAD                                                               \
+static inline LACE_UNUSED                                                             \
+RTYPE NAME##_CALL(lace_worker* _lw, ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, ATYPE_5 arg_5, ATYPE_6 arg_6, ATYPE_7 arg_7, ATYPE_8 arg_8, ATYPE_9 arg_9, ATYPE_10 arg_10, ATYPE_11 arg_11, ATYPE_12 arg_12, ATYPE_13 arg_13)\
+{                                                                                     \
+    char *_lace_scratch_mark = _lw->scratch_top;                                      \
+    RTYPE _r = NAME##_IMPL(_lw, arg_1, arg_2, arg_3, arg_4, arg_5, arg_6, arg_7, arg_8, arg_9, arg_10, arg_11, arg_12, arg_13);\
+    _lw->scratch_top = _lace_scratch_mark;                                            \
+    return _r;                                                                        \
+}                                                                                     \
                                                                                       \
 LACE_NO_SANITIZE_THREAD                                                               \
 static void NAME##_WRAP(lace_worker* lw, lace_task* t)                                \
@@ -4921,7 +5335,17 @@ typedef struct task_##NAME {                                                    
                                                                                       \
 static_assert(sizeof(task_##NAME) <= sizeof(lace_task), "task_" #NAME " is too large to fit in the lace_task struct!");\
                                                                                       \
-void NAME##_CALL(lace_worker*, ATYPE_1, ATYPE_2, ATYPE_3, ATYPE_4, ATYPE_5, ATYPE_6, ATYPE_7, ATYPE_8, ATYPE_9, ATYPE_10, ATYPE_11, ATYPE_12, ATYPE_13);\
+void NAME##_IMPL(lace_worker*, ATYPE_1, ATYPE_2, ATYPE_3, ATYPE_4, ATYPE_5, ATYPE_6, ATYPE_7, ATYPE_8, ATYPE_9, ATYPE_10, ATYPE_11, ATYPE_12, ATYPE_13);\
+                                                                                      \
+LACE_NO_SANITIZE_THREAD                                                               \
+static inline LACE_UNUSED                                                             \
+void NAME##_CALL(lace_worker* _lw, ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, ATYPE_5 arg_5, ATYPE_6 arg_6, ATYPE_7 arg_7, ATYPE_8 arg_8, ATYPE_9 arg_9, ATYPE_10 arg_10, ATYPE_11 arg_11, ATYPE_12 arg_12, ATYPE_13 arg_13)\
+{                                                                                     \
+    char *_lace_scratch_mark = _lw->scratch_top;                                      \
+     NAME##_IMPL(_lw, arg_1, arg_2, arg_3, arg_4, arg_5, arg_6, arg_7, arg_8, arg_9, arg_10, arg_11, arg_12, arg_13);\
+    _lw->scratch_top = _lace_scratch_mark;                                            \
+                                                                                      \
+}                                                                                     \
                                                                                       \
 LACE_NO_SANITIZE_THREAD                                                               \
 static void NAME##_WRAP(lace_worker* lw, lace_task* t)                                \
@@ -5063,7 +5487,17 @@ typedef struct task_##NAME {                                                    
                                                                                       \
 static_assert(sizeof(task_##NAME) <= sizeof(lace_task), "task_" #NAME " is too large to fit in the lace_task struct!");\
                                                                                       \
-RTYPE NAME##_CALL(lace_worker*, ATYPE_1, ATYPE_2, ATYPE_3, ATYPE_4, ATYPE_5, ATYPE_6, ATYPE_7, ATYPE_8, ATYPE_9, ATYPE_10, ATYPE_11, ATYPE_12, ATYPE_13, ATYPE_14);\
+RTYPE NAME##_IMPL(lace_worker*, ATYPE_1, ATYPE_2, ATYPE_3, ATYPE_4, ATYPE_5, ATYPE_6, ATYPE_7, ATYPE_8, ATYPE_9, ATYPE_10, ATYPE_11, ATYPE_12, ATYPE_13, ATYPE_14);\
+                                                                                      \
+LACE_NO_SANITIZE_THREAD                                                               \
+static inline LACE_UNUSED                                                             \
+RTYPE NAME##_CALL(lace_worker* _lw, ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, ATYPE_5 arg_5, ATYPE_6 arg_6, ATYPE_7 arg_7, ATYPE_8 arg_8, ATYPE_9 arg_9, ATYPE_10 arg_10, ATYPE_11 arg_11, ATYPE_12 arg_12, ATYPE_13 arg_13, ATYPE_14 arg_14)\
+{                                                                                     \
+    char *_lace_scratch_mark = _lw->scratch_top;                                      \
+    RTYPE _r = NAME##_IMPL(_lw, arg_1, arg_2, arg_3, arg_4, arg_5, arg_6, arg_7, arg_8, arg_9, arg_10, arg_11, arg_12, arg_13, arg_14);\
+    _lw->scratch_top = _lace_scratch_mark;                                            \
+    return _r;                                                                        \
+}                                                                                     \
                                                                                       \
 LACE_NO_SANITIZE_THREAD                                                               \
 static void NAME##_WRAP(lace_worker* lw, lace_task* t)                                \
@@ -5202,7 +5636,17 @@ typedef struct task_##NAME {                                                    
                                                                                       \
 static_assert(sizeof(task_##NAME) <= sizeof(lace_task), "task_" #NAME " is too large to fit in the lace_task struct!");\
                                                                                       \
-void NAME##_CALL(lace_worker*, ATYPE_1, ATYPE_2, ATYPE_3, ATYPE_4, ATYPE_5, ATYPE_6, ATYPE_7, ATYPE_8, ATYPE_9, ATYPE_10, ATYPE_11, ATYPE_12, ATYPE_13, ATYPE_14);\
+void NAME##_IMPL(lace_worker*, ATYPE_1, ATYPE_2, ATYPE_3, ATYPE_4, ATYPE_5, ATYPE_6, ATYPE_7, ATYPE_8, ATYPE_9, ATYPE_10, ATYPE_11, ATYPE_12, ATYPE_13, ATYPE_14);\
+                                                                                      \
+LACE_NO_SANITIZE_THREAD                                                               \
+static inline LACE_UNUSED                                                             \
+void NAME##_CALL(lace_worker* _lw, ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, ATYPE_5 arg_5, ATYPE_6 arg_6, ATYPE_7 arg_7, ATYPE_8 arg_8, ATYPE_9 arg_9, ATYPE_10 arg_10, ATYPE_11 arg_11, ATYPE_12 arg_12, ATYPE_13 arg_13, ATYPE_14 arg_14)\
+{                                                                                     \
+    char *_lace_scratch_mark = _lw->scratch_top;                                      \
+     NAME##_IMPL(_lw, arg_1, arg_2, arg_3, arg_4, arg_5, arg_6, arg_7, arg_8, arg_9, arg_10, arg_11, arg_12, arg_13, arg_14);\
+    _lw->scratch_top = _lace_scratch_mark;                                            \
+                                                                                      \
+}                                                                                     \
                                                                                       \
 LACE_NO_SANITIZE_THREAD                                                               \
 static void NAME##_WRAP(lace_worker* lw, lace_task* t)                                \

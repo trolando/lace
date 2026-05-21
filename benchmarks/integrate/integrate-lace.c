@@ -15,7 +15,7 @@ static double f(double x)
 TASK(double, integrate, double, x1, double, y1, double, x2, double, y2, double, area)
 
 double
-integrate_CALL(lace_worker* worker, double x1, double y1, double x2, double y2, double area)
+integrate_IMPL(lace_worker* worker, double x1, double y1, double x2, double y2, double area)
 {
     double half = (x2 - x1) / 2;
     double x0 = x1 + half;

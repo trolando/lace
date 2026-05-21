@@ -32,7 +32,7 @@ static atomic_int global_counter = 0;
 /* A simple task that atomically increments the counter */
 TASK(int, increment_task, int, value)
 
-int increment_task_CALL(lace_worker* lw, int value)
+int increment_task_IMPL(lace_worker* lw, int value)
 {
     (void)lw;
     atomic_fetch_add_explicit(&global_counter, value, memory_order_relaxed);
@@ -42,7 +42,7 @@ int increment_task_CALL(lace_worker* lw, int value)
 /* A task that does some actual work (fibonacci) to exercise stealing */
 TASK(int, fib_task, int, n)
 
-int fib_task_CALL(lace_worker* lw, int n)
+int fib_task_IMPL(lace_worker* lw, int n)
 {
     if (n < 2) return n;
     fib_task_SPAWN(lw, n - 1);
@@ -169,7 +169,7 @@ static void test_concurrent_fib(void)
 /* Test that mixing external and internal tasks works */
 TASK(void, internal_work, int, depth)
 
-void internal_work_CALL(lace_worker* lw, int depth)
+void internal_work_IMPL(lace_worker* lw, int depth)
 {
     if (depth > 0) {
         internal_work_SPAWN(lw, depth - 1);

@@ -168,7 +168,7 @@ static void block_schur(Block B, Block A, Block C)
  * schur - Compute M' = M - VW.
  */
 TASK(void, schur, Matrix, M, Matrix, V, Matrix, W, int, nb)
-void schur_CALL(lace_worker* worker, Matrix M, Matrix V, Matrix W, int nb)
+void schur_IMPL(lace_worker* worker, Matrix M, Matrix V, Matrix W, int nb)
 {
     Matrix M00, M01, M10, M11;
     Matrix V00, V01, V10, V11;
@@ -222,7 +222,7 @@ void schur_CALL(lace_worker* worker, Matrix M, Matrix V, Matrix W, int nb)
 TASK(void, lower_solve, Matrix, M, Matrix, L, int, nb)
 
 TASK(void, aux_lower_solve, Matrix, Ma, Matrix, Mb, Matrix, L, int, nb)
-void aux_lower_solve_CALL(lace_worker* worker, Matrix Ma, Matrix Mb, Matrix L, int nb)
+void aux_lower_solve_IMPL(lace_worker* worker, Matrix Ma, Matrix Mb, Matrix L, int nb)
 {
     Matrix L00, L10, L11;
 
@@ -237,7 +237,7 @@ void aux_lower_solve_CALL(lace_worker* worker, Matrix Ma, Matrix Mb, Matrix L, i
     lower_solve_CALL(worker, Mb, L11, nb);
 }
 
-void lower_solve_CALL(lace_worker* worker, Matrix M, Matrix L, int nb)
+void lower_solve_IMPL(lace_worker* worker, Matrix M, Matrix L, int nb)
 {
     Matrix M00, M01, M10, M11;
     int hnb;
@@ -269,7 +269,7 @@ void lower_solve_CALL(lace_worker* worker, Matrix M, Matrix L, int nb)
 TASK(void, upper_solve, Matrix, M, Matrix, U, int, nb)
 
 TASK(void, aux_upper_solve, Matrix, Ma, Matrix, Mb, Matrix, U, int, nb)
-void aux_upper_solve_CALL(lace_worker* worker, Matrix Ma, Matrix Mb, Matrix U, int nb)
+void aux_upper_solve_IMPL(lace_worker* worker, Matrix Ma, Matrix Mb, Matrix U, int nb)
 {
     Matrix U00, U01, U11;
 
@@ -286,7 +286,7 @@ void aux_upper_solve_CALL(lace_worker* worker, Matrix Ma, Matrix Mb, Matrix U, i
     return;
 }
 
-void upper_solve_CALL(lace_worker* worker, Matrix M, Matrix U, int nb)
+void upper_solve_IMPL(lace_worker* worker, Matrix M, Matrix U, int nb)
 {
     Matrix M00, M01, M10, M11;
     int hnb;
@@ -316,7 +316,7 @@ void upper_solve_CALL(lace_worker* worker, Matrix M, Matrix U, int nb)
  * lu - Perform LU decomposition of matrix M.
  */
 TASK(void, lu, Matrix, M, int, nb)
-void lu_CALL(lace_worker* worker, Matrix M, int nb)
+void lu_IMPL(lace_worker* worker, Matrix M, int nb)
 {
     Matrix M00, M01, M10, M11;
     int hnb;

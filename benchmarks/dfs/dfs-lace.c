@@ -23,7 +23,7 @@ LACE_NOINLINE int loop(void)
 
 TASK(int, tree, int, d)
 
-int tree_CALL(lace_worker* worker, int d)
+int tree_IMPL(lace_worker* worker, int d)
 {
     if( d>0 ) {
         int i;

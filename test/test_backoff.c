@@ -49,13 +49,13 @@ static double cpu_time_seconds(void)
 #endif
 
 TASK(void, sleeptask, long, us)
-void sleeptask_CALL(lace_worker *lace, long us)
+void sleeptask_IMPL(lace_worker *lace, long us)
 {
     lace_sleep_us(us);
 }
 
 TASK(long, pfib, int, n)
-long pfib_CALL(lace_worker* worker, int n)
+long pfib_IMPL(lace_worker* worker, int n)
 {
     if (n<2) return n;
     long m,k;

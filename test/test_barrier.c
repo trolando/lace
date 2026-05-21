@@ -33,7 +33,7 @@ static inline void lace_test_sleep_ns(long ns)
 int *worker_counter;
 
 TASK(void, test_barrier)
-void test_barrier_CALL(lace_worker* worker)
+void test_barrier_IMPL(lace_worker* worker)
 {
     int id = lace_worker_id();
     int count = lace_worker_count();

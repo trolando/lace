@@ -10,7 +10,7 @@
  */
 TASK(long, nqueens, const int*, a, int, n, int, d, int, i)
 
-long nqueens_CALL(lace_worker* worker, const int* a, int n, int d, int i)
+long nqueens_IMPL(lace_worker* worker, const int* a, int n, int d, int i)
 {
     // copy queens from a to new array aa and check if ok
 #if defined(_MSC_VER) && !defined(__clang__)

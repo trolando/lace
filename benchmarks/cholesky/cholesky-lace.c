@@ -351,7 +351,7 @@ static Matrix set_matrix(int depth, Matrix a, int r, int c, Real value)
  */
 TASK(Matrix, mul_and_subT, int, depth, int, lower, Matrix, a, Matrix, b, Matrix, r)
 
-Matrix mul_and_subT_CALL(lace_worker* worker, int depth, int lower, Matrix a, Matrix b, Matrix r)
+Matrix mul_and_subT_IMPL(lace_worker* worker, int depth, int lower, Matrix a, Matrix b, Matrix r)
 {
     if (depth == BLOCK_DEPTH) {
         LeafNode *A = (LeafNode *) a;
@@ -449,7 +449,7 @@ Matrix mul_and_subT_CALL(lace_worker* worker, int depth, int lower, Matrix a, Ma
  */
 TASK(Matrix, backsub, int, depth, Matrix, a, Matrix, l)
 
-Matrix backsub_CALL(lace_worker* worker, int depth, Matrix a, Matrix l)
+Matrix backsub_IMPL(lace_worker* worker, int depth, Matrix a, Matrix l)
 {
     if (depth == BLOCK_DEPTH) {
         LeafNode *A = (LeafNode *) a;
@@ -499,7 +499,7 @@ Matrix backsub_CALL(lace_worker* worker, int depth, Matrix a, Matrix l)
  */
 TASK(Matrix, cholesky, int, depth, Matrix, a)
 
-Matrix cholesky_CALL(lace_worker* worker, int depth, Matrix a)
+Matrix cholesky_IMPL(lace_worker* worker, int depth, Matrix a)
 {
     if (depth == BLOCK_DEPTH) {
         LeafNode *A = (LeafNode *) a;

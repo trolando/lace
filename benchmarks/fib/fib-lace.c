@@ -6,7 +6,7 @@
 
 TASK(int, pfib, int, n)
 
-int pfib_CALL(lace_worker *worker, int n)
+int pfib_IMPL(lace_worker *worker, int n)
 {
     if( n < 2 ) {
         return n;

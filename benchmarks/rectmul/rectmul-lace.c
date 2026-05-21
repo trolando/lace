@@ -248,7 +248,7 @@ int check_matrix(block * R, long x, long y, long o, double v)
  *
  */
 TASK(void, add_matrix, block*, T, long, ot, block*, R, long, oR, long, x, long, y)
-void add_matrix_CALL(lace_worker* worker, block* T, long ot, block* R, long oR, long x, long y)
+void add_matrix_IMPL(lace_worker* worker, block* T, long ot, block* R, long oR, long x, long y)
 {
     if (x + y == 2) {
         long i;
@@ -291,7 +291,7 @@ void init_matrix(block * R, long x, long y, long o, double v)
 }
 
 TASK(void, multiply_matrix, block*, A, long, oa, block*, B, long, ob, long, x, long, y, long, z, block*, R, long, oR, int, add)
-void multiply_matrix_CALL(lace_worker* worker, block* A, long oa, block* B, long ob, long x, long y, long z, block* R, long oR, int add)
+void multiply_matrix_IMPL(lace_worker* worker, block* A, long oa, block* B, long ob, long x, long y, long z, block* R, long oR, int add)
 {
     if (x + y + z == 3) {
         if (add) {

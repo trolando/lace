@@ -28,7 +28,7 @@ rng(uint32_t *seed, int max)
 
 TASK(uint64_t, pi_mc, long, start, long, cnt)
 
-uint64_t pi_mc_CALL(lace_worker* worker, long start, long cnt)
+uint64_t pi_mc_IMPL(lace_worker* worker, long start, long cnt)
 {
     if (cnt == 1) {
         if (seed == 0) seed = lace_worker_id()+1;

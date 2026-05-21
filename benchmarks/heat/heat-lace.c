@@ -47,7 +47,7 @@ TASK(void, heat, double**, m, int, il, int, iu)
 TASK(void, diffuse, double**, out, double**, in, int, il, int, iu, double, t)
 TASK(void, test)
 
-void heat_CALL(lace_worker* worker, double ** m, int il, int iu)
+void heat_IMPL(lace_worker* worker, double ** m, int il, int iu)
 {
     if (iu - il > 1) {
         int im = (il + iu) / 2;
@@ -80,7 +80,7 @@ void heat_CALL(lace_worker* worker, double ** m, int il, int iu)
     }
 }
 
-void diffuse_CALL(lace_worker* worker, double ** out, double ** in, int il, int iu, double t)
+void diffuse_IMPL(lace_worker* worker, double ** out, double ** in, int il, int iu, double t)
 {
     if (iu - il > 1) {
         int im = (il + iu) / 2;
@@ -149,7 +149,7 @@ void prep(void)
     heat(even, 0, nx);
 }
 
-void test_CALL(lace_worker* worker)
+void test_IMPL(lace_worker* worker)
 {
     double t = tu;
     int i;
