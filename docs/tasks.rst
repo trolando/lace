@@ -118,3 +118,70 @@ thread-local state.
 
 Long-running tasks should call ``lace_check_yield()`` periodically to
 cooperate with interruptions.
+
+
+Per-task scratch storage
+------------------------
+
+Some tasks need a small amount of temporary memory whose size depends on
+the input — a typical example is a buffer holding the children of an MTBDD
+node during a recursive operation. Three options are available:
+
+* ``alloca`` or C99 variable-length arrays. Fast, but the size sits on the
+  thread stack; a deep recursion with input-dependent ``alloca`` can blow
+  past the guard page and crash. MSVC also does not support VLAs, so this
+  is not portable.
+* ``malloc``/``free``. Portable and safe, but each call goes through the
+  global allocator. For fine-grained tasks this allocator contention is
+  often the dominant cost.
+* The Lace **scratch arena** described below. Per-worker, lock-free, and
+  about as fast as ``alloca`` while remaining portable.
+
+Each worker owns a private bump arena backed by a large virtual-memory
+reservation. The default is 1 GiB per worker on 64-bit systems, where
+address space is essentially free, and 16 MiB per worker on 32-bit
+systems, where user-mode address space is limited. Physical memory is
+committed lazily on first use; idle workers release pages back to the OS
+during deep backoff. The arena is private to one worker — no
+synchronisation, no atomics.
+
+Tasks that need scratch use a save/alloc/restore pattern:
+
+.. code-block:: c
+
+   BDD my_op_CALL(lace_worker* lw, BDD a, BDD b)
+   {
+       void* mark = lace_scratch_mark(lw);
+       BDD* children = (BDD*)lace_scratch_alloc(lw, n * sizeof(BDD));
+       // ... use children, possibly SPAWN/CALL/SYNC sub-tasks ...
+       BDD result = mtbdd_makenode(...);
+       lace_scratch_reset(lw, mark);
+       return result;
+   }
+
+The discipline is the same as ``alloca``: a scratch pointer is valid for
+the duration of the allocating frame and any descendants it transitively
+spawns or calls. It must not be stored anywhere that could outlive the
+frame.
+
+Multiple ``return`` paths each need a matching ``lace_scratch_reset``
+before they return. If a task forgets to reset, Lace detects this when
+the owning worker next enters deep idle: it prints a one-line warning
+and resets the arena automatically, so the program does not accumulate
+leaks over a long run.
+
+Tasks that do not allocate scratch pay nothing for this feature: the
+virtual address space reservation costs nothing until a page is touched,
+and no instrumentation runs in the task entry or exit paths.
+
+The reservation size and the committed band (the hysteresis margin
+above the current top) can be configured before ``lace_start``:
+
+.. code-block:: c
+
+   lace_set_scratch_size(4ULL * 1024 * 1024 * 1024);  // 4 GiB per worker
+   lace_set_scratch_band(4 * 1024 * 1024);            // 4 MiB band
+   lace_start(0, 0, 0);
+
+Pass ``0`` to ``lace_set_scratch_size`` to disable the arena entirely.
+

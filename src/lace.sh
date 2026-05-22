@@ -403,6 +403,39 @@ int lace_is_running(void);
  */
 void lace_set_verbosity(int level);
 
+/**
+ * Configure the per-worker scratch arena reservation size.
+ *
+ * Call before lace_start(). Each worker reserves this many bytes of
+ * virtual address space for its private scratch arena. No physical
+ * memory is committed until the first allocation in the arena. The
+ * default is 1 GiB per worker on 64-bit systems and 16 MiB per worker
+ * on 32-bit systems, since on 32-bit user address space is limited.
+ *
+ * Pass 0 to disable the scratch arena entirely.
+ *
+ * @param size  Virtual reservation per worker in bytes
+ * @see lace_set_scratch_band, lace_scratch_alloc
+ */
+void lace_set_scratch_size(size_t size);
+
+/**
+ * Configure the per-worker scratch committed band.
+ *
+ * Call before lace_start(). The band is the number of extra bytes kept
+ * committed above the current allocation top, providing hysteresis so
+ * that small allocations and deallocations near the top do not trigger
+ * commit/decommit syscalls. Rounded up to a page-size multiple.
+ *
+ * The default band is 1 MiB. A larger band absorbs more push/pop
+ * oscillation; a smaller band releases pages back to the OS sooner
+ * after a deep operation.
+ *
+ * @param size  Committed band per worker in bytes (default 1 MiB)
+ * @see lace_set_scratch_size, lace_scratch_alloc
+ */
+void lace_set_scratch_band(size_t size);
+
 /** @} */ /* end lace_lifecycle */
 
 /**
@@ -450,6 +483,98 @@ static inline int lace_worker_id(void) LACE_UNUSED;
 static inline uint64_t lace_rng(lace_worker *lw) LACE_UNUSED;
 
 /** @} */ /* end lace_worker_ctx */
+
+/**
+ * @defgroup lace_scratch Scratch Arena
+ * @brief Per-worker virtual-memory arena for task-local temporary storage.
+ *
+ * Each worker owns a private, thread-local bump arena backed by a large
+ * virtual-memory reservation (1 GiB by default). Physical memory is
+ * committed lazily on first use and grows in page-sized chunks; idle
+ * workers release pages back to the OS during deep backoff.
+ *
+ * Tasks that need temporary storage use a save/alloc/restore pattern:
+ *
+ * @code
+ * BDD some_op_CALL(lace_worker *lw, ...) {
+ *     void *mark = lace_scratch_mark(lw);
+ *     int *buf = (int*)lace_scratch_alloc(lw, n * sizeof(int));
+ *     // ... use buf, possibly SPAWN/CALL/SYNC children ...
+ *     BDD result = ...;
+ *     lace_scratch_reset(lw, mark);
+ *     return result;
+ * }
+ * @endcode
+ *
+ * The arena follows a strict LIFO discipline that matches Lace'"'"'s
+ * fork-join model: a scratch pointer is valid for the duration of the
+ * allocating frame and any descendants it transitively spawns or
+ * calls. It must not be stored where it could outlive that frame.
+ *
+ * When a worker enters deep idle, Lace verifies the arena is empty
+ * (scratch_top == scratch_base). If a task forgot to reset, Lace
+ * warns once and recovers by resetting top to base.
+ *
+ * Tasks that do not need scratch pay nothing for this feature: the
+ * arena costs only virtual address space until something allocates.
+ * @{
+ */
+
+/**
+ * Allocate @p size bytes from the calling worker'"'"'s scratch arena.
+ *
+ * Allocations are aligned to 16 bytes (max_align_t). The returned
+ * pointer is valid until the caller releases it with
+ * lace_scratch_reset(), or until the task that allocated it returns
+ * after a matching reset. If the reservation is exhausted, the
+ * program aborts.
+ *
+ * @param lw    Pointer to the current worker
+ * @param size  Number of bytes to allocate
+ * @return      Pointer to allocated memory
+ */
+static inline void *lace_scratch_alloc(lace_worker *lw, size_t size) LACE_UNUSED;
+
+/**
+ * Allocate an array of @p count elements of size @p elem_size from the
+ * calling worker'"'"'s scratch arena.
+ *
+ * This is a convenience wrapper around lace_scratch_alloc(). The allocation
+ * has the same lifetime and alignment guarantees as lace_scratch_alloc().
+ * The function checks for multiplication overflow and aborts if the requested
+ * array size cannot be represented as a size_t.
+ *
+ * @param lw         Pointer to the current worker
+ * @param count      Number of elements to allocate
+ * @param elem_size  Size of each element in bytes
+ * @return           Pointer to allocated memory
+ */
+static inline void *lace_scratch_array(lace_worker *lw, size_t count, size_t elem_size) LACE_UNUSED;
+
+/**
+ * Save the current scratch arena position.
+ *
+ * Pair every mark with a lace_scratch_reset() before the enclosing
+ * function returns, on every return path.
+ *
+ * @param lw  Pointer to the current worker
+ * @return    Opaque mark representing the current top-of-arena position
+ */
+static inline void *lace_scratch_mark(lace_worker *lw) LACE_UNUSED;
+
+/**
+ * Reset the scratch arena to a previously saved mark.
+ *
+ * Frees all scratch allocations made after the corresponding
+ * lace_scratch_mark() call. The @p mark must have been obtained
+ * from the same worker.
+ *
+ * @param lw    Pointer to the current worker
+ * @param mark  Mark previously returned by lace_scratch_mark()
+ */
+static inline void lace_scratch_reset(lace_worker *lw, void *mark) LACE_UNUSED;
+
+/** @} */ /* end lace_scratch */
 
 /**
  * @defgroup lace_task_ops Task Operations
@@ -720,9 +845,19 @@ typedef struct lace_worker {
     lace_task *end;                  // dq+dq_size
     lace_task *dq;                   // my queue
     lace_worker_public *_public;     // pointer to public lace_worker_public struct
+
+    /* Scratch arena fast-path fields: hot, kept adjacent for cache locality. */
+    char *scratch_top;               // current top of scratch arena (next byte)
+    char *scratch_committed_end;     // one past end of committed scratch (fast-path bound)
+
     lace_rng_state rng;              // my random seed (for lace_rng)
     uint16_t worker;                 // what is my worker id?
     uint8_t allstolen;               // my allstolen
+
+    /* Scratch arena slow-path fields: only touched on grow/trim/teardown. */
+    char *scratch_base;              // base of scratch VM reservation (NULL if disabled)
+    char *scratch_reserve_end;       // one past end of VM reservation
+    int scratch_leak_reported;       // 1 if a leak warning has been emitted for this worker
 
     uint64_t time;
 #if LACE_COUNT_EVENTS
@@ -1041,6 +1176,54 @@ static inline void lace_make_all_shared(void)
         w->split = w->head;
         atomic_store_explicit(&w->_public->ts.ts.split, (uint32_t)(w->head - w->dq), memory_order_relaxed);
     }
+}
+
+/**
+ * @ingroup lace_internals
+ * Out-of-line slow path for lace_scratch_alloc(). Commits more pages
+ * from the worker'"'"'s VM reservation, then completes the allocation.
+ * Aborts if the reservation is exhausted.
+ */
+void *lace_scratch_grow(lace_worker *lw, size_t aligned_size);
+
+static inline void *lace_scratch_alloc(lace_worker *lw, size_t size)
+{
+    /* 16-byte alignment matches max_align_t on x86-64 and aarch64. */
+    size = (size + 15) & ~(size_t)15;
+    char *result = lw->scratch_top;
+    char *new_top = result + size;
+    if (LACE_UNLIKELY(new_top > lw->scratch_committed_end)) {
+        return lace_scratch_grow(lw, size);
+    }
+    lw->scratch_top = new_top;
+    return result;
+}
+
+static inline void *lace_scratch_array(lace_worker *lw, size_t count, size_t elem_size)
+{
+    if (elem_size != 0 && count > SIZE_MAX / elem_size) {
+        fprintf(stderr,
+                "Lace fatal: scratch array allocation size overflow "
+                "(count=%zu, elem_size=%zu).\n",
+                count,
+                elem_size);
+        abort();
+    }
+
+    return lace_scratch_alloc(lw, count * elem_size);
+}
+
+#define LACE_SCRATCH_ARRAY(lw, type, count) \
+    ((type*)lace_scratch_array((lw), (size_t)(count), sizeof(type)))
+
+static inline void *lace_scratch_mark(lace_worker *lw)
+{
+    return lw->scratch_top;
+}
+
+static inline void lace_scratch_reset(lace_worker *lw, void *mark)
+{
+    lw->scratch_top = (char *)mark;
 }
 
 /**
