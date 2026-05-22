@@ -429,6 +429,41 @@ static worker_data **workers_memory = NULL;
 static size_t workers_memory_size = 0;
 
 /**
+ * Per-worker scratch arena reservation size in bytes.
+ *
+ * Each worker reserves this many bytes of virtual address space at
+ * startup. No physical memory is committed until the first scratch
+ * allocation; pages are committed in page-sized chunks as needed and
+ * released back to the OS during deep backoff. Set to 0 to disable.
+ *
+ * On 64-bit systems the default is 1 GiB per worker, which costs only
+ * address space until used. On 32-bit systems the default is 16 MiB
+ * per worker, because user-mode address space is limited (~2-3 GiB
+ * total) and a multi-worker process would otherwise exhaust it.
+ */
+#if UINTPTR_MAX > 0xFFFFFFFFu
+static size_t scratch_size = (size_t)1 << 30;   /* 1 GiB on 64-bit */
+#else
+static size_t scratch_size = (size_t)16 << 20;  /* 16 MiB on 32-bit */
+#endif
+
+/**
+ * Per-worker scratch committed band in bytes (default 1 MiB).
+ *
+ * The band is the number of bytes kept committed above the current
+ * scratch top, providing hysteresis so that small push/pop activity
+ * near the top does not trigger commit/decommit syscalls.
+ */
+static size_t scratch_band = (size_t)1 << 20;
+
+/**
+ * Cached system page size, populated by lace_scratch_init_page_size()
+ * during lace_start(). All scratch commit/decommit operates on
+ * page-aligned ranges.
+ */
+static size_t lace_scratch_page_size = 0;
+
+/**
  * (Secret) holds pointer to private worker data, just for stats collection at end
  */
 static lace_worker **workers_p;
@@ -675,6 +710,235 @@ static inline void lace_rng_seed(lace_worker* w, uint64_t seed)
     if ((w->rng.s0 | w->rng.s1) == 0) w->rng.s1 = 1;
 }
 
+/* ========================================================================
+ * Scratch arena: virtual-memory-backed per-worker bump allocator.
+ *
+ * Each worker reserves a large VM range (default 1 GiB) at startup with
+ * no physical memory committed. Allocations bump a per-worker top
+ * pointer. When the bump crosses the committed boundary, additional
+ * pages are committed (in chunks, with a configurable band above the
+ * top to absorb push/pop oscillation). When a worker reaches deep
+ * idle in the backoff progression, its arena is trimmed: pages above
+ * top+band are decommitted back to the OS.
+ *
+ * Tasks that need temporary storage call lace_scratch_mark() to save
+ * the current arena position, lace_scratch_alloc() to obtain memory,
+ * and lace_scratch_reset() to release it before returning. The arena
+ * is private to one worker and follows a strict LIFO discipline; no
+ * atomics, no locks. Tasks that do not allocate pay nothing.
+ * ======================================================================== */
+
+/**
+ * Detect and cache the OS page size. Called once from lace_start().
+ */
+static LACE_UNUSED void
+lace_scratch_init_page_size(void)
+{
+    if (lace_scratch_page_size != 0) return;
+#if defined(_WIN32)
+    SYSTEM_INFO si;
+    GetSystemInfo(&si);
+    lace_scratch_page_size = (size_t)si.dwPageSize;
+#else
+    long ps = sysconf(_SC_PAGESIZE);
+    lace_scratch_page_size = (ps > 0) ? (size_t)ps : 4096;
+#endif
+    if (lace_scratch_page_size == 0) lace_scratch_page_size = 4096;
+}
+
+static LACE_UNUSED inline size_t
+lace_scratch_round_up_page(size_t n)
+{
+    size_t ps = lace_scratch_page_size;
+    return (n + ps - 1) & ~(ps - 1);
+}
+
+static LACE_UNUSED inline char *
+lace_scratch_round_up_ptr(char *p)
+{
+    size_t ps = lace_scratch_page_size;
+    uintptr_t u = (uintptr_t)p;
+    u = (u + ps - 1) & ~(uintptr_t)(ps - 1);
+    return (char *)u;
+}
+
+/**
+ * Portable wrapper around strerror(errno) for diagnostic messages.
+ * MSVC deprecates plain strerror() and rejects it under /WX; use
+ * strerror_s there instead. The caller supplies the buffer because
+ * the MSVC variant needs one, and using a fixed static buffer would
+ * be a code-smell across threads.
+ */
+static LACE_UNUSED const char *
+lace_strerror(char *buf, size_t bufsz)
+{
+#if defined(_MSC_VER)
+    strerror_s(buf, bufsz, errno);
+    return buf;
+#else
+    (void)buf;
+    (void)bufsz;
+    return strerror(errno);
+#endif
+}
+
+/**
+ * Reserve a VM range of @p size bytes. Returns the base address, or
+ * NULL on failure. No physical memory is committed.
+ */
+static LACE_UNUSED char *
+lace_scratch_reserve(size_t size)
+{
+#if defined(_WIN32)
+    void *p = VirtualAlloc(NULL, size, MEM_RESERVE, PAGE_NOACCESS);
+    return (char *)p;
+#else
+    void *p = mmap(NULL, size, PROT_NONE,
+                   MAP_PRIVATE | MAP_ANONYMOUS | MAP_NORESERVE, -1, 0);
+    if (p == MAP_FAILED) return NULL;
+    return (char *)p;
+#endif
+}
+
+/**
+ * Commit @p len bytes starting at @p addr (must be page-aligned).
+ * Returns 0 on success, -1 on failure.
+ */
+static LACE_UNUSED int
+lace_scratch_commit(char *addr, size_t len)
+{
+    if (len == 0) return 0;
+#if defined(_WIN32)
+    void *p = VirtualAlloc(addr, len, MEM_COMMIT, PAGE_READWRITE);
+    return (p == NULL) ? -1 : 0;
+#else
+    return mprotect(addr, len, PROT_READ | PROT_WRITE);
+#endif
+}
+
+/**
+ * Decommit @p len bytes starting at @p addr (must be page-aligned),
+ * releasing the underlying physical pages back to the OS. The VM
+ * reservation is preserved. Errors are ignored: decommit is advisory
+ * and a failure here merely means the pages remain resident.
+ */
+static LACE_UNUSED void
+lace_scratch_decommit(char *addr, size_t len)
+{
+    if (len == 0) return;
+#if defined(_WIN32)
+    VirtualFree(addr, len, MEM_DECOMMIT);
+#else
+    /* Drop the physical pages, then revoke access so a stray access
+     * past the committed top is caught immediately rather than
+     * silently re-faulting in zero pages. */
+    (void)madvise(addr, len, MADV_DONTNEED);
+    (void)mprotect(addr, len, PROT_NONE);
+#endif
+}
+
+/**
+ * Release the VM reservation entirely.
+ */
+static LACE_UNUSED void
+lace_scratch_release(char *addr, size_t size)
+{
+    if (addr == NULL) return;
+#if defined(_WIN32)
+    (void)size;
+    VirtualFree(addr, 0, MEM_RELEASE);
+#else
+    munmap(addr, size);
+#endif
+}
+
+/**
+ * Slow path for lace_scratch_alloc(): commits more pages to satisfy
+ * an allocation that would have exceeded scratch_committed_end.
+ * Aborts the process if the reservation is exhausted.
+ *
+ * @param lw            Calling worker
+ * @param aligned_size  Allocation size, already aligned to 16 bytes
+ * @return              Pointer to allocated memory
+ */
+void *
+lace_scratch_grow(lace_worker *lw, size_t aligned_size)
+{
+    char *cur_top = lw->scratch_top;
+    char *new_top = cur_top + aligned_size;
+
+    if (LACE_UNLIKELY(new_top > lw->scratch_reserve_end)) {
+        fprintf(stderr,
+                "Lace fatal: scratch arena exhausted on worker %u "
+                "(reservation %zu bytes, request %zu bytes). "
+                "Call lace_set_scratch_size() with a larger value before lace_start().\n",
+                (unsigned)lw->worker,
+                (size_t)(lw->scratch_reserve_end - lw->scratch_base),
+                aligned_size);
+        abort();
+    }
+
+    /* Commit up to new_top + band, page-aligned, capped at reservation. */
+    char *desired_end = new_top + scratch_band;
+    if (desired_end < new_top /* overflow */
+        || desired_end > lw->scratch_reserve_end) {
+        desired_end = lw->scratch_reserve_end;
+    }
+    char *commit_to = lace_scratch_round_up_ptr(desired_end);
+    if (commit_to > lw->scratch_reserve_end) commit_to = lw->scratch_reserve_end;
+
+    char *commit_from = lw->scratch_committed_end;
+    if (commit_to > commit_from) {
+        if (lace_scratch_commit(commit_from, (size_t)(commit_to - commit_from)) != 0) {
+            char ebuf[128];
+            fprintf(stderr,
+                    "Lace fatal: scratch commit failed on worker %u "
+                    "(requested %zu bytes): %s\n",
+                    (unsigned)lw->worker,
+                    (size_t)(commit_to - commit_from),
+                    lace_strerror(ebuf, sizeof ebuf));
+            abort();
+        }
+        lw->scratch_committed_end = commit_to;
+    }
+
+    lw->scratch_top = new_top;
+    return cur_top;
+}
+
+/**
+ * Trim the arena: decommit pages above scratch_top + band. Called
+ * from the worker's main loop when it transitions into deep idle
+ * (futex-wait) for the first time in a backoff sequence. Releases
+ * memory accumulated by prior deep operations without affecting the
+ * VM reservation, so a subsequent wake-and-allocate stays cheap.
+ *
+ * Natural floor: when scratch_top == scratch_base, this leaves
+ * exactly one band committed (the first allocations after wake won't
+ * fault). When scratch_top > scratch_base the worker is between
+ * tasks, so this should not normally fire; we still tolerate it.
+ */
+static LACE_UNUSED void
+lace_scratch_trim(lace_worker *lw)
+{
+    if (lw->scratch_base == NULL) return;
+
+    char *keep_end = lw->scratch_top + scratch_band;
+    if (keep_end < lw->scratch_top /* overflow */
+        || keep_end > lw->scratch_reserve_end) {
+        keep_end = lw->scratch_reserve_end;
+    }
+    keep_end = lace_scratch_round_up_ptr(keep_end);
+    if (keep_end > lw->scratch_reserve_end) keep_end = lw->scratch_reserve_end;
+
+    char *decommit_from = keep_end;
+    char *decommit_to = lw->scratch_committed_end;
+    if (decommit_to > decommit_from) {
+        lace_scratch_decommit(decommit_from, (size_t)(decommit_to - decommit_from));
+        lw->scratch_committed_end = decommit_from;
+    }
+}
+
 static void
 lace_init_worker(unsigned int worker)
 {
@@ -727,6 +991,29 @@ lace_init_worker(unsigned int worker)
 #if LACE_PIE_TIMES
     w->level = 0;
 #endif
+
+    if (scratch_size > 0) {
+        /* Page-align the reservation for clean commit/decommit math. */
+        size_t reserve = lace_scratch_round_up_page(scratch_size);
+        char *base = lace_scratch_reserve(reserve);
+        if (base == NULL) {
+            char ebuf[128];
+            fprintf(stderr,
+                    "Lace error: unable to reserve %zu bytes of scratch VM for worker %u: %s\n",
+                    reserve, worker, lace_strerror(ebuf, sizeof ebuf));
+            exit(1);
+        }
+        w->scratch_base = base;
+        w->scratch_reserve_end = base + reserve;
+        w->scratch_top = base;
+        w->scratch_committed_end = base;  /* nothing committed yet; first alloc grows */
+    } else {
+        w->scratch_base = NULL;
+        w->scratch_reserve_end = NULL;
+        w->scratch_top = NULL;
+        w->scratch_committed_end = NULL;
+    }
+    w->scratch_leak_reported = 0;
 }
 
 /**
@@ -896,10 +1183,37 @@ void lace_steal_loop_CALL(lace_worker* lw, atomic_int* quit)
         // Progressive idle: yield → futex sleep
         if (idle_count > LACE_IDLE_STAGE1_LIMIT) {
             /* Stage 2: futex wait with bounded timeout */
+            unsigned int futex_iters = idle_count - LACE_IDLE_STAGE1_LIMIT;
+
+            /* On the transition into deep idle, decommit unused scratch
+             * pages back to the OS. We only do this once per backoff
+             * sequence (idle_count resets on successful steal), so it
+             * does not become hot.
+             *
+             * At this point all task frames have unwound: scratch_top
+             * should equal scratch_base. If it doesn't, a task forgot
+             * to lace_scratch_reset() before returning. We warn once
+             * per worker and recover by resetting top to base, so the
+             * trim below releases the full arena. */
+            if (futex_iters == 1) {
+                if (lw->scratch_top != lw->scratch_base) {
+                    if (!lw->scratch_leak_reported) {
+                        lw->scratch_leak_reported = 1;
+                        fprintf(stderr,
+                                "Lace warning: worker %u entered idle with "
+                                "%zu bytes of leaked scratch. Some task "
+                                "did not lace_scratch_reset() before returning.\n",
+                                (unsigned)lw->worker,
+                                (size_t)(lw->scratch_top - lw->scratch_base));
+                    }
+                    lw->scratch_top = lw->scratch_base;
+                }
+                lace_scratch_trim(lw);
+            }
+
 #if LACE_PIE_TIMES
             uint64_t prev = lace_gethrtime();
 #endif
-            unsigned int futex_iters = idle_count - LACE_IDLE_STAGE1_LIMIT;
             int64_t timeout_us = LACE_IDLE_FUTEX_TIMEOUT_MIN * (1 + (int64_t)futex_iters);
             if (timeout_us > LACE_IDLE_FUTEX_TIMEOUT_MAX) timeout_us = LACE_IDLE_FUTEX_TIMEOUT_MAX;
 
@@ -969,6 +1283,28 @@ lace_set_verbosity(int level)
 }
 
 /**
+ * Configure the per-worker scratch arena reservation size in bytes.
+ * Call before lace_start(). Pass 0 to disable scratch entirely.
+ * The reservation costs only address space until actually used.
+ */
+void
+lace_set_scratch_size(size_t size)
+{
+    scratch_size = size;
+}
+
+/**
+ * Configure the per-worker scratch committed band in bytes.
+ * Call before lace_start(). The band is rounded up to a page-size
+ * multiple at use time.
+ */
+void
+lace_set_scratch_band(size_t size)
+{
+    scratch_band = size;
+}
+
+/**
  * Start Lace and spawn worker threads.
  *
  * Allocates per-worker deques and launches @p n_workers threads.
@@ -1012,6 +1348,9 @@ lace_set_verbosity(int level)
 void
 lace_start(unsigned int _n_workers, size_t dequesize, size_t stacksize)
 {
+    /* Cache the OS page size for scratch-arena commit/decommit. */
+    lace_scratch_init_page_size();
+
 #if LACE_USE_HWLOC
     // Initialize topology and information about cpus
     hwloc_topology_init(&topo);
@@ -1542,6 +1881,11 @@ void lace_stop(void)
     lace_barrier_destroy();
 
     for (unsigned int i=0; i<n_workers; i++) {
+        if (workers_p[i]->scratch_base != NULL) {
+            lace_scratch_release(workers_p[i]->scratch_base,
+                                 (size_t)(workers_p[i]->scratch_reserve_end
+                                          - workers_p[i]->scratch_base));
+        }
 #if defined(_WIN32)
         VirtualFree(workers_memory[i], 0, MEM_RELEASE);
 #else

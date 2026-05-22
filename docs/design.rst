@@ -284,3 +284,129 @@ When hwloc is available, stacks are allocated with
 Each stack has a guard page (``PROT_NONE`` / ``PAGE_NOACCESS``) at
 the low end. The guard page is excluded from the region passed to
 ``pthread_attr_setstack``, so pthreads does not attempt to use it.
+
+
+Scratch arena
+-------------
+
+Each worker owns a private bump-allocated arena for task-local temporary
+storage (see :doc:`tasks` for the user-facing API). The arena exists
+because the three obvious alternatives all have problems for the
+fork-join workloads Lace targets:
+
+* ``alloca`` / C99 VLAs run on the thread stack and overflow without
+  warning past the guard page; MSVC does not support VLAs at all.
+* ``malloc``/``free`` introduces allocator contention on workloads with
+  many fine-grained tasks, dominating the cost of the task itself.
+* A shared lock-free allocator would still bounce cache lines between
+  workers on every allocation.
+
+A per-worker arena avoids all three: the allocations are stack-like
+bump operations on private state, no cache lines are shared, and the
+backing memory is bounded by the worker's recursion depth rather than
+by a fixed stack size.
+
+
+Virtual memory layout
+~~~~~~~~~~~~~~~~~~~~~
+
+Each worker reserves a large virtual address range at startup (1 GiB
+on 64-bit, 16 MiB on 32-bit, configurable). The reservation is purely
+address space; on 64-bit systems address space is essentially free and
+typical totals fit comfortably below any practical limit. On 32-bit
+systems user-mode address space is limited (typically 2–3 GiB) so the
+default is sized to fit a moderate number of workers without exhausting
+the address space; an application that needs more should call
+``lace_set_scratch_size`` before ``lace_start``.
+
+The arena exposes four pointers per worker:
+
+* ``scratch_base`` — base of the reservation
+* ``scratch_top`` — current allocation pointer (hot, written on every
+  ``lace_scratch_alloc``)
+* ``scratch_committed_end`` — one past the highest currently-committed
+  byte (hot, read on every allocation as a bound check)
+* ``scratch_reserve_end`` — one past the end of the reservation
+  (cold, only consulted on growth)
+
+The two hot fields live adjacent to the deque pointers in the worker
+struct, in the cache line that every SPAWN/SYNC already touches.
+``lace_scratch_alloc`` is then a load + add + compare + conditional
+out-of-line branch + store — about four instructions on the fast path,
+with branch prediction trivially correct (the slow path is taken at
+most once per band's worth of allocations).
+
+
+Reserve / commit / decommit
+~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Allocations bump ``scratch_top``. When the bump crosses
+``scratch_committed_end``, ``lace_scratch_grow`` commits additional
+pages by calling ``mprotect(PROT_READ|PROT_WRITE)`` on POSIX or
+``VirtualAlloc(MEM_COMMIT, PAGE_READWRITE)`` on Windows. To avoid
+syscalling on every small push/pop oscillation near the top, the grow
+path commits a *band* of pages above the immediate request (1 MiB by
+default, configurable). The fast path stays in the committed band
+without further system calls until the band is exhausted.
+
+The reserve uses ``PROT_NONE`` / ``PAGE_NOACCESS`` rather than
+``PROT_READ|PROT_WRITE`` with ``MAP_NORESERVE``. This is more work
+on the commit path but provides guard semantics: a runaway recursion
+that overshoots the band hits a segfault rather than silently
+faulting in zero pages. Reservation exhaustion is caught explicitly
+in ``lace_scratch_grow`` with a diagnostic message before aborting.
+
+The decommit primitive uses ``madvise(MADV_DONTNEED)`` followed by
+``mprotect(PROT_NONE)`` on POSIX, and ``VirtualFree(MEM_DECOMMIT)``
+on Windows. The ``MADV_DONTNEED`` returns the physical pages to the
+OS immediately; the ``PROT_NONE`` ensures that any stray access past
+the new top fails fast.
+
+
+NUMA placement
+~~~~~~~~~~~~~~
+
+The reservation is created in ``lace_init_worker`` on the worker's own
+thread, after CPU pinning. The reservation itself touches no pages;
+all physical allocations happen later, on first access from the same
+worker thread, so first-touch NUMA policy places the pages on the
+worker's local node. No explicit NUMA binding is needed.
+
+
+Trim on deep idle
+~~~~~~~~~~~~~~~~~
+
+When a worker exhausts its steal attempts and transitions into the
+futex-wait stage of the idle progression (see *Worker idle strategy*),
+Lace decommits arena pages above ``scratch_top + band``. The trim
+fires exactly once per backoff sequence: ``idle_count`` resets on any
+successful steal, so the next dry spell will trim again from a new
+high-water mark. The trim is invoked from the same cold code path
+that is already about to make a ``futex_wait`` syscall, so its cost
+is invisible.
+
+By construction the worker is between tasks when it idles, so
+``scratch_top`` equals ``scratch_base`` and the trim leaves only the
+band committed — enough to absorb the first wave of allocations after
+wake without faulting in pages.
+
+
+Leak detection
+~~~~~~~~~~~~~~
+
+The arena's correctness depends on every ``lace_scratch_mark`` being
+paired with a matching ``lace_scratch_reset`` on every return path.
+A missing reset would not corrupt anything — the next outer reset
+will eventually restore — but it can cause the arena to grow without
+bound until the reservation is exhausted.
+
+The same deep-idle transition that triggers the trim also performs a
+leak check: if ``scratch_top != scratch_base`` at the point when all
+task frames have unwound, Lace prints a one-line warning identifying
+the worker and the leaked byte count, then resets ``scratch_top`` to
+``scratch_base``. The warning is emitted once per worker per program
+lifetime to avoid flooding logs.
+
+This combination — warn loudly, recover quietly — keeps a leak from
+killing a long-running program while still making the bug visible
+during development.
