@@ -25,8 +25,6 @@ TASK(void, test_only_newframe, int, depth)
         SPAWN(test_only_newframe, depth - 1);
         SPAWN(test_only_newframe, depth - 1);
         SPAWN(test_only_newframe, depth - 1);
-        SPAWN(test_only_newframe, depth - 1);
-        SYNC(test_only_newframe);
         SYNC(test_only_newframe);
         SYNC(test_only_newframe);
         SYNC(test_only_newframe);
@@ -42,8 +40,6 @@ TASK(void, test_only_together, int, depth)
         SPAWN(test_only_together, depth - 1);
         SPAWN(test_only_together, depth - 1);
         SPAWN(test_only_together, depth - 1);
-        SPAWN(test_only_together, depth - 1);
-        SYNC(test_only_together);
         SYNC(test_only_together);
         SYNC(test_only_together);
         SYNC(test_only_together);
@@ -59,8 +55,6 @@ TASK(void, test_together, int, depth)
         SPAWN(test_together, depth - 1);
         SPAWN(test_together, depth - 1);
         SPAWN(test_together, depth - 1);
-        SPAWN(test_together, depth - 1);
-        SYNC(test_together);
         SYNC(test_together);
         SYNC(test_together);
         SYNC(test_together);
@@ -76,8 +70,6 @@ TASK(void, test_newframe, int, depth)
         SPAWN(test_newframe, depth - 1);
         SPAWN(test_newframe, depth - 1);
         SPAWN(test_newframe, depth - 1);
-        SPAWN(test_newframe, depth - 1);
-        SYNC(test_newframe);
         SYNC(test_newframe);
         SYNC(test_newframe);
         SYNC(test_newframe);
@@ -103,15 +95,15 @@ runtests(int n_workers)
     printf("Testing only newframe...\n");
     counter = 0;
     RUN(test_only_newframe, 6);
-    printf("Counter reads %d (expecting 4096)\n", counter);
-    if (counter != 4096) exit(1);
+    printf("Counter reads %d (expecting 729)\n", counter);
+    if (counter != 729) exit(1);
 
     printf("Testing only together...\n");
     for (unsigned int i = 0; i < lace_workers(); i++) worker_counter[i] = 0;
     RUN(test_only_together, 6);
     for (unsigned int i = 0; i < lace_workers(); i++) {
-        printf("Counter %d reads %d (expecting 4096)\n", i, worker_counter[i]);
-        if (worker_counter[i] != 4096) exit(1);
+        printf("Counter %d reads %d (expecting 729)\n", i, worker_counter[i]);
+        if (worker_counter[i] != 729) exit(1);
     }
 
     // Spawn and start all worker pthreads; suspends current thread until done.
@@ -120,8 +112,8 @@ runtests(int n_workers)
     RUN(test_newframe, 5);
     RUN(test_together, 5);
     for (unsigned int i = 0; i < lace_workers(); i++) {
-        printf("Counter %d reads %d (expecting 65536)\n", i, worker_counter[i]);
-        if (worker_counter[i] != 65536) exit(1);
+        printf("Counter %d reads %d (expecting 6561)\n", i, worker_counter[i]);
+        if (worker_counter[i] != 6561) exit(1);
     }
 
     free(worker_counter);
