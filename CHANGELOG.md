@@ -2,6 +2,32 @@
 
 All notable changes to Lace will be documented in this file.
 
+## [Unreleased]
+
+### Added
+
+- **Per-worker scratch arena.** Each worker owns a private bump-allocated
+  arena backed by a virtual-memory reservation. Tasks can use
+  `lace_scratch_alloc` / `lace_scratch_mark` / `lace_scratch_reset` for
+  fast, contention-free task-local temporary storage; the
+  `LACE_SCRATCH_ALLOC` / `LACE_SCRATCH_MARK` / `LACE_SCRATCH_RESET`
+  convenience macros use the implicit `__lace_worker` inside TASK
+  bodies. The arena commits pages lazily on first use and releases
+  them back to the OS during deep backoff (the futex-wait stage of
+  the idle progression). Designed as an alternative to `alloca`/VLAs
+  (which overflow without warning and are unportable to MSVC) and
+  `malloc`/`free` (allocator contention dominates fine-grained
+  workloads). The default reservation is 1 GiB per worker on 64-bit
+  systems and 16 MiB per worker on 32-bit systems. Configurable via
+  `lace_set_scratch_size` and `lace_set_scratch_band`; set the size
+  to 0 to disable. Tasks that do not allocate scratch are unaffected:
+  the arena costs only virtual address space until something allocates.
+- **Idle leak detection for the scratch arena.** When a worker enters
+  the futex-wait stage with `scratch_top != scratch_base`, Lace warns
+  once per worker and automatically resets the arena, protecting
+  long-running programs from leaking missed `lace_scratch_reset` calls.
+
+
 ## [1.6.3] - 2026-04-06
 
 ### Added
