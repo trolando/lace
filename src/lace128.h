@@ -72,6 +72,7 @@
 #include <stdalign.h>
 #include <stdint.h>
 #include <stdio.h>
+#include <stdlib.h>
 
 #if LACE_MSVC
     #define WIN32_LEAN_AND_MEAN
