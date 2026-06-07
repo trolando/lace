@@ -1,0 +1,182 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" data-content_root="./">
+<head>
+  <meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Migrating from Lace v1 &mdash; Lace 2.4.0</title>
+      <link rel="stylesheet" type="text/css" href="_static/pygments.css?v=03e43079" />
+      <link rel="stylesheet" type="text/css" href="_static/css/theme.css?v=9edc463e" />
+      <link rel="stylesheet" type="text/css" href="_static/custom.css?v=c24bd327" />
+
+  
+      <script src="_static/jquery.js?v=5d32c60e"></script>
+      <script src="_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+      <script src="_static/documentation_options.js?v=4d935f96"></script>
+      <script src="_static/doctools.js?v=fd6eb6e6"></script>
+      <script src="_static/sphinx_highlight.js?v=6ffebe34"></script>
+    <script src="_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="genindex.html" />
+    <link rel="search" title="Search" href="search.html" />
+    <link rel="next" title="Lifecycle" href="api/lifecycle.html" />
+    <link rel="prev" title="Benchmarks" href="benchmarks.html" /> 
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="index.html" class="icon icon-home">
+            Lace 2.4.0
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <p class="caption" role="heading"><span class="caption-text">User Guide</span></p>
+<ul class="current">
+<li class="toctree-l1"><a class="reference internal" href="getting-started.html">Getting Started</a></li>
+<li class="toctree-l1"><a class="reference internal" href="building.html">Building</a></li>
+<li class="toctree-l1"><a class="reference internal" href="variants.html">Choosing a Variant</a></li>
+<li class="toctree-l1"><a class="reference internal" href="tasks.html">Defining Tasks</a></li>
+<li class="toctree-l1"><a class="reference internal" href="design.html">Design Notes</a></li>
+<li class="toctree-l1"><a class="reference internal" href="benchmarks.html">Benchmarks</a></li>
+<li class="toctree-l1 current"><a class="current reference internal" href="#">Migrating from Lace v1</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="#key-differences">Key differences</a></li>
+</ul>
+</li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">API Reference</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="api/lifecycle.html">Lifecycle</a></li>
+<li class="toctree-l1"><a class="reference internal" href="api/workers.html">Worker Context</a></li>
+<li class="toctree-l1"><a class="reference internal" href="api/operations.html">Task Operations</a></li>
+<li class="toctree-l1"><a class="reference internal" href="api/stats.html">Statistics</a></li>
+<li class="toctree-l1"><a class="reference internal" href="api/misc.html">Miscellaneous</a></li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="index.html">Lace 2.4.0</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="index.html" class="icon icon-home" aria-label="Home"></a></li>
+      <li class="breadcrumb-item active">Migrating from Lace v1</li>
+      <li class="wy-breadcrumbs-aside">
+            <a href="_sources/migrating.rst.txt" rel="nofollow"> View page source</a>
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <section id="migrating-from-lace-v1">
+<h1>Migrating from Lace v1<a class="headerlink" href="#migrating-from-lace-v1" title="Link to this heading"></a></h1>
+<p>Lace v2 changes how task bodies are written. In v1, the task body was placed
+directly inside the <code class="docutils literal notranslate"><span class="pre">TASK_N</span></code> macro and <code class="docutils literal notranslate"><span class="pre">SPAWN</span></code>/<code class="docutils literal notranslate"><span class="pre">CALL</span></code>/<code class="docutils literal notranslate"><span class="pre">SYNC</span></code> were
+macros that hid the worker pointer. In v2, the body is a regular C function
+(<code class="docutils literal notranslate"><span class="pre">NAME_CALL</span></code>) and the worker pointer is explicit.</p>
+<p><strong>v1:</strong></p>
+<div class="highlight-c notranslate"><div class="highlight"><pre><span></span><span class="n">TASK_1</span><span class="p">(</span><span class="kt">int</span><span class="p">,</span><span class="w"> </span><span class="n">fibonacci</span><span class="p">,</span><span class="w"> </span><span class="kt">int</span><span class="p">,</span><span class="w"> </span><span class="n">n</span><span class="p">)</span>
+<span class="p">{</span>
+<span class="w">    </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">n</span><span class="w"> </span><span class="o">&lt;</span><span class="w"> </span><span class="mi">2</span><span class="p">)</span><span class="w"> </span><span class="k">return</span><span class="w"> </span><span class="n">n</span><span class="p">;</span>
+<span class="w">    </span><span class="kt">int</span><span class="w"> </span><span class="n">m</span><span class="p">,</span><span class="w"> </span><span class="n">k</span><span class="p">;</span>
+<span class="w">    </span><span class="n">SPAWN</span><span class="p">(</span><span class="n">fibonacci</span><span class="p">,</span><span class="w"> </span><span class="n">n</span><span class="mi">-1</span><span class="p">);</span>
+<span class="w">    </span><span class="n">k</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">CALL</span><span class="p">(</span><span class="n">fibonacci</span><span class="p">,</span><span class="w"> </span><span class="n">n</span><span class="mi">-2</span><span class="p">);</span>
+<span class="w">    </span><span class="n">m</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">SYNC</span><span class="p">(</span><span class="n">fibonacci</span><span class="p">);</span>
+<span class="w">    </span><span class="k">return</span><span class="w"> </span><span class="n">m</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="n">k</span><span class="p">;</span>
+<span class="p">}</span>
+</pre></div>
+</div>
+<p><strong>v2:</strong></p>
+<div class="highlight-c notranslate"><div class="highlight"><pre><span></span><span class="n">TASK</span><span class="p">(</span><span class="kt">int</span><span class="p">,</span><span class="w"> </span><span class="n">fibonacci</span><span class="p">,</span><span class="w"> </span><span class="kt">int</span><span class="p">,</span><span class="w"> </span><span class="n">n</span><span class="p">)</span>
+
+<span class="kt">int</span><span class="w"> </span><span class="n">fibonacci_CALL</span><span class="p">(</span><span class="n">lace_worker</span><span class="o">*</span><span class="w"> </span><span class="n">lw</span><span class="p">,</span><span class="w"> </span><span class="kt">int</span><span class="w"> </span><span class="n">n</span><span class="p">)</span>
+<span class="p">{</span>
+<span class="w">    </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">n</span><span class="w"> </span><span class="o">&lt;</span><span class="w"> </span><span class="mi">2</span><span class="p">)</span><span class="w"> </span><span class="k">return</span><span class="w"> </span><span class="n">n</span><span class="p">;</span>
+<span class="w">    </span><span class="n">fibonacci_SPAWN</span><span class="p">(</span><span class="n">lw</span><span class="p">,</span><span class="w"> </span><span class="n">n</span><span class="mi">-1</span><span class="p">);</span>
+<span class="w">    </span><span class="kt">int</span><span class="w"> </span><span class="n">k</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">fibonacci_CALL</span><span class="p">(</span><span class="n">lw</span><span class="p">,</span><span class="w"> </span><span class="n">n</span><span class="mi">-2</span><span class="p">);</span>
+<span class="w">    </span><span class="kt">int</span><span class="w"> </span><span class="n">m</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">fibonacci_SYNC</span><span class="p">(</span><span class="n">lw</span><span class="p">);</span>
+<span class="w">    </span><span class="k">return</span><span class="w"> </span><span class="n">m</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="n">k</span><span class="p">;</span>
+<span class="p">}</span>
+</pre></div>
+</div>
+<section id="key-differences">
+<h2>Key differences<a class="headerlink" href="#key-differences" title="Link to this heading"></a></h2>
+<p><strong>Task body is a plain C function.</strong> The <code class="docutils literal notranslate"><span class="pre">TASK</span></code> macro only generates
+the task descriptor and wrapper code. You write the body as
+<code class="docutils literal notranslate"><span class="pre">NAME_CALL(lace_worker*</span> <span class="pre">lw,</span> <span class="pre">...)</span></code>. This means the body is visible to
+debuggers, can be stepped through in GDB, and can call non-Lace helper
+functions while still propagating the worker pointer.</p>
+<p><strong>Worker pointer is explicit.</strong> Instead of hidden thread-local lookups,
+the <code class="docutils literal notranslate"><span class="pre">lace_worker*</span></code> is passed as the first argument. This makes the data
+flow visible and avoids a TLS access on every spawn/sync.</p>
+<p><strong>SPAWN/SYNC/CALL are name-prefixed.</strong> Instead of <code class="docutils literal notranslate"><span class="pre">SPAWN(fibonacci,</span> <span class="pre">n-1)</span></code>,
+write <code class="docutils literal notranslate"><span class="pre">fibonacci_SPAWN(lw,</span> <span class="pre">n-1)</span></code>. Instead of <code class="docutils literal notranslate"><span class="pre">SYNC(fibonacci)</span></code>, write
+<code class="docutils literal notranslate"><span class="pre">fibonacci_SYNC(lw)</span></code>.</p>
+<p><strong>RUN is replaced by calling the task directly.</strong> The old
+<code class="docutils literal notranslate"><span class="pre">RUN(task,</span> <span class="pre">args...)</span></code> macro is gone. Simply call the task by name as a
+regular function: <code class="docutils literal notranslate"><span class="pre">fibonacci(42)</span></code>. If called from a Lace worker, this
+automatically falls back to <code class="docutils literal notranslate"><span class="pre">fibonacci_CALL</span></code> with no task submission
+overhead.</p>
+<p><strong>LACE_ME is gone.</strong> In v1, <code class="docutils literal notranslate"><span class="pre">LACE_ME</span></code> was needed to obtain the worker
+pointer inside a Lace thread that was not a Lace task. In v2, the worker
+pointer is always passed explicitly.</p>
+<p><strong>lace_startup is now lace_start.</strong> The initialising thread is no longer
+a Lace worker. Starting Lace with N workers simply starts N threads.</p>
+<p><strong>lace_suspend/lace_resume are gone.</strong> Use <code class="docutils literal notranslate"><span class="pre">LACE_BACKOFF</span></code> (enabled by
+default) instead — idle workers sleep automatically with exponential backoff.</p>
+</section>
+</section>
+
+
+           </div>
+          </div>
+          <footer><div class="rst-footer-buttons" role="navigation" aria-label="Footer">
+        <a href="benchmarks.html" class="btn btn-neutral float-left" title="Benchmarks" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
+        <a href="api/lifecycle.html" class="btn btn-neutral float-right" title="Lifecycle" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
+    </div>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright 2026, Tom van Dijk.</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>

@@ -1,0 +1,260 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" data-content_root="./">
+<head>
+  <meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Lace Documentation &mdash; Lace 2.4.0</title>
+      <link rel="stylesheet" type="text/css" href="_static/pygments.css?v=03e43079" />
+      <link rel="stylesheet" type="text/css" href="_static/css/theme.css?v=9edc463e" />
+      <link rel="stylesheet" type="text/css" href="_static/custom.css?v=c24bd327" />
+
+  
+      <script src="_static/jquery.js?v=5d32c60e"></script>
+      <script src="_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+      <script src="_static/documentation_options.js?v=4d935f96"></script>
+      <script src="_static/doctools.js?v=fd6eb6e6"></script>
+      <script src="_static/sphinx_highlight.js?v=6ffebe34"></script>
+    <script src="_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="genindex.html" />
+    <link rel="search" title="Search" href="search.html" />
+    <link rel="next" title="Getting Started" href="getting-started.html" /> 
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="#" class="icon icon-home">
+            Lace 2.4.0
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <p class="caption" role="heading"><span class="caption-text">User Guide</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="getting-started.html">Getting Started</a></li>
+<li class="toctree-l1"><a class="reference internal" href="building.html">Building</a></li>
+<li class="toctree-l1"><a class="reference internal" href="variants.html">Choosing a Variant</a></li>
+<li class="toctree-l1"><a class="reference internal" href="tasks.html">Defining Tasks</a></li>
+<li class="toctree-l1"><a class="reference internal" href="design.html">Design Notes</a></li>
+<li class="toctree-l1"><a class="reference internal" href="benchmarks.html">Benchmarks</a></li>
+<li class="toctree-l1"><a class="reference internal" href="migrating.html">Migrating from Lace v1</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">API Reference</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="api/lifecycle.html">Lifecycle</a></li>
+<li class="toctree-l1"><a class="reference internal" href="api/workers.html">Worker Context</a></li>
+<li class="toctree-l1"><a class="reference internal" href="api/operations.html">Task Operations</a></li>
+<li class="toctree-l1"><a class="reference internal" href="api/stats.html">Statistics</a></li>
+<li class="toctree-l1"><a class="reference internal" href="api/misc.html">Miscellaneous</a></li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="#">Lace 2.4.0</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="#" class="icon icon-home" aria-label="Home"></a></li>
+      <li class="breadcrumb-item active">Lace Documentation</li>
+      <li class="wy-breadcrumbs-aside">
+            <a href="_sources/index.rst.txt" rel="nofollow"> View page source</a>
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <section id="lace-documentation">
+<h1>Lace Documentation<a class="headerlink" href="#lace-documentation" title="Link to this heading"></a></h1>
+<p>Lace is a C framework for fine-grained fork-join parallelism on multi-core
+computers. It uses work-stealing deques to distribute tasks across worker
+threads, providing scalable parallelism with low overhead.</p>
+<section id="features">
+<h2>Features<a class="headerlink" href="#features" title="Link to this heading"></a></h2>
+<ul class="simple">
+<li><p>⚡ Low-overhead, lock-free work-stealing</p></li>
+<li><p>💤 Sleeps when idle (exponential backoff) to save CPU time</p></li>
+<li><p>📌 Optional thread pinning with <code class="docutils literal notranslate"><span class="pre">hwloc</span></code></p></li>
+<li><p>📈 Low-overhead statistics per worker</p></li>
+<li><p>⛔ Interrupt support for coordinating all workers to a safe point (e.g. stop-the-world GC)</p></li>
+</ul>
+<p>Lace uses a <strong>scalable</strong> double-ended queue for work-stealing. The owner
+thread pushes and pops tasks from its own deque in a <strong>wait-free</strong> manner.
+Thief threads steal from the other end in a <strong>lock-free</strong> manner. The design
+minimises cache line contention between workers.</p>
+</section>
+<section id="platform-support">
+<h2>Platform support<a class="headerlink" href="#platform-support" title="Link to this heading"></a></h2>
+<ul class="simple">
+<li><p>🐧 Linux (GCC, Clang)</p></li>
+<li><p>🪟 Windows (MSVC, MSYS2/MinGW)</p></li>
+<li><p>🍎 macOS (Apple Clang)</p></li>
+<li><p>😈 FreeBSD (Clang)</p></li>
+</ul>
+<div class="toctree-wrapper compound">
+<p class="caption" role="heading"><span class="caption-text">User Guide</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="getting-started.html">Getting Started</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="getting-started.html#prerequisites">Prerequisites</a></li>
+<li class="toctree-l2"><a class="reference internal" href="getting-started.html#quick-example">Quick example</a></li>
+<li class="toctree-l2"><a class="reference internal" href="getting-started.html#building-with-cmake">Building with CMake</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="building.html">Building</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="building.html#requirements">Requirements</a></li>
+<li class="toctree-l2"><a class="reference internal" href="building.html#building-from-source">Building from source</a></li>
+<li class="toctree-l2"><a class="reference internal" href="building.html#using-lace-in-your-project">Using Lace in your project</a></li>
+<li class="toctree-l2"><a class="reference internal" href="building.html#cmake-options">CMake options</a></li>
+<li class="toctree-l2"><a class="reference internal" href="building.html#configuration-recommendations">Configuration recommendations</a></li>
+<li class="toctree-l2"><a class="reference internal" href="building.html#installing">Installing</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="variants.html">Choosing a Variant</a></li>
+<li class="toctree-l1"><a class="reference internal" href="tasks.html">Defining Tasks</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="tasks.html#generated-functions">Generated functions</a></li>
+<li class="toctree-l2"><a class="reference internal" href="tasks.html#spawn-and-sync">SPAWN and SYNC</a></li>
+<li class="toctree-l2"><a class="reference internal" href="tasks.html#calling-name-from-any-context">Calling NAME() from any context</a></li>
+<li class="toctree-l2"><a class="reference internal" href="tasks.html#dropping-a-spawned-task">Dropping a spawned task</a></li>
+<li class="toctree-l2"><a class="reference internal" href="tasks.html#interrupting-workers">Interrupting workers</a></li>
+<li class="toctree-l2"><a class="reference internal" href="tasks.html#per-task-scratch-storage">Per-task scratch storage</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="design.html">Design Notes</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="design.html#architecture-overview">Architecture overview</a></li>
+<li class="toctree-l2"><a class="reference internal" href="design.html#memory-model">Memory model</a></li>
+<li class="toctree-l2"><a class="reference internal" href="design.html#xternal-task-submission">xternal task submission</a></li>
+<li class="toctree-l2"><a class="reference internal" href="design.html#worker-idle-strategy">Worker idle strategy</a></li>
+<li class="toctree-l2"><a class="reference internal" href="design.html#futex-portability">Futex portability</a></li>
+<li class="toctree-l2"><a class="reference internal" href="design.html#barrier">Barrier</a></li>
+<li class="toctree-l2"><a class="reference internal" href="design.html#stack-and-deque-allocation">Stack and deque allocation</a></li>
+<li class="toctree-l2"><a class="reference internal" href="design.html#scratch-arena">Scratch arena</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="benchmarks.html">Benchmarks</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="benchmarks.html#running-benchmarks">Running benchmarks</a></li>
+<li class="toctree-l2"><a class="reference internal" href="benchmarks.html#profiling-with-statistics">Profiling with statistics</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="migrating.html">Migrating from Lace v1</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="migrating.html#key-differences">Key differences</a></li>
+</ul>
+</li>
+</ul>
+</div>
+<div class="toctree-wrapper compound">
+<p class="caption" role="heading"><span class="caption-text">API Reference</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="api/lifecycle.html">Lifecycle</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="api/lifecycle.html#_CPPv410lace_startj6size_t6size_t"><code class="docutils literal notranslate"><span class="pre">lace_start()</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="api/lifecycle.html#_CPPv49lace_stopv"><code class="docutils literal notranslate"><span class="pre">lace_stop()</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="api/lifecycle.html#_CPPv415lace_is_runningv"><code class="docutils literal notranslate"><span class="pre">lace_is_running()</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="api/lifecycle.html#_CPPv418lace_set_verbosityi"><code class="docutils literal notranslate"><span class="pre">lace_set_verbosity()</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="api/lifecycle.html#_CPPv421lace_set_scratch_size6size_t"><code class="docutils literal notranslate"><span class="pre">lace_set_scratch_size()</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="api/lifecycle.html#_CPPv421lace_set_scratch_band6size_t"><code class="docutils literal notranslate"><span class="pre">lace_set_scratch_band()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="api/workers.html">Worker Context</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="api/workers.html#_CPPv417lace_worker_countv"><code class="docutils literal notranslate"><span class="pre">lace_worker_count()</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="api/workers.html#_CPPv414lace_is_workerv"><code class="docutils literal notranslate"><span class="pre">lace_is_worker()</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="api/workers.html#_CPPv415lace_get_workerv"><code class="docutils literal notranslate"><span class="pre">lace_get_worker()</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="api/workers.html#_CPPv414lace_worker_idv"><code class="docutils literal notranslate"><span class="pre">lace_worker_id()</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="api/workers.html#_CPPv48lace_rngP11lace_worker"><code class="docutils literal notranslate"><span class="pre">lace_rng()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="api/operations.html">Task Operations</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="api/operations.html#_CPPv412lace_barrierv"><code class="docutils literal notranslate"><span class="pre">lace_barrier()</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="api/operations.html#_CPPv49lace_dropP11lace_worker"><code class="docutils literal notranslate"><span class="pre">lace_drop()</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="api/operations.html#_CPPv419lace_is_stolen_taskP9lace_task"><code class="docutils literal notranslate"><span class="pre">lace_is_stolen_task()</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="api/operations.html#_CPPv422lace_is_completed_taskP9lace_task"><code class="docutils literal notranslate"><span class="pre">lace_is_completed_task()</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="api/operations.html#_CPPv416lace_task_resultP9lace_task"><code class="docutils literal notranslate"><span class="pre">lace_task_result()</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="api/operations.html#_CPPv417lace_steal_randomP11lace_worker"><code class="docutils literal notranslate"><span class="pre">lace_steal_random()</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="api/operations.html#_CPPv416lace_check_yieldP11lace_worker"><code class="docutils literal notranslate"><span class="pre">lace_check_yield()</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="api/operations.html#_CPPv420lace_make_all_sharedv"><code class="docutils literal notranslate"><span class="pre">lace_make_all_shared()</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="api/operations.html#_CPPv413lace_get_headv"><code class="docutils literal notranslate"><span class="pre">lace_get_head()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="api/stats.html">Statistics</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="api/stats.html#_CPPv416lace_count_resetv"><code class="docutils literal notranslate"><span class="pre">lace_count_reset()</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="api/stats.html#_CPPv422lace_count_report_fileP4FILE"><code class="docutils literal notranslate"><span class="pre">lace_count_report_file()</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="api/stats.html#_CPPv417lace_count_reportv"><code class="docutils literal notranslate"><span class="pre">lace_count_report()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="api/misc.html">Miscellaneous</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="api/misc.html#_CPPv413lace_sleep_us7int64_t"><code class="docutils literal notranslate"><span class="pre">lace_sleep_us()</span></code></a></li>
+</ul>
+</li>
+</ul>
+</div>
+</section>
+<section id="publications">
+<h2>Publications<a class="headerlink" href="#publications" title="Link to this heading"></a></h2>
+<p>If you use Lace in your research, please cite the following publications:</p>
+<ul class="simple">
+<li><p>T. van Dijk and J.C. van de Pol (2014).
+<strong>Lace: Non-blocking Split Deque for Work-Stealing.</strong>
+In: <em>Euro-Par 2014: Parallel Processing Workshops.</em> LNCS 8806, Springer.
+<a class="reference external" href="https://doi.org/10.1007/978-3-319-14313-2_18">doi:10.1007/978-3-319-14313-2_18</a></p></li>
+<li><p>T. van Dijk (2016).
+<strong>Sylvan: Multi-core Decision Diagrams.</strong>
+PhD Thesis, University of Twente.
+<a class="reference external" href="https://doi.org/10.3990/1.9789036541602">doi:10.3990/1.9789036541602</a></p></li>
+</ul>
+</section>
+<section id="license">
+<h2>License<a class="headerlink" href="#license" title="Link to this heading"></a></h2>
+<p>Lace is licensed under the <a class="reference external" href="https://opensource.org/licenses/Apache-2.0">Apache License, Version 2.0</a>.</p>
+</section>
+</section>
+
+
+           </div>
+          </div>
+          <footer><div class="rst-footer-buttons" role="navigation" aria-label="Footer">
+        <a href="getting-started.html" class="btn btn-neutral float-right" title="Getting Started" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
+    </div>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright 2026, Tom van Dijk.</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>

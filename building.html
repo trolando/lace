@@ -1,0 +1,333 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" data-content_root="./">
+<head>
+  <meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Building &mdash; Lace 2.4.0</title>
+      <link rel="stylesheet" type="text/css" href="_static/pygments.css?v=03e43079" />
+      <link rel="stylesheet" type="text/css" href="_static/css/theme.css?v=9edc463e" />
+      <link rel="stylesheet" type="text/css" href="_static/custom.css?v=c24bd327" />
+
+  
+      <script src="_static/jquery.js?v=5d32c60e"></script>
+      <script src="_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+      <script src="_static/documentation_options.js?v=4d935f96"></script>
+      <script src="_static/doctools.js?v=fd6eb6e6"></script>
+      <script src="_static/sphinx_highlight.js?v=6ffebe34"></script>
+    <script src="_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="genindex.html" />
+    <link rel="search" title="Search" href="search.html" />
+    <link rel="next" title="Choosing a Variant" href="variants.html" />
+    <link rel="prev" title="Getting Started" href="getting-started.html" /> 
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="index.html" class="icon icon-home">
+            Lace 2.4.0
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <p class="caption" role="heading"><span class="caption-text">User Guide</span></p>
+<ul class="current">
+<li class="toctree-l1"><a class="reference internal" href="getting-started.html">Getting Started</a></li>
+<li class="toctree-l1 current"><a class="current reference internal" href="#">Building</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="#requirements">Requirements</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#building-from-source">Building from source</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#using-lace-in-your-project">Using Lace in your project</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#cmake-options">CMake options</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#configuration-recommendations">Configuration recommendations</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#installing">Installing</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="variants.html">Choosing a Variant</a></li>
+<li class="toctree-l1"><a class="reference internal" href="tasks.html">Defining Tasks</a></li>
+<li class="toctree-l1"><a class="reference internal" href="design.html">Design Notes</a></li>
+<li class="toctree-l1"><a class="reference internal" href="benchmarks.html">Benchmarks</a></li>
+<li class="toctree-l1"><a class="reference internal" href="migrating.html">Migrating from Lace v1</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">API Reference</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="api/lifecycle.html">Lifecycle</a></li>
+<li class="toctree-l1"><a class="reference internal" href="api/workers.html">Worker Context</a></li>
+<li class="toctree-l1"><a class="reference internal" href="api/operations.html">Task Operations</a></li>
+<li class="toctree-l1"><a class="reference internal" href="api/stats.html">Statistics</a></li>
+<li class="toctree-l1"><a class="reference internal" href="api/misc.html">Miscellaneous</a></li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="index.html">Lace 2.4.0</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="index.html" class="icon icon-home" aria-label="Home"></a></li>
+      <li class="breadcrumb-item active">Building</li>
+      <li class="wy-breadcrumbs-aside">
+            <a href="_sources/building.rst.txt" rel="nofollow"> View page source</a>
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <section id="building">
+<h1>Building<a class="headerlink" href="#building" title="Link to this heading"></a></h1>
+<section id="requirements">
+<h2>Requirements<a class="headerlink" href="#requirements" title="Link to this heading"></a></h2>
+<ul class="simple">
+<li><p>A C11-capable compiler (GCC, Clang, or MSVC)</p></li>
+<li><p>CMake 3.15 or newer</p></li>
+<li><p>POSIX threads (pthreads) on Linux/macOS, or Windows threads on Windows</p></li>
+</ul>
+<p>Optional dependencies:</p>
+<ul class="simple">
+<li><p><a class="reference external" href="https://www.open-mpi.org/projects/hwloc/">hwloc</a> — for NUMA-aware thread pinning</p></li>
+</ul>
+</section>
+<section id="building-from-source">
+<h2>Building from source<a class="headerlink" href="#building-from-source" title="Link to this heading"></a></h2>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>cmake<span class="w"> </span>-B<span class="w"> </span>build
+cmake<span class="w"> </span>--build<span class="w"> </span>build
+</pre></div>
+</div>
+<p>For a Release build (the default when Lace is the top-level project):</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>cmake<span class="w"> </span>-B<span class="w"> </span>build<span class="w"> </span>-DCMAKE_BUILD_TYPE<span class="o">=</span>Release
+cmake<span class="w"> </span>--build<span class="w"> </span>build
+</pre></div>
+</div>
+</section>
+<section id="using-lace-in-your-project">
+<h2>Using Lace in your project<a class="headerlink" href="#using-lace-in-your-project" title="Link to this heading"></a></h2>
+<p><strong>As a subdirectory or submodule:</strong></p>
+<div class="highlight-cmake notranslate"><div class="highlight"><pre><span></span><span class="nb">add_subdirectory</span><span class="p">(</span><span class="s">external/lace</span><span class="p">)</span>
+<span class="nb">target_link_libraries</span><span class="p">(</span><span class="s">my_app</span><span class="w"> </span><span class="s">PRIVATE</span><span class="w"> </span><span class="s">lace::lace</span><span class="p">)</span>
+</pre></div>
+</div>
+<p><strong>With FetchContent:</strong></p>
+<div class="highlight-cmake notranslate"><div class="highlight"><pre><span></span><span class="nb">include</span><span class="p">(</span><span class="s">FetchContent</span><span class="p">)</span>
+<span class="nb">FetchContent_Declare</span><span class="p">(</span><span class="s">lace</span>
+<span class="w">    </span><span class="s">GIT_REPOSITORY</span><span class="w"> </span><span class="s">https://github.com/trolando/lace.git</span>
+<span class="w">    </span><span class="s">GIT_TAG</span><span class="w">        </span><span class="s">|tag|</span>
+<span class="w">    </span><span class="s">GIT_SHALLOW</span><span class="w">    </span><span class="s">TRUE</span>
+<span class="p">)</span>
+<span class="nb">FetchContent_MakeAvailable</span><span class="p">(</span><span class="s">lace</span><span class="p">)</span>
+<span class="nb">target_link_libraries</span><span class="p">(</span><span class="s">my_app</span><span class="w"> </span><span class="s">PRIVATE</span><span class="w"> </span><span class="s">lace::lace</span><span class="p">)</span>
+</pre></div>
+</div>
+<p><strong>With find_package (after installing):</strong></p>
+<div class="highlight-cmake notranslate"><div class="highlight"><pre><span></span><span class="nb">find_package</span><span class="p">(</span><span class="s">lace</span><span class="w"> </span><span class="s">|version|</span><span class="w"> </span><span class="s">REQUIRED</span><span class="w"> </span><span class="s">CONFIG</span><span class="p">)</span>
+<span class="nb">target_link_libraries</span><span class="p">(</span><span class="s">my_app</span><span class="w"> </span><span class="s">PRIVATE</span><span class="w"> </span><span class="s">lace::lace</span><span class="p">)</span>
+</pre></div>
+</div>
+<p>A robust pattern that handles all three cases:</p>
+<div class="highlight-cmake notranslate"><div class="highlight"><pre><span></span><span class="nb">if</span><span class="p">(</span><span class="s">NOT</span><span class="w"> </span><span class="s">TARGET</span><span class="w"> </span><span class="s">lace::lace</span><span class="p">)</span>
+<span class="w">    </span><span class="nb">find_package</span><span class="p">(</span><span class="s">lace</span><span class="w"> </span><span class="s">|version|</span><span class="w"> </span><span class="s">CONFIG</span><span class="w"> </span><span class="s">QUIET</span><span class="p">)</span>
+<span class="w">    </span><span class="nb">if</span><span class="p">(</span><span class="s">NOT</span><span class="w"> </span><span class="s">lace_FOUND</span><span class="p">)</span>
+<span class="w">        </span><span class="nb">include</span><span class="p">(</span><span class="s">FetchContent</span><span class="p">)</span>
+<span class="w">        </span><span class="nb">FetchContent_Declare</span><span class="p">(</span><span class="s">lace</span>
+<span class="w">            </span><span class="s">GIT_REPOSITORY</span><span class="w"> </span><span class="s">https://github.com/trolando/lace.git</span>
+<span class="w">            </span><span class="s">GIT_TAG</span><span class="w">        </span><span class="s">|tag|</span>
+<span class="w">            </span><span class="s">GIT_SHALLOW</span><span class="w">    </span><span class="s">TRUE</span>
+<span class="w">        </span><span class="p">)</span>
+<span class="w">        </span><span class="nb">FetchContent_MakeAvailable</span><span class="p">(</span><span class="s">lace</span><span class="p">)</span>
+<span class="w">    </span><span class="nb">endif</span><span class="p">()</span>
+<span class="nb">endif</span><span class="p">()</span>
+</pre></div>
+</div>
+<p>This first checks if Lace is already a target (e.g. added as a submodule by
+a parent project), then tries to find an installed version, and finally
+fetches it from GitHub as a last resort.</p>
+</section>
+<section id="cmake-options">
+<h2>CMake options<a class="headerlink" href="#cmake-options" title="Link to this heading"></a></h2>
+<table class="cmake-opts-table docutils align-default">
+<colgroup>
+<col style="width: 28.0%" />
+<col style="width: 62.0%" />
+<col style="width: 10.0%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"><p>Option</p></th>
+<th class="head"><p>Description</p></th>
+<th class="head"><p>Default</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">LACE_USE_HWLOC</span></code></p></td>
+<td><p>Use the <code class="docutils literal notranslate"><span class="pre">hwloc</span></code> library to pin worker threads to CPU cores.
+Important for NUMA systems where memory locality affects performance.</p></td>
+<td><p>OFF</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">LACE_BACKOFF</span></code></p></td>
+<td><p>Workers sleep with exponential backoff when no work is available,
+reducing CPU usage without affecting throughput.</p></td>
+<td><p>ON</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">LACE_NATIVE_OPT</span></code></p></td>
+<td><p>Optimise for the host CPU architecture (<code class="docutils literal notranslate"><span class="pre">-march=native</span></code>). Improves
+performance on the build machine but produces binaries that may not
+run on other CPUs.</p></td>
+<td><p>ON</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">LACE_ENABLE_PIC</span></code></p></td>
+<td><p>Compile with position-independent code (<code class="docutils literal notranslate"><span class="pre">-fPIC</span></code>). Required when
+embedding Lace inside a shared library.</p></td>
+<td><p>OFF</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">BUILD_SHARED_LIBS</span></code></p></td>
+<td><p>Build shared libraries instead of static. Automatically enables
+<code class="docutils literal notranslate"><span class="pre">LACE_ENABLE_PIC</span></code>.</p></td>
+<td><p>OFF</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">LACE_PIE_TIMES</span></code></p></td>
+<td><p>Record precise overhead times per worker (startup, steal overhead,
+idle search time).</p></td>
+<td><p>OFF</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">LACE_COUNT_TASKS</span></code></p></td>
+<td><p>Record the number of tasks executed per worker.</p></td>
+<td><p>OFF</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">LACE_COUNT_STEALS</span></code></p></td>
+<td><p>Record the number of successful steals per worker.</p></td>
+<td><p>OFF</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">LACE_COUNT_SPLITS</span></code></p></td>
+<td><p>Record the number of deque split-point adjustments per worker.</p></td>
+<td><p>OFF</p></td>
+</tr>
+</tbody>
+</table>
+<p>The following options are only available when Lace is the top-level project:</p>
+<table class="cmake-opts-table docutils align-default">
+<colgroup>
+<col style="width: 28.0%" />
+<col style="width: 62.0%" />
+<col style="width: 10.0%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"><p>Option</p></th>
+<th class="head"><p>Description</p></th>
+<th class="head"><p>Default</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">LACE_BUILD_TESTS</span></code></p></td>
+<td><p>Build the test suite (disabled when used as a subproject)</p></td>
+<td><p>ON</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">LACE_BUILD_BENCHMARKS</span></code></p></td>
+<td><p>Build the benchmark programs (disabled when used as a subproject)</p></td>
+<td><p>ON</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">LACE_BUILD_DOCS</span></code></p></td>
+<td><p>Build the documentation (disabled when used as a subproject)</p></td>
+<td><p>OFF</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">LACE_SANITIZE_ADDRESS</span></code></p></td>
+<td><p>Build with AddressSanitizer to detect memory errors.
+For development and testing only.</p></td>
+<td><p>OFF</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">LACE_SANITIZE_THREAD</span></code></p></td>
+<td><p>Build with ThreadSanitizer to detect data races.
+For development and testing only.</p></td>
+<td><p>OFF</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">LACE_SANITIZE_UB</span></code></p></td>
+<td><p>Build with UndefinedBehaviorSanitizer to detect undefined behaviour.
+For development and testing only.</p></td>
+<td><p>OFF</p></td>
+</tr>
+</tbody>
+</table>
+</section>
+<section id="configuration-recommendations">
+<h2>Configuration recommendations<a class="headerlink" href="#configuration-recommendations" title="Link to this heading"></a></h2>
+<p><strong>Keep LACE_BACKOFF on.</strong> Benchmarks show that backoff does not affect
+throughput, but it prevents idle workers from consuming 100% CPU when there
+is no work. There is no reason to turn this off unless you are doing very
+precise micro-benchmarking of steal overhead.</p>
+<p><strong>Use LACE_USE_HWLOC for NUMA systems.</strong> On multi-socket machines, enabling
+hwloc ensures that worker threads are pinned to cores and that memory is
+allocated close to the core that uses it. On single-socket desktop machines
+the benefit is smaller but still measurable for memory-intensive workloads.</p>
+<p><strong>Use LACE_NATIVE_OPT for local benchmarking</strong> but not for portable or
+distributed builds, since <code class="docutils literal notranslate"><span class="pre">-march=native</span></code> produces binaries tied to the
+build machine’s CPU.</p>
+<p><strong>Statistics options ruin timing measurements.</strong> The <code class="docutils literal notranslate"><span class="pre">LACE_PIE_TIMES</span></code>,
+<code class="docutils literal notranslate"><span class="pre">LACE_COUNT_TASKS</span></code>, <code class="docutils literal notranslate"><span class="pre">LACE_COUNT_STEALS</span></code>, and <code class="docutils literal notranslate"><span class="pre">LACE_COUNT_SPLITS</span></code>
+options add instrumentation overhead. Enable them for profiling and debugging,
+but never for performance benchmarking.</p>
+<p><strong>Sanitiser options are mutually exclusive.</strong> AddressSanitizer and
+ThreadSanitizer cannot be combined. Use them individually during development.</p>
+</section>
+<section id="installing">
+<h2>Installing<a class="headerlink" href="#installing" title="Link to this heading"></a></h2>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>cmake<span class="w"> </span>-B<span class="w"> </span>build<span class="w"> </span>-DCMAKE_INSTALL_PREFIX<span class="o">=</span>/usr/local
+cmake<span class="w"> </span>--build<span class="w"> </span>build
+cmake<span class="w"> </span>--install<span class="w"> </span>build
+</pre></div>
+</div>
+<p>This installs libraries, headers, CMake config files, and pkg-config
+<code class="docutils literal notranslate"><span class="pre">.pc</span></code> files. After installation, other projects can use <code class="docutils literal notranslate"><span class="pre">find_package(lace)</span></code>
+or <code class="docutils literal notranslate"><span class="pre">pkg-config</span> <span class="pre">--cflags</span> <span class="pre">--libs</span> <span class="pre">lace</span></code>.</p>
+</section>
+</section>
+
+
+           </div>
+          </div>
+          <footer><div class="rst-footer-buttons" role="navigation" aria-label="Footer">
+        <a href="getting-started.html" class="btn btn-neutral float-left" title="Getting Started" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
+        <a href="variants.html" class="btn btn-neutral float-right" title="Choosing a Variant" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
+    </div>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright 2026, Tom van Dijk.</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>

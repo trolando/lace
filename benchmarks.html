@@ -1,0 +1,215 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" data-content_root="./">
+<head>
+  <meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Benchmarks &mdash; Lace 2.4.0</title>
+      <link rel="stylesheet" type="text/css" href="_static/pygments.css?v=03e43079" />
+      <link rel="stylesheet" type="text/css" href="_static/css/theme.css?v=9edc463e" />
+      <link rel="stylesheet" type="text/css" href="_static/custom.css?v=c24bd327" />
+
+  
+      <script src="_static/jquery.js?v=5d32c60e"></script>
+      <script src="_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+      <script src="_static/documentation_options.js?v=4d935f96"></script>
+      <script src="_static/doctools.js?v=fd6eb6e6"></script>
+      <script src="_static/sphinx_highlight.js?v=6ffebe34"></script>
+    <script src="_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="genindex.html" />
+    <link rel="search" title="Search" href="search.html" />
+    <link rel="next" title="Migrating from Lace v1" href="migrating.html" />
+    <link rel="prev" title="Design Notes" href="design.html" /> 
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="index.html" class="icon icon-home">
+            Lace 2.4.0
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <p class="caption" role="heading"><span class="caption-text">User Guide</span></p>
+<ul class="current">
+<li class="toctree-l1"><a class="reference internal" href="getting-started.html">Getting Started</a></li>
+<li class="toctree-l1"><a class="reference internal" href="building.html">Building</a></li>
+<li class="toctree-l1"><a class="reference internal" href="variants.html">Choosing a Variant</a></li>
+<li class="toctree-l1"><a class="reference internal" href="tasks.html">Defining Tasks</a></li>
+<li class="toctree-l1"><a class="reference internal" href="design.html">Design Notes</a></li>
+<li class="toctree-l1 current"><a class="current reference internal" href="#">Benchmarks</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="#running-benchmarks">Running benchmarks</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#profiling-with-statistics">Profiling with statistics</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="migrating.html">Migrating from Lace v1</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">API Reference</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="api/lifecycle.html">Lifecycle</a></li>
+<li class="toctree-l1"><a class="reference internal" href="api/workers.html">Worker Context</a></li>
+<li class="toctree-l1"><a class="reference internal" href="api/operations.html">Task Operations</a></li>
+<li class="toctree-l1"><a class="reference internal" href="api/stats.html">Statistics</a></li>
+<li class="toctree-l1"><a class="reference internal" href="api/misc.html">Miscellaneous</a></li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="index.html">Lace 2.4.0</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="index.html" class="icon icon-home" aria-label="Home"></a></li>
+      <li class="breadcrumb-item active">Benchmarks</li>
+      <li class="wy-breadcrumbs-aside">
+            <a href="_sources/benchmarks.rst.txt" rel="nofollow"> View page source</a>
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <section id="benchmarks">
+<h1>Benchmarks<a class="headerlink" href="#benchmarks" title="Link to this heading"></a></h1>
+<p>Lace includes a set of benchmark programs in the <code class="docutils literal notranslate"><span class="pre">benchmarks/</span></code> directory.
+These are primarily intended for evaluating Lace’s work-stealing performance
+and comparing it against other frameworks.</p>
+<p>Many of these benchmarks originate from well-known benchmark suites, such
+as the Cilk-5 benchmark suite. The implementations here are mostly adapted
+from Nowa (Schmaus et al, IPDPS 2021). UTS is from the Unbalanced Tree Search
+project (Olivier et al., LCPC 2006). The benchmarks cover a range of
+parallelism patterns:</p>
+<dl class="simple">
+<dt><code class="docutils literal notranslate"><span class="pre">fib</span></code></dt><dd><p>Recursive Fibonacci. Micro-benchmark for task creation overhead: tasks
+are near-empty, so performance is dominated by spawn/sync cost.</p>
+</dd>
+<dt><code class="docutils literal notranslate"><span class="pre">uts</span></code></dt><dd><p>Unbalanced Tree Search. Highly irregular, unpredictable workload;
+a standard stress-test for work-stealing schedulers.</p>
+</dd>
+<dt><code class="docutils literal notranslate"><span class="pre">nqueens</span></code></dt><dd><p>N-Queens solver. Spawns one task per candidate position at each row,
+producing a regular N-ary task tree. Moderate task granularity.</p>
+</dd>
+<dt><code class="docutils literal notranslate"><span class="pre">pi</span></code></dt><dd><p>Numerical integration for computing pi. Embarrassingly parallel with
+uniform task sizes.</p>
+</dd>
+<dt><code class="docutils literal notranslate"><span class="pre">integrate</span></code></dt><dd><p>Adaptive numerical integration. Recursion depth varies with the
+function being integrated.</p>
+</dd>
+<dt><code class="docutils literal notranslate"><span class="pre">cilksort</span></code></dt><dd><p>Recursive merge-sort (from Cilk-5, MIT/Frigo). Uniform binary task
+tree with a cutoff for switching to sequential sort.</p>
+</dd>
+<dt><code class="docutils literal notranslate"><span class="pre">quicksort</span></code></dt><dd><p>Parallel quicksort. Irregular partitioning due to pivot selection.</p>
+</dd>
+<dt><code class="docutils literal notranslate"><span class="pre">dfs</span></code></dt><dd><p>Parallel depth-first search. Regular task tree structure.</p>
+</dd>
+<dt><code class="docutils literal notranslate"><span class="pre">matmul</span></code></dt><dd><p>Recursive matrix multiplication. Splits along the largest dimension,
+with a 64-element base case.</p>
+</dd>
+<dt><code class="docutils literal notranslate"><span class="pre">rectmul</span></code></dt><dd><p>Rectangular matrix multiplication (MIT/Prokop, 1997). Variant of
+matmul for non-square matrices where <code class="docutils literal notranslate"><span class="pre">n</span> <span class="pre">&lt;</span> <span class="pre">m</span></code> and dimensions are
+multiples of 16.</p>
+</dd>
+<dt><code class="docutils literal notranslate"><span class="pre">strassen</span></code></dt><dd><p>Strassen’s fast matrix multiplication (MIT, 1996). Seven-way
+recursive split with coarser granularity than naïve matmul.</p>
+</dd>
+<dt><code class="docutils literal notranslate"><span class="pre">lu</span></code></dt><dd><p>LU decomposition (MIT/Blumofe, 1996). Block-recursive Gaussian
+elimination with data dependencies between subproblems.</p>
+</dd>
+<dt><code class="docutils literal notranslate"><span class="pre">cholesky</span></code></dt><dd><p>Sparse Cholesky factorization (MIT/Frigo, 2000). Uses small blocks at the
+leaves of a quad-tree decomposition.</p>
+</dd>
+<dt><code class="docutils literal notranslate"><span class="pre">heat</span></code></dt><dd><p>Heat diffusion using Jacobi-type iteration (MIT/Strumpen, 1996).
+Cache-oblivious stencil computation with spatial and temporal tiling.</p>
+</dd>
+<dt><code class="docutils literal notranslate"><span class="pre">fft</span></code></dt><dd><p>Fast Fourier Transform (MIT/Frigo, 2000). Cooley-Tukey divide-and-conquer
+with a binary recursive task tree.</p>
+</dd>
+<dt><code class="docutils literal notranslate"><span class="pre">knapsack</span></code></dt><dd><p>0/1 knapsack via branch-and-bound (MIT/Frigo, 2000). Irregular pruning
+makes the task tree unpredictable.</p>
+</dd>
+</dl>
+<section id="running-benchmarks">
+<h2>Running benchmarks<a class="headerlink" href="#running-benchmarks" title="Link to this heading"></a></h2>
+<p>Build Lace as the top-level project with benchmarks enabled (the default):</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>cmake<span class="w"> </span>-B<span class="w"> </span>build<span class="w"> </span>-DCMAKE_BUILD_TYPE<span class="o">=</span>Release
+cmake<span class="w"> </span>--build<span class="w"> </span>build
+</pre></div>
+</div>
+<p>Then run individual benchmarks from the build directory:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>./build/benchmarks/fib-lace<span class="w"> </span>-w<span class="w"> </span><span class="m">0</span><span class="w"> </span><span class="m">42</span><span class="w">        </span><span class="c1"># fibonacci(42) using all cores</span>
+./build/benchmarks/nqueens-lace<span class="w"> </span>-w<span class="w"> </span><span class="m">0</span><span class="w"> </span><span class="m">14</span><span class="w">    </span><span class="c1"># 14 queens</span>
+./build/benchmarks/uts-lace<span class="w"> </span>-w<span class="w"> </span><span class="m">0</span><span class="w"> </span>-t<span class="w"> </span><span class="m">0</span><span class="w"> </span>-b<span class="w"> </span><span class="m">2000</span><span class="w"> </span>-q<span class="w"> </span><span class="m">0</span>.200014<span class="w"> </span>-m<span class="w"> </span><span class="m">5</span><span class="w"> </span>-r<span class="w"> </span><span class="m">7</span><span class="w">  </span><span class="c1"># UTS T3L</span>
+</pre></div>
+</div>
+<p>Most benchmarks accept a <code class="docutils literal notranslate"><span class="pre">-w</span> <span class="pre">N</span></code> flag to set the number of worker threads.
+Run without arguments to see usage information.
+In addition, there is a <code class="docutils literal notranslate"><span class="pre">bench.py</span></code> program in the <code class="docutils literal notranslate"><span class="pre">build/benchmarks</span></code> directory
+that can be used to automatically run the benchmarks.</p>
+</section>
+<section id="profiling-with-statistics">
+<h2>Profiling with statistics<a class="headerlink" href="#profiling-with-statistics" title="Link to this heading"></a></h2>
+<p>To collect steal counts, task counts, split counts, and timing data, rebuild with the
+appropriate options:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>cmake<span class="w"> </span>-B<span class="w"> </span>build<span class="w"> </span>-DLACE_COUNT_SPLITS<span class="o">=</span>ON<span class="w"> </span>-DLACE_COUNT_STEALS<span class="o">=</span>ON<span class="w"> </span>-DLACE_COUNT_TASKS<span class="o">=</span>ON<span class="w"> </span>-DLACE_PIE_TIMES<span class="o">=</span>ON
+cmake<span class="w"> </span>--build<span class="w"> </span>build
+</pre></div>
+</div>
+<p>Then call <code class="docutils literal notranslate"><span class="pre">lace_count_report</span></code> at the end of your program.
+Note that enabling statistics adds instrumentation overhead, so the reported wall-clock times will not
+be representative of production performance.</p>
+</section>
+</section>
+
+
+           </div>
+          </div>
+          <footer><div class="rst-footer-buttons" role="navigation" aria-label="Footer">
+        <a href="design.html" class="btn btn-neutral float-left" title="Design Notes" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
+        <a href="migrating.html" class="btn btn-neutral float-right" title="Migrating from Lace v1" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
+    </div>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright 2026, Tom van Dijk.</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>

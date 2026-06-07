@@ -1,0 +1,492 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" data-content_root="./">
+<head>
+  <meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Design Notes &mdash; Lace 2.4.0</title>
+      <link rel="stylesheet" type="text/css" href="_static/pygments.css?v=03e43079" />
+      <link rel="stylesheet" type="text/css" href="_static/css/theme.css?v=9edc463e" />
+      <link rel="stylesheet" type="text/css" href="_static/custom.css?v=c24bd327" />
+
+  
+      <script src="_static/jquery.js?v=5d32c60e"></script>
+      <script src="_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+      <script src="_static/documentation_options.js?v=4d935f96"></script>
+      <script src="_static/doctools.js?v=fd6eb6e6"></script>
+      <script src="_static/sphinx_highlight.js?v=6ffebe34"></script>
+    <script src="_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="genindex.html" />
+    <link rel="search" title="Search" href="search.html" />
+    <link rel="next" title="Benchmarks" href="benchmarks.html" />
+    <link rel="prev" title="Defining Tasks" href="tasks.html" /> 
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="index.html" class="icon icon-home">
+            Lace 2.4.0
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <p class="caption" role="heading"><span class="caption-text">User Guide</span></p>
+<ul class="current">
+<li class="toctree-l1"><a class="reference internal" href="getting-started.html">Getting Started</a></li>
+<li class="toctree-l1"><a class="reference internal" href="building.html">Building</a></li>
+<li class="toctree-l1"><a class="reference internal" href="variants.html">Choosing a Variant</a></li>
+<li class="toctree-l1"><a class="reference internal" href="tasks.html">Defining Tasks</a></li>
+<li class="toctree-l1 current"><a class="current reference internal" href="#">Design Notes</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="#architecture-overview">Architecture overview</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#memory-model">Memory model</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#xternal-task-submission">xternal task submission</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#worker-idle-strategy">Worker idle strategy</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#futex-portability">Futex portability</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#barrier">Barrier</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#stack-and-deque-allocation">Stack and deque allocation</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#scratch-arena">Scratch arena</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="#virtual-memory-layout">Virtual memory layout</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#reserve-commit-decommit">Reserve / commit / decommit</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#numa-placement">NUMA placement</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#trim-on-deep-idle">Trim on deep idle</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#leak-detection">Leak detection</a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="benchmarks.html">Benchmarks</a></li>
+<li class="toctree-l1"><a class="reference internal" href="migrating.html">Migrating from Lace v1</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">API Reference</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="api/lifecycle.html">Lifecycle</a></li>
+<li class="toctree-l1"><a class="reference internal" href="api/workers.html">Worker Context</a></li>
+<li class="toctree-l1"><a class="reference internal" href="api/operations.html">Task Operations</a></li>
+<li class="toctree-l1"><a class="reference internal" href="api/stats.html">Statistics</a></li>
+<li class="toctree-l1"><a class="reference internal" href="api/misc.html">Miscellaneous</a></li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="index.html">Lace 2.4.0</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="index.html" class="icon icon-home" aria-label="Home"></a></li>
+      <li class="breadcrumb-item active">Design Notes</li>
+      <li class="wy-breadcrumbs-aside">
+            <a href="_sources/design.rst.txt" rel="nofollow"> View page source</a>
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <section id="design-notes">
+<h1>Design Notes<a class="headerlink" href="#design-notes" title="Link to this heading"></a></h1>
+<p>This page documents the internal design of Lace for contributors and
+advanced users who need to understand the concurrency model. It is not
+required reading for normal use.</p>
+<section id="architecture-overview">
+<h2>Architecture overview<a class="headerlink" href="#architecture-overview" title="Link to this heading"></a></h2>
+<p>Each Lace worker thread owns a double-ended queue (deque) of tasks.
+The owner pushes and pops from the <strong>head</strong> (private end) in a
+wait-free manner. Thieves steal from the <strong>tail</strong> (public end) using
+a lock-free compare-and-swap on a shared <code class="docutils literal notranslate"><span class="pre">TailSplit</span></code> word.</p>
+<p>The deque is split into a <em>private</em> region (between split and head)
+and a <em>shared</em> region (between tail and split). Only tasks in the
+shared region are visible to thieves. The split point is adjusted
+lazily via a <code class="docutils literal notranslate"><span class="pre">movesplit</span></code> flag: when a thief finds no stealable
+tasks, it sets <code class="docutils literal notranslate"><span class="pre">movesplit</span></code> on the victim, and the victim moves
+the split on its next SPAWN.</p>
+<p>Each task slot contains a function pointer and an atomic <code class="docutils literal notranslate"><span class="pre">thief</span></code>
+field. The <code class="docutils literal notranslate"><span class="pre">thief</span></code> field serves as a state machine:</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">THIEF_TASK</span></code> (0x1) — task is live, not yet stolen</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">THIEF_EMPTY</span></code> (0x0) — slot is empty / task cancelled</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">THIEF_COMPLETED</span></code> (0x2) — task was stolen and has finished</p></li>
+<li><p>any other pointer — task is being executed by that worker</p></li>
+</ul>
+</section>
+<section id="memory-model">
+<h2>Memory model<a class="headerlink" href="#memory-model" title="Link to this heading"></a></h2>
+<p>Lace is designed for relaxed-memory architectures (ARM, POWER) and
+uses explicit fences and atomic operations rather than relying on
+x86’s strong ordering. The key synchronisation points are:</p>
+<p><strong>SPAWN (publishing a task).</strong> After writing the task’s function
+pointer, arguments, and thief field, a <code class="docutils literal notranslate"><span class="pre">release</span></code> fence ensures
+these stores are visible before the split is advanced. Without this
+fence, a thief on ARM could observe the updated split but read
+stale task data.</p>
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>owner writes:   t-&gt;f, t-&gt;thief, t-&gt;args
+owner executes: atomic_thread_fence(release)
+owner writes:   split (making the task stealable)
+</pre></div>
+</div>
+<p><strong>Steal (claiming a task).</strong> A thief reads the victim’s
+<code class="docutils literal notranslate"><span class="pre">TailSplit</span></code> word with a relaxed load and attempts a CAS to
+increment the tail. The CAS itself provides acquire-release
+semantics on the <code class="docutils literal notranslate"><span class="pre">TailSplit</span></code> word. After a successful CAS, the
+thief has exclusive ownership of that task slot. The thief reads
+the task data — these reads are ordered after the CAS, so they
+observe the stores made by the owner before the release fence in
+SPAWN.</p>
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>thief reads:    victim-&gt;ts.v (relaxed)
+thief executes: CAS(&amp;victim-&gt;ts.v, old, new) — acquires on success
+thief reads:    t-&gt;f, t-&gt;args (ordered after CAS)
+thief writes:   t-&gt;thief = self (relaxed — informational only)
+thief calls:    t-&gt;f(...)
+thief writes:   t-&gt;thief = THIEF_COMPLETED (release)
+</pre></div>
+</div>
+<p>The <code class="docutils literal notranslate"><span class="pre">release</span></code> store of <code class="docutils literal notranslate"><span class="pre">THIEF_COMPLETED</span></code> ensures that all
+stores made during task execution are visible to the owner when
+it observes the completion.</p>
+<p><strong>SYNC (fast path).</strong> When a task has not been stolen
+(<code class="docutils literal notranslate"><span class="pre">split</span> <span class="pre">&lt;=</span> <span class="pre">head</span></code> and <code class="docutils literal notranslate"><span class="pre">movesplit</span> <span class="pre">==</span> <span class="pre">0</span></code>), the owner simply
+executes it directly. No atomic operations are needed — the owner
+is the only thread that accesses its private deque region.</p>
+<p><strong>SYNC (slow path / leapfrog).</strong> When a task has been stolen, the
+owner enters leapfrog mode: it follows the thief pointer and
+attempts to steal work from the thief’s deque, recursively.
+The owner reads <code class="docutils literal notranslate"><span class="pre">t-&gt;thief</span></code> in a loop until it observes
+<code class="docutils literal notranslate"><span class="pre">THIEF_COMPLETED</span></code>, at which point an <code class="docutils literal notranslate"><span class="pre">acquire</span></code> fence ensures
+all stores made by the thief (including the task result) are
+visible.</p>
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>owner reads:    t-&gt;thief (relaxed, in loop)
+owner observes: t-&gt;thief == THIEF_COMPLETED
+owner executes: atomic_thread_fence(acquire)
+owner reads:    t-&gt;d.res (ordered after fence)
+</pre></div>
+</div>
+<p><strong>Shrink shared region.</strong> When the owner detects that its shared
+region is too large (during SYNC slow path), it moves the split
+point closer to the tail. A <code class="docutils literal notranslate"><span class="pre">seq_cst</span></code> fence between the split
+write and the tail read prevents the StoreLoad reordering that
+could cause both owner and thief to believe they own the same
+task slot:</p>
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>owner writes:   split = newsplit (relaxed)
+owner executes: atomic_thread_fence(seq_cst)
+owner reads:    tail (relaxed)
+</pre></div>
+</div>
+<p><strong>TOGETHER / NEWFRAME handshake.</strong> The initiator writes a task
+into the <code class="docutils literal notranslate"><span class="pre">lace_newframe.t</span></code> pointer with a <code class="docutils literal notranslate"><span class="pre">release</span></code> fence
+before the CAS. Workers poll this pointer with a relaxed load
+in <code class="docutils literal notranslate"><span class="pre">lace_check_yield</span></code>. When non-NULL, a worker executes an
+<code class="docutils literal notranslate"><span class="pre">acquire</span></code> fence before reading the task data via <code class="docutils literal notranslate"><span class="pre">memcpy</span></code>.
+This release-acquire pair ensures the task contents are fully
+visible before any worker copies them.</p>
+</section>
+<section id="xternal-task-submission">
+<h2>xternal task submission<a class="headerlink" href="#xternal-task-submission" title="Link to this heading"></a></h2>
+<p>Non-Lace threads submit tasks via <code class="docutils literal notranslate"><span class="pre">lace_run_task</span></code>. The task is
+placed into one of 64 atomic slots (a fixed-size array). Workers
+check an atomic counter <code class="docutils literal notranslate"><span class="pre">external_task_count</span></code> periodically in the
+steal loop; when non-zero, they scan the array and claim a task.
+The scan uses a two-step approach: a relaxed <code class="docutils literal notranslate"><span class="pre">atomic_load</span></code> to
+skip empty slots (read-only, no cache line invalidation), followed
+by <code class="docutils literal notranslate"><span class="pre">atomic_exchange</span></code> only on non-NULL slots. This minimises
+write traffic on the shared slot array when most slots are empty.</p>
+<p>The submitting thread blocks on a per-task <code class="docutils literal notranslate"><span class="pre">atomic_int</span> <span class="pre">done</span></code>
+field, using a futex wait. Before falling back to the futex, the
+submitter briefly spins (256 PAUSE iterations) to avoid a kernel
+transition when the task completes quickly (typical for fine-grained
+BDD operations). The worker signals completion with an atomic store
+and <code class="docutils literal notranslate"><span class="pre">futex_wake</span></code>. The <code class="docutils literal notranslate"><span class="pre">ext_lace_task</span></code> struct lives on the
+submitting thread’s stack, so no heap allocation is needed and no
+initialisation or destruction is required for the futex word.</p>
+<p>When an external task is published, the submitter wakes one sleeping
+worker via <code class="docutils literal notranslate"><span class="pre">futex_wake</span></code>. This ensures that even when all workers
+are in deep futex sleep, external tasks are picked up promptly.</p>
+<p>Multiple external threads can submit concurrently without contention
+on a single slot. The atomic counter keeps the fast path (no external
+tasks) to a single relaxed load.</p>
+</section>
+<section id="worker-idle-strategy">
+<h2>Worker idle strategy<a class="headerlink" href="#worker-idle-strategy" title="Link to this heading"></a></h2>
+<p>When a worker fails to find work, it progresses through idle stages
+of increasing aggressiveness to balance responsiveness against CPU
+and cache-bus overhead.</p>
+<p><strong>Stage 1: Yield (0–256 failed attempts).</strong> The worker calls
+<code class="docutils literal notranslate"><span class="pre">sched_yield()</span></code> (or <code class="docutils literal notranslate"><span class="pre">SwitchToThread()</span></code> on Windows) on each
+iteration. This gives the OS scheduler an opportunity to run other
+threads while remaining responsive to new work. No PAUSE stage
+precedes this: on modern out-of-order CPUs, PAUSE instructions
+provide insufficient throttling and the core continues to drive
+cache-coherence traffic at near-full rate.</p>
+<p><strong>Stage 2: Futex sleep with ramping timeout (256+ failed attempts).</strong>
+The worker increments an <code class="docutils literal notranslate"><span class="pre">n_sleeping</span></code> counter, then enters
+<code class="docutils literal notranslate"><span class="pre">futex_wait</span></code> on a shared <code class="docutils literal notranslate"><span class="pre">wake_futex</span></code> word. The timeout starts
+at 100 µs and increases by 100 µs per futex cycle, capping at
+1 ms. This ramp avoids two failure modes:</p>
+<ul class="simple">
+<li><p>Too-short timeouts cause excessive futex syscall overhead
+(each <code class="docutils literal notranslate"><span class="pre">futex_wait</span></code>/return is ~3–5 µs of kernel entry/exit).</p></li>
+<li><p>Too-long timeouts cause barrier-synchronized workloads
+(cholesky, LU) to miss the start of a new parallel phase.</p></li>
+</ul>
+<p>The 1 ms cap was determined empirically: 10 ms caused measurable
+regressions in LU decomposition; 100 ms caused severe regressions
+in multiple structured benchmarks.</p>
+<p><strong>Wake signals.</strong> Workers can be woken from futex sleep by:</p>
+<ol class="arabic simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">lace_run_task</span></code>: always wakes one worker when an external task
+is submitted. This is the primary mechanism for external task
+responsiveness.</p></li>
+<li><p>Successful steal with remaining work (<code class="docutils literal notranslate"><span class="pre">LACE_STOLEN</span></code>, not
+<code class="docutils literal notranslate"><span class="pre">LACE_STOLEN_LAST</span></code>): the thief knows the victim still has
+stealable tasks, so it wakes one sleeping worker to help.
+This creates a cascade: workers wake proportionally to
+available parallelism. The <code class="docutils literal notranslate"><span class="pre">LACE_STOLEN_LAST</span></code> distinction
+prevents spurious wakes when the stolen task was the last one.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">lace_stop</span></code>: wakes all sleeping workers so they observe the
+quit flag and exit promptly.</p></li>
+</ol>
+<p>The <code class="docutils literal notranslate"><span class="pre">wake_futex</span></code> word is incremented (<code class="docutils literal notranslate"><span class="pre">fetch_add</span></code>) before each
+<code class="docutils literal notranslate"><span class="pre">futex_wake</span></code> call. This ensures the futex value has changed,
+preventing the lost-wake race where a worker enters <code class="docutils literal notranslate"><span class="pre">futex_wait</span></code>
+between the value change and the wake signal.</p>
+<p><strong>Steal result signalling.</strong> <code class="docutils literal notranslate"><span class="pre">lace_steal</span></code> returns one of:</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">LACE_STOLEN</span></code> — task stolen, victim still has more work
+(<code class="docutils literal notranslate"><span class="pre">tail</span> <span class="pre">&lt;</span> <span class="pre">split</span></code> after CAS). Triggers a wake signal.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">LACE_STOLEN_LAST</span></code> — task stolen, but it was the last
+stealable task. No wake signal.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">LACE_BUSY</span></code> — CAS failed, another thief was concurrent.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">LACE_NOWORK</span></code> — victim has no stealable tasks.</p></li>
+</ul>
+</section>
+<section id="futex-portability">
+<h2>Futex portability<a class="headerlink" href="#futex-portability" title="Link to this heading"></a></h2>
+<p>Lace uses address-based wait/wake primitives (commonly called
+“futex”) for the idle system and external task completion. These
+operate on plain <code class="docutils literal notranslate"><span class="pre">atomic_int</span></code> values with no initialisation or
+destruction required. The kernel maintains wait queues internally,
+keyed by virtual address.</p>
+<p>Platform implementations:</p>
+<ul class="simple">
+<li><p><strong>Linux</strong>: <code class="docutils literal notranslate"><span class="pre">futex(FUTEX_WAIT_PRIVATE)</span></code> /
+<code class="docutils literal notranslate"><span class="pre">futex(FUTEX_WAKE_PRIVATE)</span></code> via <code class="docutils literal notranslate"><span class="pre">syscall(SYS_futex,</span> <span class="pre">...)</span></code>.
+The <code class="docutils literal notranslate"><span class="pre">_PRIVATE</span></code> variants avoid the overhead of shared-memory
+mapping lookups since all threads are in the same process.</p></li>
+<li><p><strong>FreeBSD</strong>: <code class="docutils literal notranslate"><span class="pre">_umtx_op(UMTX_OP_WAIT_UINT_PRIVATE)</span></code> /
+<code class="docutils literal notranslate"><span class="pre">_umtx_op(UMTX_OP_WAKE_PRIVATE)</span></code>. Timeout is passed via
+a <code class="docutils literal notranslate"><span class="pre">struct</span> <span class="pre">_umtx_time</span></code> for relative timeouts.</p></li>
+<li><p><strong>macOS 14.4+</strong>: <code class="docutils literal notranslate"><span class="pre">os_sync_wait_on_address_with_timeout</span></code> /
+<code class="docutils literal notranslate"><span class="pre">os_sync_wake_by_address_any</span></code> / <code class="docutils literal notranslate"><span class="pre">os_sync_wake_by_address_all</span></code>.
+This is the public, documented Apple API introduced in macOS 14.4.</p></li>
+<li><p><strong>macOS &lt; 14.4</strong>: <code class="docutils literal notranslate"><span class="pre">__ulock_wait</span></code> / <code class="docutils literal notranslate"><span class="pre">__ulock_wake</span></code>. This is
+a private Darwin API used by the Rust standard library, Go
+runtime, and LLVM libc++. It has been stable since macOS 10.12.</p></li>
+<li><p><strong>Windows</strong>: <code class="docutils literal notranslate"><span class="pre">WaitOnAddress</span></code> / <code class="docutils literal notranslate"><span class="pre">WakeByAddressSingle</span></code> /
+<code class="docutils literal notranslate"><span class="pre">WakeByAddressAll</span></code> from <code class="docutils literal notranslate"><span class="pre">synchapi.h</span></code> (Windows 8+). Requires
+linking with <code class="docutils literal notranslate"><span class="pre">Synchronization.lib</span></code> (<code class="docutils literal notranslate"><span class="pre">-lsynchronization</span></code> for
+MinGW).</p></li>
+</ul>
+</section>
+<section id="barrier">
+<h2>Barrier<a class="headerlink" href="#barrier" title="Link to this heading"></a></h2>
+<p>Lace uses a custom sense-reversing barrier. A shared <code class="docutils literal notranslate"><span class="pre">wait</span></code> flag is
+flipped by the last thread to arrive (the leader). Other threads spin
+on this flag with <code class="docutils literal notranslate"><span class="pre">acquire</span></code> loads. A <code class="docutils literal notranslate"><span class="pre">leaving</span></code> counter tracks how
+many threads have exited the barrier, used by <code class="docutils literal notranslate"><span class="pre">lace_barrier_destroy</span></code>
+to wait for all threads to leave before tearing down the barrier.</p>
+<p>The barrier provides full memory ordering: all memory operations by
+any thread before the barrier are visible to all threads after the
+barrier. This includes StoreLoad ordering — a store before the
+barrier and a load after the barrier within the same thread cannot be
+reordered. The guarantee follows from the <code class="docutils literal notranslate"><span class="pre">acq_rel</span></code> read-modify-write
+on <code class="docutils literal notranslate"><span class="pre">count</span></code>: unlike a separate release-store / acquire-load pair,
+an <code class="docutils literal notranslate"><span class="pre">acq_rel</span></code> RMW is indivisible, so it prevents both prior stores
+from floating past it (release) and later loads from floating before
+it (acquire). Cross-thread visibility follows from the transitive
+chain: each <code class="docutils literal notranslate"><span class="pre">fetch_add</span></code> on <code class="docutils literal notranslate"><span class="pre">count</span></code> acquires all stores released
+by prior <code class="docutils literal notranslate"><span class="pre">fetch_add</span></code> operations (via the modification order of
+<code class="docutils literal notranslate"><span class="pre">count</span></code>), so the leader acquires all pre-barrier stores from all
+threads. The leader then releases through the <code class="docutils literal notranslate"><span class="pre">wait</span></code> flip, which
+the spinning threads acquire.</p>
+</section>
+<section id="stack-and-deque-allocation">
+<h2>Stack and deque allocation<a class="headerlink" href="#stack-and-deque-allocation" title="Link to this heading"></a></h2>
+<p>Worker thread stacks and task deques are allocated as virtual memory
+mappings (<code class="docutils literal notranslate"><span class="pre">mmap</span></code> on Unix, <code class="docutils literal notranslate"><span class="pre">VirtualAlloc</span></code> on Windows). Pages are
+committed lazily by the kernel on first access. This means:</p>
+<ul class="simple">
+<li><p>A 64 MB deque (1M task slots × 64 bytes) consumes only as much
+physical memory as the actual recursion depth requires.</p></li>
+<li><p>Worker stacks similarly consume physical memory proportional to
+actual call depth, not the reserved size.</p></li>
+</ul>
+<p>On NUMA systems, first-touch policy places pages on the node where
+the accessing thread runs. Since each worker is pinned before
+executing any tasks, its stack and deque pages are allocated locally.
+When hwloc is available, stacks are allocated with
+<code class="docutils literal notranslate"><span class="pre">hwloc_alloc_membind</span></code> for explicit NUMA binding.</p>
+<p>Each stack has a guard page (<code class="docutils literal notranslate"><span class="pre">PROT_NONE</span></code> / <code class="docutils literal notranslate"><span class="pre">PAGE_NOACCESS</span></code>) at
+the low end. The guard page is excluded from the region passed to
+<code class="docutils literal notranslate"><span class="pre">pthread_attr_setstack</span></code>, so pthreads does not attempt to use it.</p>
+</section>
+<section id="scratch-arena">
+<h2>Scratch arena<a class="headerlink" href="#scratch-arena" title="Link to this heading"></a></h2>
+<p>Each worker owns a private bump-allocated arena for task-local temporary
+storage (see <a class="reference internal" href="tasks.html"><span class="doc">Defining Tasks</span></a> for the user-facing API). The arena exists
+because the three obvious alternatives all have problems for the
+fork-join workloads Lace targets:</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">alloca</span></code> / C99 VLAs run on the thread stack and overflow without
+warning past the guard page; MSVC does not support VLAs at all.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">malloc</span></code>/<code class="docutils literal notranslate"><span class="pre">free</span></code> introduces allocator contention on workloads with
+many fine-grained tasks, dominating the cost of the task itself.</p></li>
+<li><p>A shared lock-free allocator would still bounce cache lines between
+workers on every allocation.</p></li>
+</ul>
+<p>A per-worker arena avoids all three: the allocations are stack-like
+bump operations on private state, no cache lines are shared, and the
+backing memory is bounded by the worker’s recursion depth rather than
+by a fixed stack size.</p>
+<section id="virtual-memory-layout">
+<h3>Virtual memory layout<a class="headerlink" href="#virtual-memory-layout" title="Link to this heading"></a></h3>
+<p>Each worker reserves a large virtual address range at startup (1 GiB
+on 64-bit, 16 MiB on 32-bit, configurable). The reservation is purely
+address space; on 64-bit systems address space is essentially free and
+typical totals fit comfortably below any practical limit. On 32-bit
+systems user-mode address space is limited (typically 2–3 GiB) so the
+default is sized to fit a moderate number of workers without exhausting
+the address space; an application that needs more should call
+<code class="docutils literal notranslate"><span class="pre">lace_set_scratch_size</span></code> before <code class="docutils literal notranslate"><span class="pre">lace_start</span></code>.</p>
+<p>The arena exposes four pointers per worker:</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">scratch_base</span></code> — base of the reservation</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">scratch_top</span></code> — current allocation pointer (hot, written on every
+<code class="docutils literal notranslate"><span class="pre">lace_scratch_alloc</span></code>)</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">scratch_committed_end</span></code> — one past the highest currently-committed
+byte (hot, read on every allocation as a bound check)</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">scratch_reserve_end</span></code> — one past the end of the reservation
+(cold, only consulted on growth)</p></li>
+</ul>
+<p>The two hot fields live adjacent to the deque pointers in the worker
+struct, in the cache line that every SPAWN/SYNC already touches.
+<code class="docutils literal notranslate"><span class="pre">lace_scratch_alloc</span></code> is then a load + add + compare + conditional
+out-of-line branch + store — about four instructions on the fast path,
+with branch prediction trivially correct (the slow path is taken at
+most once per band’s worth of allocations).</p>
+</section>
+<section id="reserve-commit-decommit">
+<h3>Reserve / commit / decommit<a class="headerlink" href="#reserve-commit-decommit" title="Link to this heading"></a></h3>
+<p>Allocations bump <code class="docutils literal notranslate"><span class="pre">scratch_top</span></code>. When the bump crosses
+<code class="docutils literal notranslate"><span class="pre">scratch_committed_end</span></code>, <code class="docutils literal notranslate"><span class="pre">lace_scratch_grow</span></code> commits additional
+pages by calling <code class="docutils literal notranslate"><span class="pre">mprotect(PROT_READ|PROT_WRITE)</span></code> on POSIX or
+<code class="docutils literal notranslate"><span class="pre">VirtualAlloc(MEM_COMMIT,</span> <span class="pre">PAGE_READWRITE)</span></code> on Windows. To avoid
+syscalling on every small push/pop oscillation near the top, the grow
+path commits a <em>band</em> of pages above the immediate request (1 MiB by
+default, configurable). The fast path stays in the committed band
+without further system calls until the band is exhausted.</p>
+<p>The reserve uses <code class="docutils literal notranslate"><span class="pre">PROT_NONE</span></code> / <code class="docutils literal notranslate"><span class="pre">PAGE_NOACCESS</span></code> rather than
+<code class="docutils literal notranslate"><span class="pre">PROT_READ|PROT_WRITE</span></code> with <code class="docutils literal notranslate"><span class="pre">MAP_NORESERVE</span></code>. This is more work
+on the commit path but provides guard semantics: a runaway recursion
+that overshoots the band hits a segfault rather than silently
+faulting in zero pages. Reservation exhaustion is caught explicitly
+in <code class="docutils literal notranslate"><span class="pre">lace_scratch_grow</span></code> with a diagnostic message before aborting.</p>
+<p>The decommit primitive uses <code class="docutils literal notranslate"><span class="pre">madvise(MADV_DONTNEED)</span></code> followed by
+<code class="docutils literal notranslate"><span class="pre">mprotect(PROT_NONE)</span></code> on POSIX, and <code class="docutils literal notranslate"><span class="pre">VirtualFree(MEM_DECOMMIT)</span></code>
+on Windows. The <code class="docutils literal notranslate"><span class="pre">MADV_DONTNEED</span></code> returns the physical pages to the
+OS immediately; the <code class="docutils literal notranslate"><span class="pre">PROT_NONE</span></code> ensures that any stray access past
+the new top fails fast.</p>
+</section>
+<section id="numa-placement">
+<h3>NUMA placement<a class="headerlink" href="#numa-placement" title="Link to this heading"></a></h3>
+<p>The reservation is created in <code class="docutils literal notranslate"><span class="pre">lace_init_worker</span></code> on the worker’s own
+thread, after CPU pinning. The reservation itself touches no pages;
+all physical allocations happen later, on first access from the same
+worker thread, so first-touch NUMA policy places the pages on the
+worker’s local node. No explicit NUMA binding is needed.</p>
+</section>
+<section id="trim-on-deep-idle">
+<h3>Trim on deep idle<a class="headerlink" href="#trim-on-deep-idle" title="Link to this heading"></a></h3>
+<p>When a worker exhausts its steal attempts and transitions into the
+futex-wait stage of the idle progression (see <em>Worker idle strategy</em>),
+Lace decommits arena pages above <code class="docutils literal notranslate"><span class="pre">scratch_top</span> <span class="pre">+</span> <span class="pre">band</span></code>. The trim
+fires exactly once per backoff sequence: <code class="docutils literal notranslate"><span class="pre">idle_count</span></code> resets on any
+successful steal, so the next dry spell will trim again from a new
+high-water mark. The trim is invoked from the same cold code path
+that is already about to make a <code class="docutils literal notranslate"><span class="pre">futex_wait</span></code> syscall, so its cost
+is invisible.</p>
+<p>By construction the worker is between tasks when it idles, so
+<code class="docutils literal notranslate"><span class="pre">scratch_top</span></code> equals <code class="docutils literal notranslate"><span class="pre">scratch_base</span></code> and the trim leaves only the
+band committed — enough to absorb the first wave of allocations after
+wake without faulting in pages.</p>
+</section>
+<section id="leak-detection">
+<h3>Leak detection<a class="headerlink" href="#leak-detection" title="Link to this heading"></a></h3>
+<p>The arena’s correctness depends on every <code class="docutils literal notranslate"><span class="pre">lace_scratch_mark</span></code> being
+paired with a matching <code class="docutils literal notranslate"><span class="pre">lace_scratch_reset</span></code> on every return path.
+A missing reset would not corrupt anything — the next outer reset
+will eventually restore — but it can cause the arena to grow without
+bound until the reservation is exhausted.</p>
+<p>The same deep-idle transition that triggers the trim also performs a
+leak check: if <code class="docutils literal notranslate"><span class="pre">scratch_top</span> <span class="pre">!=</span> <span class="pre">scratch_base</span></code> at the point when all
+task frames have unwound, Lace prints a one-line warning identifying
+the worker and the leaked byte count, then resets <code class="docutils literal notranslate"><span class="pre">scratch_top</span></code> to
+<code class="docutils literal notranslate"><span class="pre">scratch_base</span></code>. The warning is emitted once per worker per program
+lifetime to avoid flooding logs.</p>
+<p>This combination — warn loudly, recover quietly — keeps a leak from
+killing a long-running program while still making the bug visible
+during development.</p>
+</section>
+</section>
+</section>
+
+
+           </div>
+          </div>
+          <footer><div class="rst-footer-buttons" role="navigation" aria-label="Footer">
+        <a href="tasks.html" class="btn btn-neutral float-left" title="Defining Tasks" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
+        <a href="benchmarks.html" class="btn btn-neutral float-right" title="Benchmarks" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
+    </div>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright 2026, Tom van Dijk.</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>
