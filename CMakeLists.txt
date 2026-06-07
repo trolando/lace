@@ -20,6 +20,8 @@ endif()
  
 list(PREPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_LIST_DIR}/cmake")
 
+set(lace_VERSION "${PROJECT_VERSION}" CACHE INTERNAL "Lace version")
+
 # ── Options ──────────────────────────────────────────────────────────────────
  
 option(BUILD_SHARED_LIBS "Build shared libraries instead of static"                  OFF)
