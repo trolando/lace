@@ -362,6 +362,35 @@ typedef struct lace_task lace_task;
 void lace_start(unsigned int n_workers, size_t dqsize, size_t stacksize);
 
 /**
+ * External-thread integration: set up Lace's shared structures without
+ * spawning any worker threads. The host runtime provides the threads and
+ * turns each into a Lace worker with lace_init_worker(). See lace.c.
+ *
+ * @param n_workers  Number of host threads that will become Lace workers.
+ * @param dqsize     Task deque size per worker (0 for the default).
+ */
+void lace_init_static(unsigned int n_workers, size_t dqsize);
+
+/**
+ * Register the calling (host-created) thread as Lace worker @p worker.
+ * Call once per thread, after lace_init_static() and before running tasks.
+ */
+void lace_init_worker(unsigned int worker);
+
+/**
+ * Work-stealing loop for non-root worker threads: steal and run tasks
+ * until *quit becomes non-zero. @p lw is the calling thread's worker
+ * (from lace_get_worker() after lace_init_worker()).
+ */
+void lace_steal_loop_CALL(lace_worker* lw, atomic_int* quit);
+
+/**
+ * Release the shared structures allocated by lace_init_static(), after the
+ * host has joined all worker threads.
+ */
+void lace_deinit_static(void);
+
+/**
  * Stop all workers and free resources.
  *
  * Must be called from a thread that is not a Lace worker.
