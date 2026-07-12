@@ -939,7 +939,7 @@ lace_scratch_trim(lace_worker *lw)
     }
 }
 
-static void
+void
 lace_init_worker(unsigned int worker)
 {
     // Allocate our memory
@@ -1345,6 +1345,100 @@ lace_set_scratch_band(size_t size)
  *
  * @see lace_stop
  */
+/**
+ * External-thread integration (added for LTSmin).
+ *
+ * Instead of Lace spawning its own worker threads (lace_start), a host
+ * runtime (here HRE) creates the threads and turns each into a Lace worker:
+ *
+ *     lace_init_static(n_workers, dqsize);   // once, before the threads
+ *     // ... host spawns n_workers threads ...
+ *     lace_init_worker(my_id);               // each thread registers itself
+ *     // worker 0 runs the root task via CALL; the others enter
+ *     // lace_steal_loop_CALL(lw, &stop) until worker 0 sets *stop.
+ *     lace_deinit_static();                  // once, after the threads join
+ *
+ * lace_init_static performs the shared setup of lace_start (deque arrays,
+ * barrier, sizes) but spawns no threads and allocates no worker stacks --
+ * the host threads bring their own. No CPU pinning is done; the host
+ * runtime owns thread placement.
+ */
+void
+lace_init_static(unsigned int _n_workers, size_t dequesize)
+{
+    lace_scratch_init_page_size();
+    cache_line_size = get_cache_line_size();
+
+    n_workers = _n_workers == 0 ? 1 : _n_workers;
+    dqsize = dequesize > 0 ? dequesize : 1048576;
+    atomic_store_explicit(&lace_quits, 0, memory_order_relaxed);
+
+    lace_barrier_init();
+
+    size_t to_allocate = n_workers * sizeof(void*);
+    to_allocate = (to_allocate + cache_line_size - 1) & (~(cache_line_size - 1));
+#if defined(_MSC_VER) || defined(__MINGW64_VERSION_MAJOR)
+    workers = _aligned_malloc(to_allocate, cache_line_size);
+    workers_p = _aligned_malloc(to_allocate, cache_line_size);
+    workers_memory = _aligned_malloc(to_allocate, cache_line_size);
+#elif defined(__MINGW32__)
+    workers = __mingw_aligned_malloc(to_allocate, cache_line_size);
+    workers_p = __mingw_aligned_malloc(to_allocate, cache_line_size);
+    workers_memory = __mingw_aligned_malloc(to_allocate, cache_line_size);
+#else
+    workers = aligned_alloc(cache_line_size, to_allocate);
+    workers_p = aligned_alloc(cache_line_size, to_allocate);
+    workers_memory = aligned_alloc(cache_line_size, to_allocate);
+#endif
+    if (workers == 0 || workers_p == 0 || workers_memory == 0) {
+        fprintf(stderr, "Lace error: unable to allocate memory for the workers!\n");
+        exit(1);
+    }
+    memset(workers, 0, n_workers * sizeof(lace_worker_public*));
+
+    workers_memory_size = sizeof(worker_data) + sizeof(lace_task) * dqsize;
+
+    atomic_store_explicit(&lace_newframe.t, NULL, memory_order_relaxed);
+    us_elapsed_start();
+    count_at_start = lace_gethrtime();
+
+    is_running = 1;
+}
+
+/**
+ * Release the shared structures allocated by lace_init_static.
+ * The host is responsible for having joined all worker threads first.
+ */
+void
+lace_deinit_static(void)
+{
+    lace_barrier_destroy();
+
+    for (unsigned int i = 0; i < n_workers; i++) {
+        if (workers_memory[i] == NULL) continue;
+        if (workers_p[i]->scratch_base != NULL) {
+            lace_scratch_release(workers_p[i]->scratch_base,
+                                 (size_t)(workers_p[i]->scratch_reserve_end
+                                          - workers_p[i]->scratch_base));
+        }
+#if defined(_WIN32)
+        VirtualFree(workers_memory[i], 0, MEM_RELEASE);
+#else
+        munmap(workers_memory[i], workers_memory_size);
+#endif
+    }
+
+#if defined(_MSC_VER) || defined(__MINGW64_VERSION_MAJOR)
+    _aligned_free(workers); _aligned_free(workers_p); _aligned_free(workers_memory);
+#elif defined(__MINGW32__)
+    __mingw_aligned_free(workers); __mingw_aligned_free(workers_p); __mingw_aligned_free(workers_memory);
+#else
+    free(workers); free(workers_p); free(workers_memory);
+#endif
+    workers = 0; workers_p = 0; workers_memory = 0;
+    is_running = 0;
+}
+
 void
 lace_start(unsigned int _n_workers, size_t dequesize, size_t stacksize)
 {
