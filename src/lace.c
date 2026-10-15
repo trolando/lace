@@ -577,6 +577,7 @@ lace_get_stacksize(void)
 /**
  * If we are collecting PIE times, then we need some helper functions.
  */
+#if LACE_PIE_TIMES
 static uint64_t count_at_start;
 static uint64_t us_elapsed_timer;
 
@@ -610,11 +611,11 @@ static void us_elapsed_start(void)
     us_elapsed_timer = lace_now_us();
 }
 
-LACE_UNUSED
 static unsigned long long us_elapsed(void)
 {
     return (unsigned long long)(lace_now_us() - us_elapsed_timer);
 }
+#endif
 
 /**
  * Lace barrier implementation, that synchronizes on all workers.
@@ -1632,9 +1633,11 @@ lace_start(unsigned int _n_workers, size_t dequesize)
     // Prepare lace_init structure
     atomic_store_explicit(&lace_newframe.t, NULL, memory_order_relaxed);
 
+#if LACE_PIE_TIMES
     // Initialize counters for pie times
     us_elapsed_start();
     count_at_start = lace_gethrtime();
+#endif
 
     /* Report startup if verbose */
     if (verbosity) {
