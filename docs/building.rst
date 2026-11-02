@@ -126,6 +126,12 @@ CMake options
    * - ``LACE_COUNT_SPLITS``
      - Record the number of deque split-point adjustments per worker.
      - OFF
+   * - ``LACE_HARDENING``
+     - Keep the compiler's default stack protector and stack clash
+       protection in Lace's own code. When OFF, the library and the
+       benchmarks are built with ``-fno-stack-protector
+       -fno-stack-clash-protection`` (``/GS-`` on MSVC).
+     - OFF
 
 The following options are only available when Lace is the top-level project:
 
@@ -181,6 +187,21 @@ build machine's CPU.
 ``LACE_COUNT_TASKS``, ``LACE_COUNT_STEALS``, and ``LACE_COUNT_SPLITS``
 options add instrumentation overhead. Enable them for profiling and debugging,
 but never for performance benchmarking.
+
+**Hardening defaults cost time in task code.** Many distributions configure
+GCC to add a stack protector and stack clash protection by default. These
+guard against attacks through untrusted input, which a work-stealing
+scheduler does not handle, so Lace turns both off in its own targets
+(``LACE_HARDENING``). Your program keeps its own flags, also for the code
+that the task macros put in your functions; to turn them off there too, add
+for example:
+
+.. code-block:: cmake
+
+   target_compile_options(myprog PRIVATE -fno-stack-protector -fno-stack-clash-protection)
+
+``-fcf-protection`` stays on: mixing objects with and without it drops the
+CET marking of the whole program.
 
 **Sanitiser options are mutually exclusive.** AddressSanitizer and
 ThreadSanitizer cannot be combined. Use them individually during development.
