@@ -109,6 +109,7 @@
 #if LACE_MSVC
     #define LACE_UNUSED
     #define LACE_NOINLINE __declspec(noinline)
+    #define LACE_COLD
     #define LACE_NORETURN __declspec(noreturn)
     #define LACE_ALIGN(N) __declspec(align(N))
     #define LACE_LIKELY(x)   (x)
@@ -117,6 +118,7 @@
 #elif defined(__GNUC__) || defined(__clang__)
     #define LACE_UNUSED __attribute__((unused))
     #define LACE_NOINLINE __attribute__((noinline))
+    #define LACE_COLD __attribute__((cold))
     #if defined(__STDC_VERSION__) && (__STDC_VERSION__ >= 201112L)
         #define LACE_NORETURN _Noreturn
         #define LACE_ALIGN(N) _Alignas(N)
@@ -130,6 +132,7 @@
 #elif defined(__STDC_VERSION__) && (__STDC_VERSION__ >= 201112L)
     #define LACE_UNUSED
     #define LACE_NOINLINE
+    #define LACE_COLD
     #define LACE_NORETURN _Noreturn
     #define LACE_ALIGN(N) _Alignas(N)
     #define LACE_LIKELY(x)   (x)
@@ -138,6 +141,7 @@
 #else
     #define LACE_UNUSED
     #define LACE_NOINLINE
+    #define LACE_COLD
     #define LACE_NORETURN
     #define LACE_ALIGN(N)
     #define LACE_LIKELY(x)   (x)
@@ -1139,9 +1143,13 @@ extern lace_newframe_t lace_newframe;
 /**
  * @ingroup lace_internals
  * Yield the current worker to handle a pending NEWFRAME interruption.
+ *
+ * Out of line and cold: callers check lace_newframe inline (lace_check_yield)
+ * and only call this when there is an interruption, so its task copy and
+ * barrier stay out of their stack frames.
  * @param lw  Pointer to the current worker
  */
-void lace_yield(lace_worker* lw);
+LACE_NOINLINE LACE_COLD void lace_yield(lace_worker* lw);
 
 static inline int lace_check_yield(lace_worker *lw)
 {

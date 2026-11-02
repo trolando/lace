@@ -8,6 +8,7 @@ All notable changes to Lace will be documented in this file.
 
 - Lace's own targets are built without stack protector, unless
   `LACE_HARDENING` is set.
+- Leaner steal and leapfrog code.
 
 
 ## [2.4.0] - 2026-06-07

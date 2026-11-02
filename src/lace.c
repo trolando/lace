@@ -2139,7 +2139,11 @@ lace_steal(lace_worker *self, lace_worker_public *victim)
             TailSplitNA ts_new;
             ts_new.v = ts.v;
             ts_new.ts.tail++;
-            if (atomic_compare_exchange_weak(&victim->ts.v, &ts.v, ts_new.v)) {
+            /* A scalar expected value, not &ts.v: the union would have to live
+             * on the stack, and with -fstack-protector-strong that adds a
+             * canary check to every steal attempt. */
+            uint64_t expected = ts.v;
+            if (atomic_compare_exchange_weak(&victim->ts.v, &expected, ts_new.v)) {
                 // Stolen
                 lace_task *t = &victim->dq[ts.ts.tail];
                 atomic_store_explicit(&t->thief, self->_public, memory_order_relaxed);
