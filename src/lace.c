@@ -1098,6 +1098,19 @@ lace_steal_external(lace_worker *self)
 }
 
 /**
+ * Pick a random victim among the n-1 workers other than self (n > 1).
+ * Two 64-bit divisions (rng % (n-1), then % n) cost tens of cycles on every
+ * steal attempt; instead scale 32 random bits to [0, n-1) by a multiply and
+ * shift, then wrap past self with a compare.
+ */
+static inline unsigned int lace_random_victim(lace_worker *w, unsigned int self, unsigned int n)
+{
+    uint64_t r = lace_rng(w) >> 32;
+    unsigned int v = self + 1U + (unsigned int)((r * (n - 1U)) >> 32);
+    return v >= n ? v - n : v;
+}
+
+/**
  * (Try to) steal and execute a task from a random worker.
  */
 void lace_steal_random(lace_worker *_lace_worker)
@@ -1107,7 +1120,7 @@ void lace_steal_random(lace_worker *_lace_worker)
     if (LACE_UNLIKELY(atomic_load_explicit(&external_task_count, memory_order_acquire) > 0)) {
         lace_steal_external(_lace_worker);
     } else if (n_workers > 1) {
-        lace_worker_public *victim = workers[(_lace_worker->worker + 1U + (lace_rng(_lace_worker) % (n_workers-1))) % n_workers];
+        lace_worker_public *victim = workers[lace_random_victim(_lace_worker, _lace_worker->worker, n_workers)];
 
         PR_COUNTSTEALS(_lace_worker, CTR_steal_tries);
         lace_worker_public *res = lace_steal(_lace_worker, victim);
@@ -1145,7 +1158,7 @@ void lace_steal_loop_CALL(lace_worker* lw, atomic_int* quit)
             if ((idle_count&1) == 0 && last_victim != worker_id) {
                 victim = workers + last_victim;
             } else {
-                victim = workers + ((lace_rng(lw) % (n - 1)) + (uint64_t)worker_id + 1) % n;
+                victim = workers + lace_random_victim(lw, worker_id, n);
             }
 
             PR_COUNTSTEALS(lw, CTR_steal_tries);
