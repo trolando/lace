@@ -758,6 +758,7 @@ typedef enum {
     CTR_leaps,       /* Number of succesful leaps */
     CTR_steal_busy,  /* Number of steal busies */
     CTR_leap_busy,   /* Number of leap busies */
+    CTR_leap_strays, /* Leaps that stole a task unrelated to the awaited one */
 #endif
 #ifdef LACE_COUNT_SPLITS
     CTR_split_grow,  /* Number of split right */
@@ -858,6 +859,9 @@ typedef struct lace_worker {
 #if LACE_COUNT_EVENTS
     uint64_t ctr[CTR_MAX];      // counters
     int level;
+#endif
+#if LACE_COUNT_STEALS
+    lace_task *leap_task;       // awaited task during a leap attempt (for CTR_leap_strays)
 #endif
 } lace_worker;
 

@@ -121,7 +121,7 @@ CMake options
      - Record the number of tasks executed per worker.
      - OFF
    * - ``LACE_COUNT_STEALS``
-     - Record the number of successful steals per worker.
+     - Record the number of steals and leaps per worker, and leap strays.
      - OFF
    * - ``LACE_COUNT_SPLITS``
      - Record the number of deque split-point adjustments per worker.

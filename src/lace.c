@@ -1012,6 +1012,9 @@ lace_init_worker(unsigned int worker)
 #if LACE_PIE_TIMES
     w->level = 0;
 #endif
+#if LACE_COUNT_STEALS
+    w->leap_task = NULL;
+#endif
 
     if (scratch_size > 0) {
         /* Page-align the reservation for clean commit/decommit math. */
@@ -1781,6 +1784,43 @@ int lace_is_running(void)
 static uint64_t ctr_all[CTR_MAX];
 #endif
 
+#if LACE_COUNT_EVENTS && !defined(_WIN32) && (LACE_USE_HWLOC || !defined(__FreeBSD__))
+#define LACE_STACK_HIGH_WATER 1
+/**
+ * How much of worker @p i's stack has been touched since lace_start: from the
+ * top of the stack down to its lowest resident page, found with mincore().
+ * Untouched pages of the reservation are never resident. With transparent
+ * huge pages the granularity can be 2 MB. Returns 0 if unknown.
+ */
+static size_t
+lace_stack_high_water(unsigned int i)
+{
+    if (worker_stacks == NULL || worker_stacks[i] == NULL) return 0;
+    size_t page = worker_stack_page_size;
+    size_t npages = (worker_stack_size - page) / page;
+    char *low = (char*)worker_stacks[i] + page; // above the guard page
+#if defined(__linux__)
+    unsigned char *vec = malloc(npages);
+#else
+    char *vec = malloc(npages);
+#endif
+    if (vec == NULL) return 0;
+    size_t used = 0;
+    if (mincore((void*)low, npages * page, vec) == 0) {
+        for (size_t k = 0; k < npages; k++) {
+            if (vec[k] & 1) {
+                used = (npages - k) * page;
+                break;
+            }
+        }
+    }
+    free(vec);
+    return used;
+}
+#else
+#define LACE_STACK_HIGH_WATER 0
+#endif
+
 /**
  * Reset the counters of Lace.
  */
@@ -1872,6 +1912,26 @@ lace_count_report_file(FILE *file)
     fprintf(file, "\n");
 #endif
 
+#if LACE_COUNT_STEALS
+    fprintf(file, "Leap strays (sum): %" PRIu64 " of %" PRIu64 " leaps\n",
+        ctr_all[CTR_leap_strays], ctr_all[CTR_leaps]);
+    fprintf(file, "\n");
+#endif
+
+#if LACE_STACK_HIGH_WATER
+    {
+        size_t max_used = 0;
+        for (i=0;i<n_workers;i++) {
+            size_t used = lace_stack_high_water(i);
+            if (used > max_used) max_used = used;
+            fprintf(file, "Stack high-water (%u): %zu KB\n", i, used / 1024);
+        }
+        fprintf(file, "Stack high-water (max): %zu KB of %zu KB\n", max_used / 1024,
+            (worker_stack_size - worker_stack_page_size) / 1024);
+        fprintf(file, "\n");
+    }
+#endif
+
 #if LACE_PIE_TIMES
     uint64_t count_at_end = lace_gethrtime();
     double ms = (double)us_elapsed() / 1000.0;
@@ -1938,16 +1998,17 @@ void lace_stop(void)
 
     free(handles);
 
+#if LACE_COUNT_EVENTS
+    // before the stacks are freed: the report includes their high-water marks
+    lace_count_report_file(stdout);
+#endif
+
 #if LACE_USE_HWLOC || (!defined(_WIN32) && !defined(__FreeBSD__))
     if (worker_stacks != NULL) {
         lace_free_stacks(n_workers);
         free(worker_stacks);
         worker_stacks = NULL;
     }
-#endif
-
-#if LACE_COUNT_EVENTS
-    lace_count_report_file(stdout);
 #endif
 
     // finally, destroy the barriers
@@ -2219,6 +2280,18 @@ lace_steal(lace_worker *self, lace_worker_public *victim)
             if (atomic_compare_exchange_weak(&victim->ts.v, &expected, ts_new.v)) {
                 // Stolen
                 lace_task *t = &victim->dq[ts.ts.tail];
+#if LACE_COUNT_STEALS
+                /* A leap normally steals a descendant of the awaited task,
+                 * which cannot complete before that descendant has run. So
+                 * if it has completed already, the thief finished it and
+                 * moved on before our steal: this task is unrelated. */
+                if (self->leap_task != NULL) {
+                    if (atomic_load_explicit(&self->leap_task->thief, memory_order_relaxed) == THIEF_COMPLETED) {
+                        PR_COUNTSTEALS(self, CTR_leap_strays);
+                    }
+                    self->leap_task = NULL;
+                }
+#endif
                 atomic_store_explicit(&t->thief, self->_public, memory_order_relaxed);
                 lace_time_event(self, 1);
                 t->f(self, t);
@@ -2291,7 +2364,13 @@ lace_leapfrog(lace_worker *worker)
         int attempts = 32;
         while (thief != THIEF_COMPLETED) {
             PR_COUNTSTEALS(worker, CTR_leap_tries);
+#if LACE_COUNT_STEALS
+            worker->leap_task = t;
+#endif
             lace_worker_public *res = lace_steal(worker, thief);
+#if LACE_COUNT_STEALS
+            worker->leap_task = NULL;
+#endif
             if (res == LACE_NOWORK) {
                 lace_check_yield(worker);
                 if ((LACE_LEAP_RANDOM) && (--attempts == 0)) {

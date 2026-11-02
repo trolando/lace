@@ -6,6 +6,8 @@ All notable changes to Lace will be documented in this file.
 
 ### Added
 
+- Statistics builds count leap strays and report the stack high-water mark
+  of each worker.
 - A test for mixed SYNC and DROP, `test_drop`.
 
 ### Changed
