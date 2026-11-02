@@ -414,6 +414,9 @@ typedef struct {
     alignas(LACE_PADDING_TARGET) lace_task deque[];
 } worker_data;
 
+static_assert(offsetof(worker_data, worker_private) == sizeof(lace_worker_public),
+              "lace_worker_public_of() assumes the public struct right before the private one");
+
 #if LACE_MSVC
 #pragma warning(pop)
 #endif

@@ -14,6 +14,8 @@ All notable changes to Lace will be documented in this file.
   `LACE_HARDENING` is set.
 - Leaner steal and leapfrog code. Random victims are picked without
   division.
+- SPAWN, SYNC and DROP find the worker's public struct at a fixed offset
+  instead of loading a pointer.
 - DROP pops a task that was not stolen inline, like SYNC.
 
 

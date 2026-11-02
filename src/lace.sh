@@ -871,6 +871,17 @@ typedef struct lace_worker {
 #endif
 } lace_worker;
 
+/**
+ * The public part of a worker. Lace allocates the public struct of a worker
+ * right before its private struct (worker_data in lace.c), so the hot paths
+ * (SPAWN, SYNC, DROP) find it at a constant offset instead of loading
+ * lw->_public first.
+ */
+static inline lace_worker_public* lace_worker_public_of(lace_worker *lw)
+{
+    return (lace_worker_public*)(void*)((char*)lw - sizeof(lace_worker_public));
+}
+
 extern LACE_TLS lace_worker *lace_thread_worker;
 
 /** @} */ /* end lace_internals */
@@ -1442,7 +1453,7 @@ lace_task* NAME##_SPAWN(lace_worker* _lace_worker$FUN_ARGS)
     atomic_thread_fence(memory_order_release);
     /* do not allow later stores to float above */
 
-    lace_worker_public *wt = _lace_worker->_public;
+    lace_worker_public *wt = lace_worker_public_of(_lace_worker);
     if (LACE_UNLIKELY(_lace_worker->allstolen)) {
         if (wt->movesplit) wt->movesplit = 0;
         head = (uint32_t)(lace_head - _lace_worker->dq);
@@ -1518,7 +1529,7 @@ $RTYPE NAME##_SYNC(lace_worker* _lace_worker)
     /* assert (__dq_head > 0); */  /* Commented out because we assume contract */
     task_##NAME *t = (task_##NAME *)head;
 
-    if (LACE_LIKELY(0 == _lace_worker->_public->movesplit)) {
+    if (LACE_LIKELY(0 == lace_worker_public_of(_lace_worker)->movesplit)) {
         if (LACE_LIKELY(_lace_worker->split <= head)) {
             atomic_store_explicit(&t->thief, THIEF_EMPTY, memory_order_relaxed);
             ${SS_RETURN}NAME##_CALL(_lace_worker$TASK_GET_FROM_t);
@@ -1541,7 +1552,7 @@ void NAME##_DROP(lace_worker* _lace_worker)
     lace_task* head = _lace_worker->head - 1;
     _lace_worker->head = head;
 
-    if (LACE_LIKELY(0 == _lace_worker->_public->movesplit)) {
+    if (LACE_LIKELY(0 == lace_worker_public_of(_lace_worker)->movesplit)) {
         if (LACE_LIKELY(_lace_worker->split <= head)) return;
     }
 
