@@ -4,12 +4,17 @@ All notable changes to Lace will be documented in this file.
 
 ## [Unreleased]
 
+### Added
+
+- A test for mixed SYNC and DROP, `test_drop`.
+
 ### Changed
 
 - Lace's own targets are built without stack protector, unless
   `LACE_HARDENING` is set.
 - Leaner steal and leapfrog code. Random victims are picked without
   division.
+- DROP pops a task that was not stolen inline, like SYNC.
 
 
 ## [2.4.0] - 2026-06-07

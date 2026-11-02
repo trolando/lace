@@ -497,7 +497,6 @@ LACE_TLS lace_worker* lace_thread_worker = NULL;
 lace_worker_public* lace_steal(lace_worker *self, lace_worker_public *victim);
 int lace_shrink_shared(lace_worker *w);
 void lace_leapfrog(lace_worker *__lace_worker);
-void lace_drop_slow(lace_worker *w, lace_task *head);
 
 /**
  * Global newframe variable used for the implementation of NEWFRAME and TOGETHER

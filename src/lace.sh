@@ -1247,6 +1247,16 @@ static inline void lace_scratch_reset(lace_worker *lw, void *mark)
  */
 int lace_sync(lace_worker *w, lace_task *head);
 
+/**
+ * @ingroup lace_internals
+ * Helper for DROP implementations. Handles the slow path when the dropped
+ * task may have been stolen: shrinks the shared region or leapfrogs.
+ *
+ * @param w     Pointer to the current worker
+ * @param head  Pointer to the task being dropped
+ */
+void lace_drop_slow(lace_worker *w, lace_task *head);
+
 #define LACE_PASTE_(a, b) a ## b
 #define LACE_PASTE(a, b)  LACE_PASTE_(a, b)
 
@@ -1528,7 +1538,14 @@ LACE_NO_SANITIZE_THREAD
 static inline LACE_UNUSED
 void NAME##_DROP(lace_worker* _lace_worker)
 {
-    lace_drop(_lace_worker);
+    lace_task* head = _lace_worker->head - 1;
+    _lace_worker->head = head;
+
+    if (LACE_LIKELY(0 == _lace_worker->_public->movesplit)) {
+        if (LACE_LIKELY(_lace_worker->split <= head)) return;
+    }
+
+    lace_drop_slow(_lace_worker, head);
 }
 
 " \
