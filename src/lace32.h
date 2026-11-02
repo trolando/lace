@@ -358,8 +358,14 @@ typedef struct lace_task lace_task;
  * @param dqsize     Task deque size per worker (number of task slots).
  *                   Pass 0 for a default of 100 000. Each live SPAWN that
  *                   has not yet been SYNCed occupies one slot.
- * @param stacksize  Worker thread stack size in bytes. Pass 0 for the
- *                   minimum of 16 MB and the calling thread's stack size.
+ * @param stacksize  Worker thread stack size in bytes, at least 16 MB.
+ *                   Pass 0 for the default: a 1 GB reservation on 64-bit
+ *                   systems where stack pages are committed on first touch
+ *                   (not with LACE_DONT_OVERCOMMIT, not on Windows except
+ *                   MSVC), otherwise the calling thread's stack limit
+ *                   clamped to 16-64 MB. If the 1 GB stacks cannot be
+ *                   reserved (for example under ulimit -v), Lace falls back
+ *                   to the latter.
  *
  * @see lace_stop
  */

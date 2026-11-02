@@ -17,6 +17,10 @@ All notable changes to Lace will be documented in this file.
 - SPAWN, SYNC and DROP find the worker's public struct at a fixed offset
   instead of loading a pointer.
 - DROP pops a task that was not stolen inline, like SYNC.
+- Larger worker stacks: explicit stack sizes are no longer clamped to
+  64 MB, and the default is a 1 GB reservation per worker on 64-bit
+  systems. The new option `LACE_DONT_OVERCOMMIT` keeps the old default
+  (`test_stack`).
 
 
 ## [2.4.0] - 2026-06-07

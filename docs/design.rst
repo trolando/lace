@@ -285,6 +285,20 @@ Each stack has a guard page (``PROT_NONE`` / ``PAGE_NOACCESS``) at
 the low end. The guard page is excluded from the region passed to
 ``pthread_attr_setstack``, so pthreads does not attempt to use it.
 
+Because a reserved stack costs only address space, the default stack
+(``stacksize`` 0 in ``lace_start``) is a 1 GB reservation per worker on
+64-bit systems, like the scratch arena. Deep task trees need it: a
+worker that waits for a stolen task runs other tasks on top of the
+waiting frame (leapfrogging, and with ``LACE_LEAP_RANDOM`` also random
+steals), so its stack can hold several root-to-leaf paths at once. On
+Windows only MSVC builds get the large default, since they create
+threads with ``STACK_SIZE_PARAM_IS_A_RESERVATION``; MinGW and 32-bit
+builds, and builds with ``LACE_DONT_OVERCOMMIT``, use the calling
+thread's stack limit clamped to 16-64 MB. If the large stacks cannot be
+reserved (an address-space limit such as ``ulimit -v``, or strict
+overcommit accounting), Lace falls back to that conservative size. An
+explicit ``stacksize`` is used as given, with a minimum of 16 MB.
+
 
 Scratch arena
 -------------

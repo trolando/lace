@@ -132,6 +132,13 @@ CMake options
        benchmarks are built with ``-fno-stack-protector
        -fno-stack-clash-protection`` (``/GS-`` on MSVC).
      - OFF
+   * - ``LACE_DONT_OVERCOMMIT``
+     - Default worker stacks to the calling thread's stack limit, clamped
+       to 16-64 MB, instead of reserving 1 GB of address space per worker.
+       For systems with strict overcommit accounting
+       (``vm.overcommit_memory=2``). An explicit ``stacksize`` passed to
+       ``lace_start`` is used either way.
+     - OFF
 
 The following options are only available when Lace is the top-level project:
 
