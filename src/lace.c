@@ -1021,8 +1021,10 @@ lace_init_worker(unsigned int worker)
     w->allstolen = 0;
     w->worker = (uint16_t)worker;
 
-    uint64_t seed = ((uint64_t)(uint32_t)rand() << 32) ^ (uint32_t)rand();
-    lace_rng_seed(w, seed);
+    // Seed from the worker index, not rand(): the program's rand() sequence
+    // is its own, and this runs in the new worker thread, at no fixed point
+    // relative to the program's own calls.
+    lace_rng_seed(w, 0x9E3779B97F4A7C15ULL * ((uint64_t)worker + 1));
 
 #if LACE_COUNT_EVENTS
     // Initialize counters
