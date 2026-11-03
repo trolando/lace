@@ -438,6 +438,9 @@ void lace_set_verbosity(int level);
  * memory is committed until the first allocation in the arena. The
  * default is 1 GiB per worker on 64-bit systems and 16 MiB per worker
  * on 32-bit systems, since on 32-bit user address space is limited.
+ * If the 64-bit default cannot be reserved (for example under
+ * ulimit -v), Lace falls back to 16 MiB. A size set here is used as
+ * given: if it cannot be reserved, lace_start() exits with an error.
  *
  * Pass 0 to disable the scratch arena entirely.
  *

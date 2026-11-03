@@ -352,7 +352,11 @@ typical totals fit comfortably below any practical limit. On 32-bit
 systems user-mode address space is limited (typically 2–3 GiB) so the
 default is sized to fit a moderate number of workers without exhausting
 the address space; an application that needs more should call
-``lace_set_scratch_size`` before ``lace_start``.
+``lace_set_scratch_size`` before ``lace_start``. ``lace_start`` reserves
+the arenas of all workers before they start. If the 64-bit default does
+not fit (an address-space limit such as ``ulimit -v``), it falls back to
+16 MiB per worker, as it does for the stacks; a size set with
+``lace_set_scratch_size`` is used as given.
 
 The arena exposes four pointers per worker:
 

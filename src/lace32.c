@@ -444,13 +444,25 @@ static size_t workers_memory_size = 0;
  * On 64-bit systems the default is 1 GiB per worker, which costs only
  * address space until used. On 32-bit systems the default is 16 MiB
  * per worker, because user-mode address space is limited (~2-3 GiB
- * total) and a multi-worker process would otherwise exhaust it.
+ * total) and a multi-worker process would otherwise exhaust it. If the
+ * default does not fit (an address-space limit such as ulimit -v), Lace
+ * falls back to LACE_SCRATCH_SMALL, as it does for the stacks; a size
+ * set with lace_set_scratch_size() is used as given.
  */
+#define LACE_SCRATCH_SMALL ((size_t)16 << 20)
 #if UINTPTR_MAX > 0xFFFFFFFFu
 static size_t scratch_size = (size_t)1 << 30;   /* 1 GiB on 64-bit */
 #else
-static size_t scratch_size = (size_t)16 << 20;  /* 16 MiB on 32-bit */
+static size_t scratch_size = LACE_SCRATCH_SMALL; /* 16 MiB on 32-bit */
 #endif
+static int scratch_size_explicit = 0;
+
+/**
+ * The arenas lace_start() reserved, one per worker, of scratch_arena_size
+ * bytes each (NULL when the arena is disabled).
+ */
+static char **scratch_arenas = NULL;
+static size_t scratch_arena_size = 0;
 
 /**
  * Per-worker scratch committed band in bytes (default 1 MiB).
@@ -801,15 +813,15 @@ lace_scratch_round_up_ptr(char *p)
  * be a code-smell across threads.
  */
 static LACE_UNUSED const char *
-lace_strerror(char *buf, size_t bufsz)
+lace_strerror(int err, char *buf, size_t bufsz)
 {
 #if defined(_MSC_VER)
-    strerror_s(buf, bufsz, errno);
+    strerror_s(buf, bufsz, err);
     return buf;
 #else
     (void)buf;
     (void)bufsz;
-    return strerror(errno);
+    return strerror(err);
 #endif
 }
 
@@ -927,7 +939,7 @@ lace_scratch_grow(lace_worker *lw, size_t aligned_size)
                     "(requested %zu bytes): %s\n",
                     (unsigned)lw->worker,
                     (size_t)(commit_to - commit_from),
-                    lace_strerror(ebuf, sizeof ebuf));
+                    lace_strerror(errno, ebuf, sizeof ebuf));
             abort();
         }
         lw->scratch_committed_end = commit_to;
@@ -1026,19 +1038,10 @@ lace_init_worker(unsigned int worker)
     w->leap_task = NULL;
 #endif
 
-    if (scratch_size > 0) {
-        /* Page-align the reservation for clean commit/decommit math. */
-        size_t reserve = lace_scratch_round_up_page(scratch_size);
-        char *base = lace_scratch_reserve(reserve);
-        if (base == NULL) {
-            char ebuf[128];
-            fprintf(stderr,
-                    "Lace error: unable to reserve %zu bytes of scratch VM for worker %u: %s\n",
-                    reserve, worker, lace_strerror(ebuf, sizeof ebuf));
-            exit(1);
-        }
+    if (scratch_arenas != NULL) {
+        char *base = scratch_arenas[worker];
         w->scratch_base = base;
-        w->scratch_reserve_end = base + reserve;
+        w->scratch_reserve_end = base + scratch_arena_size;
         w->scratch_top = base;
         w->scratch_committed_end = base;  /* nothing committed yet; first alloc grows */
     } else {
@@ -1455,6 +1458,31 @@ void
 lace_set_scratch_size(size_t size)
 {
     scratch_size = size;
+    scratch_size_explicit = 1;
+}
+
+/**
+ * Reserve a scratch arena of @p size bytes (page-aligned) for each worker,
+ * in scratch_arenas. Returns 0, or -1 with errno set and nothing reserved.
+ */
+static int
+lace_reserve_scratch(size_t size)
+{
+    for (unsigned int i = 0; i < n_workers; i++) {
+        scratch_arenas[i] = lace_scratch_reserve(size);
+        if (scratch_arenas[i] == NULL) {
+#if defined(_WIN32)
+            int err = ENOMEM; /* VirtualAlloc does not set errno */
+#else
+            int err = errno;
+#endif
+            while (i-- > 0) lace_scratch_release(scratch_arenas[i], size);
+            errno = err;
+            return -1;
+        }
+    }
+    scratch_arena_size = size;
+    return 0;
 }
 
 /**
@@ -1825,6 +1853,34 @@ lace_start(unsigned int _n_workers, size_t dequesize, size_t stacksize)
 #endif
 #endif /* !LACE_MSVC */
 
+    // Reserve the scratch arenas here, before the workers start, so the size
+    // is one decision for all of them: like the stacks, a default that does
+    // not fit (ulimit -v) falls back to the conservative size.
+    if (scratch_size > 0) {
+        scratch_arenas = (char**)malloc(n_workers * sizeof(char*));
+        if (scratch_arenas == NULL) {
+            fprintf(stderr, "Lace error: unable to allocate scratch arena array!\n");
+            exit(1);
+        }
+        /* Page-align the reservation for clean commit/decommit math. */
+        size_t reserve = lace_scratch_round_up_page(scratch_size);
+        if (lace_reserve_scratch(reserve) != 0) {
+            int err = errno;
+            size_t fallback = lace_scratch_round_up_page(LACE_SCRATCH_SMALL);
+            char ebuf[128];
+            if (!scratch_size_explicit && fallback < reserve && lace_reserve_scratch(fallback) == 0) {
+                if (verbosity) {
+                    fprintf(stdout, "Lace startup: could not reserve %zu-byte scratch arenas (%s), using %zu bytes.\n",
+                        reserve, lace_strerror(err, ebuf, sizeof ebuf), fallback);
+                }
+            } else {
+                fprintf(stderr, "Lace error: unable to reserve a %zu-byte scratch arena for each of %u workers: %s\n",
+                    reserve, n_workers, lace_strerror(err, ebuf, sizeof ebuf));
+                exit(1);
+            }
+        }
+    }
+
     if (verbosity) {
 #if LACE_USE_HWLOC
         fprintf(stdout, "Lace startup: %u nodes, %u cores, %u logical processors, %d workers.\n", n_nodes, n_cores, n_pus, n_workers);
@@ -2155,6 +2211,8 @@ void lace_stop(void)
         munmap(workers_memory[i], workers_memory_size);
 #endif
     }
+    free(scratch_arenas);
+    scratch_arenas = NULL;
 
 #if defined(_MSC_VER) || defined(__MINGW64_VERSION_MAJOR)
     _aligned_free(workers);
