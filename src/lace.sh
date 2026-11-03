@@ -398,6 +398,22 @@ void lace_start(unsigned int n_workers, size_t dqsize, size_t stacksize);
 void lace_stop(void);
 
 /**
+ * Give the memory that idle workers hold back to the operating system.
+ *
+ * A deep computation leaves physical pages behind in the worker stacks, task
+ * deques and scratch arenas, and they stay resident until lace_stop(). This
+ * makes every worker, at its next idle moment, release the pages of its stack
+ * below its idle loop, of its deque past the first page, and of its scratch
+ * arena past the first band. The reservations stay, so later work just faults
+ * pages in again. Returns when all workers are done, so it waits for running
+ * tasks to finish.
+ *
+ * Must be called from a thread that is not a Lace worker; it returns at once
+ * otherwise. On Windows only the scratch arenas are released.
+ */
+void lace_release_memory(void);
+
+/**
  * Check whether the Lace runtime is currently active.
  *
  * @return 1 if Lace is running, 0 otherwise

@@ -6,6 +6,8 @@ All notable changes to Lace will be documented in this file.
 
 ### Added
 
+- `lace_release_memory()` gives the memory that idle workers hold back to
+  the operating system (`test_release`).
 - Statistics builds count leap strays and report the stack high-water mark
   of each worker.
 - A test for mixed SYNC and DROP, `test_drop`.

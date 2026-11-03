@@ -299,6 +299,18 @@ reserved (an address-space limit such as ``ulimit -v``, or strict
 overcommit accounting), Lace falls back to that conservative size. An
 explicit ``stacksize`` is used as given, with a minimum of 16 MB.
 
+Pages that a deep computation touched stay resident until ``lace_stop``.
+``lace_release_memory`` gives them back while Lace keeps running: every
+worker, at its next idle moment, releases its stack below the idle loop,
+its deque past the first page, and its scratch arena past the first band
+(on Windows only the scratch arena). On Linux this is ``madvise`` with
+``MADV_DONTNEED``, which keeps the mapping and any hwloc binding; on other
+systems ``madvise`` only marks pages for lazy reclaim (macOS keeps them
+resident), so a fresh anonymous mapping replaces the range. Lace does not
+do this by itself when workers go to sleep (it does trim the scratch arena
+then): a program that runs one deep computation after another would only
+fault the same pages in again.
+
 
 Scratch arena
 -------------
