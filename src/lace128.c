@@ -1054,10 +1054,25 @@ lace_init_worker(unsigned int worker)
 
 /**
  * Global "external" task
+ *
+ * A thread outside Lace puts its task in a free slot and waits on the state
+ * word, which goes from EXT_RUNNING to EXT_DONE when a worker has run the
+ * task. The waiting thread first spins for LACE_EXT_SPIN_US, since a short
+ * task finishes sooner than a sleep and a wake-up take. Then it marks the
+ * state EXT_SLEEPING and sleeps; the worker issues the wake-up only for that
+ * state, so short tasks cost no system call on either side.
  */
+#define EXT_RUNNING  0
+#define EXT_DONE     1
+#define EXT_SLEEPING 2
+
+#ifndef LACE_EXT_SPIN_US
+#define LACE_EXT_SPIN_US 20
+#endif
+
 typedef struct ext_lace_task {
     lace_task *task;
-    atomic_int done;
+    atomic_int state;
 } ext_lace_task;
 
 #define LACE_EXT_SLOTS 64
@@ -1077,7 +1092,7 @@ lace_run_task(lace_task *task)
     ext_lace_task et;
     et.task = task;
     atomic_store_explicit(&et.task->thief, 0, memory_order_relaxed);
-    atomic_store_explicit(&et.done, 0, memory_order_relaxed);
+    atomic_store_explicit(&et.state, EXT_RUNNING, memory_order_relaxed);
 
     // Push into any empty slot
     while (1) {
@@ -1085,7 +1100,7 @@ lace_run_task(lace_task *task)
             ext_lace_task* expected = NULL;
             if (atomic_compare_exchange_weak_explicit(&external_tasks[i],
                 &expected, &et, memory_order_release, memory_order_relaxed)) {
-                atomic_fetch_add_explicit(&external_task_count, 1, memory_order_release);
+                atomic_fetch_add_explicit(&external_task_count, 1, memory_order_seq_cst);
                 goto pushed;
             }
         }
@@ -1093,17 +1108,29 @@ lace_run_task(lace_task *task)
     }
 pushed:
 
-    /* Wake a sleeping worker to pick up the external task */
-    atomic_fetch_add_explicit(&wake_futex, 1, memory_order_release);
-    lace_futex_wake_one(&wake_futex);
-
-    for (int spin = 0; spin < 256; spin++) {
-        if (atomic_load_explicit(&et.done, memory_order_acquire)) return;
-        lace_cpu_pause();
+    /* Wake a worker only if one sleeps. A worker counts itself in n_sleeping
+     * before it last checks external_task_count (both seq_cst, here too), so
+     * either it sees our task or we see it sleeping. Awake workers check
+     * external_task_count in their idle loop. */
+    if (atomic_load_explicit(&n_sleeping, memory_order_seq_cst) > 0) {
+        atomic_fetch_add_explicit(&wake_futex, 1, memory_order_release);
+        lace_futex_wake_one(&wake_futex);
     }
 
-    while (!atomic_load_explicit(&et.done, memory_order_acquire)) {
-        lace_futex_wait(&et.done, 0, LACE_IDLE_FUTEX_TIMEOUT_MIN);
+    uint64_t start = lace_now_us();
+    for (unsigned int spin = 1; ; spin++) {
+        if (atomic_load_explicit(&et.state, memory_order_acquire) == EXT_DONE) return;
+        lace_cpu_pause();
+        if ((spin & 15) == 0 && lace_now_us() - start >= LACE_EXT_SPIN_US) break;
+    }
+
+    int expected = EXT_RUNNING;
+    if (!atomic_compare_exchange_strong_explicit(&et.state, &expected, EXT_SLEEPING,
+            memory_order_acquire, memory_order_acquire)) {
+        return; // EXT_DONE meanwhile
+    }
+    while (atomic_load_explicit(&et.state, memory_order_acquire) != EXT_DONE) {
+        lace_futex_wait(&et.state, EXT_SLEEPING, -1);
     }
 }
 
@@ -1121,8 +1148,11 @@ lace_steal_external(lace_worker *self)
             stolen->task->f(self, stolen->task);
             lace_time_event(self, 2);
             atomic_store_explicit(&stolen->task->thief, THIEF_COMPLETED, memory_order_relaxed);
-            atomic_store_explicit(&stolen->done, 1, memory_order_release);
-            lace_futex_wake_one(&stolen->done);
+            // After the exchange the caller may return and its frame (and
+            // the state word) go away; a wake-up on that address is harmless.
+            if (atomic_exchange_explicit(&stolen->state, EXT_DONE, memory_order_acq_rel) == EXT_SLEEPING) {
+                lace_futex_wake_one(&stolen->state);
+            }
             lace_time_event(self, 8);
             return;
         }
@@ -1289,6 +1319,8 @@ void lace_steal_loop_CALL(lace_worker* lw, atomic_int* quit)
             } else { // LACE_NOWORK
                 idle_count++;
             }
+        } else {
+            idle_count++; // a lone worker has no victims: back off and sleep too
         }
 
         if (lace_check_yield(lw)) {
@@ -1340,9 +1372,14 @@ void lace_steal_loop_CALL(lace_worker* lw, atomic_int* quit)
             int64_t timeout_us = LACE_IDLE_FUTEX_TIMEOUT_MIN * (1 + (int64_t)futex_iters);
             if (timeout_us > LACE_IDLE_FUTEX_TIMEOUT_MAX) timeout_us = LACE_IDLE_FUTEX_TIMEOUT_MAX;
 
-            atomic_fetch_add_explicit(&n_sleeping, 1, memory_order_relaxed);
+            /* Count ourselves as sleeping, then check for external tasks
+             * once more (seq_cst, paired with lace_run_task): a thread that
+             * submits a task after this check sees us and wakes us. */
+            atomic_fetch_add_explicit(&n_sleeping, 1, memory_order_seq_cst);
             int val = atomic_load_explicit(&wake_futex, memory_order_acquire);
-            lace_futex_wait(&wake_futex, val, timeout_us);
+            if (atomic_load_explicit(&external_task_count, memory_order_seq_cst) == 0) {
+                lace_futex_wait(&wake_futex, val, timeout_us);
+            }
             atomic_fetch_sub_explicit(&n_sleeping, 1, memory_order_relaxed);
 #if LACE_PIE_TIMES
             PR_ADD(lw, CTR_backoff, lace_gethrtime() - prev);

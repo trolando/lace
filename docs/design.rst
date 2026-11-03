@@ -113,7 +113,7 @@ This release-acquire pair ensures the task contents are fully
 visible before any worker copies them.
 
 
-xternal task submission
+External task submission
 ------------------------
  
 Non-Lace threads submit tasks via ``lace_run_task``. The task is
@@ -125,18 +125,24 @@ skip empty slots (read-only, no cache line invalidation), followed
 by ``atomic_exchange`` only on non-NULL slots. This minimises
 write traffic on the shared slot array when most slots are empty.
  
-The submitting thread blocks on a per-task ``atomic_int done``
-field, using a futex wait. Before falling back to the futex, the
-submitter briefly spins (256 PAUSE iterations) to avoid a kernel
-transition when the task completes quickly (typical for fine-grained
-BDD operations). The worker signals completion with an atomic store
-and ``futex_wake``. The ``ext_lace_task`` struct lives on the
-submitting thread's stack, so no heap allocation is needed and no
-initialisation or destruction is required for the futex word.
- 
+The submitting thread waits on a per-task state word, which the
+worker moves from *running* to *done*. It first spins for
+``LACE_EXT_SPIN_US`` (20 µs) with PAUSE, since a short task finishes
+sooner than a sleep and a wake-up take; a tiny task from outside Lace
+then costs about 3 µs instead of a context switch. After the spin it
+marks the state *sleeping* and waits on the futex without a timeout.
+The worker swaps the state to *done* and calls ``futex_wake`` only if
+it was *sleeping*, so a short task costs no system call on either
+side. The ``ext_lace_task`` struct lives on the submitting thread's
+stack, so no heap allocation is needed and no initialisation or
+destruction is required for the futex word (a wake-up that reaches
+the address after the submitter returned is harmless).
+
 When an external task is published, the submitter wakes one sleeping
-worker via ``futex_wake``. This ensures that even when all workers
-are in deep futex sleep, external tasks are picked up promptly.
+worker, if any sleeps. A worker counts itself in ``n_sleeping`` and
+then checks ``external_task_count`` once more before it sleeps; both
+sides use sequentially consistent operations, so either the worker
+sees the task or the submitter sees the sleeper.
  
 Multiple external threads can submit concurrently without contention
 on a single slot. The atomic counter keeps the fast path (no external
@@ -175,9 +181,9 @@ in multiple structured benchmarks.
  
 **Wake signals.** Workers can be woken from futex sleep by:
  
-1. ``lace_run_task``: always wakes one worker when an external task
-   is submitted. This is the primary mechanism for external task
-   responsiveness.
+1. ``lace_run_task``: wakes one worker when an external task is
+   submitted and a worker sleeps. This is the primary mechanism for
+   external task responsiveness.
  
 2. Successful steal with remaining work (``LACE_STOLEN``, not
    ``LACE_STOLEN_LAST``): the thief knows the victim still has
@@ -193,6 +199,9 @@ The ``wake_futex`` word is incremented (``fetch_add``) before each
 ``futex_wake`` call. This ensures the futex value has changed,
 preventing the lost-wake race where a worker enters ``futex_wait``
 between the value change and the wake signal.
+
+A lone worker (``n_workers`` 1) has no victims, so every round of its
+loop counts as a failed attempt and it goes through the same stages.
  
 **Steal result signalling.** ``lace_steal`` returns one of:
  

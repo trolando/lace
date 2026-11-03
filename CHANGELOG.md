@@ -17,6 +17,8 @@ All notable changes to Lace will be documented in this file.
 
 ### Changed
 
+- Cheaper calls from outside Lace: `lace_run_task` spins briefly before it
+  sleeps, and wake-ups are only sent to threads that sleep.
 - Lace's own targets are built without stack protector, unless
   `LACE_HARDENING` is set.
 - Leaner steal and leapfrog code. Random victims are picked without
@@ -28,6 +30,10 @@ All notable changes to Lace will be documented in this file.
   64 MB, and the default is a 1 GB reservation per worker on 64-bit
   systems. The new option `LACE_DONT_OVERCOMMIT` keeps the old default
   (`test_stack`).
+
+### Fixed
+
+- A single worker kept a core busy while idle (`test_idle`).
 
 
 ## [2.4.0] - 2026-06-07
