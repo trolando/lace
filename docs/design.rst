@@ -118,7 +118,7 @@ External task submission
  
 Non-Lace threads submit tasks via ``lace_run_task``. The task is
 placed into one of 64 atomic slots (a fixed-size array). Workers
-check an atomic counter ``external_task_count`` periodically in the
+check an atomic counter ``external_task_count`` in every round of the
 steal loop; when non-zero, they scan the array and claim a task.
 The scan uses a two-step approach: a relaxed ``atomic_load`` to
 skip empty slots (read-only, no cache line invalidation), followed

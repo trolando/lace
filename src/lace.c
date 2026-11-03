@@ -1329,8 +1329,10 @@ void lace_steal_loop_CALL(lace_worker* lw, atomic_int* quit)
             idle_count = 0;
         }
 
-        if (LACE_UNLIKELY(idle_count % 4 == 0 &&
-            atomic_load_explicit(&external_task_count, memory_order_acquire) > 0)) {
+        /* Every round: the counter's cache line changes only when external
+         * tasks come and go, so the load is cheap next to the yield below,
+         * and a waiting caller gets its task picked up a round sooner. */
+        if (LACE_UNLIKELY(atomic_load_explicit(&external_task_count, memory_order_acquire) > 0)) {
             lace_steal_external(lw);
             idle_count = 0;
             continue;
