@@ -9,6 +9,7 @@ All notable changes to Lace will be documented in this file.
 - Statistics builds count leap strays and report the stack high-water mark
   of each worker.
 - A test for mixed SYNC and DROP, `test_drop`.
+- A test that Lace starts under an address-space limit, `test_stack_limit`.
 
 ### Changed
 
