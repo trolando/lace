@@ -1,0 +1,13 @@
+--- a/include/parlay/parallel.h
++++ b/include/parlay/parallel.h
+@@ -134,6 +134,10 @@
+ #elif defined(PARLAY_TBB)
+ #include "internal/scheduler_plugins/tbb.h"         // IWYU pragma: keep, export
+ 
++// Lace
++#elif defined(PARLAY_LACE)
++#include "internal/scheduler_plugins/lace.h"        // IWYU pragma: keep, export
++
+ // No Parallelism
+ #elif defined(PARLAY_SEQUENTIAL)
+ #include "internal/scheduler_plugins/sequential.h"  // IWYU pragma: keep, export

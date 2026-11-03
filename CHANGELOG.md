@@ -6,6 +6,8 @@ All notable changes to Lace will be documented in this file.
 
 ### Added
 
+- A ParlayLib scheduler plugin (`contrib/parlaylib`), to run ParlayLib
+  programs such as the PBBS benchmarks on Lace.
 - `lace_release_memory()` gives the memory that idle workers hold back to
   the operating system (`test_release`).
 - Statistics builds count leap strays and report the stack high-water mark
