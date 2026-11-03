@@ -34,6 +34,8 @@ All notable changes to Lace will be documented in this file.
 ### Fixed
 
 - A single worker kept a core busy while idle (`test_idle`).
+- Without hwloc, Lace ignored the affinity mask on Linux (`taskset`,
+  cgroups, SLURM) and started one worker per online CPU (`test_affinity`).
 
 
 ## [2.4.0] - 2026-06-07

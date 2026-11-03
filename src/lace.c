@@ -16,7 +16,9 @@
  * limitations under the License.
  */
 
-#if defined(__GLIBC__)
+/* For sched_getaffinity and CPU_COUNT. __GLIBC__ alone does not work here:
+ * it comes from <features.h>, which no header has included yet. */
+#if defined(__linux__) || defined(__GLIBC__)
     #ifndef _GNU_SOURCE
        #define _GNU_SOURCE
     #endif
