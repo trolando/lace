@@ -41,9 +41,10 @@ c++ -std=c++17 -O2 -DPARLAY_LACE -Iparlaylib/include -Ilace/src -Ilace/build \
   `num_workers()` is n + 1. Only one outside thread at a time may use
   worker-indexed state such as `parlay::WorkerSpecific`.
 - The `conservative` flag is ignored. While it waits for a stolen task, a
-  worker runs other tasks (leapfrogging, and random steals with
-  `LACE_LEAP_RANDOM`), so holding a lock across a `par_do` can deadlock, as
-  with Parlay's own scheduler without `conservative`.
+  worker runs tasks spawned by that task (leapfrogging), and rarely, when
+  the thief has just finished it, another task, so holding a lock across a
+  `par_do` can deadlock, as with Parlay's own scheduler without
+  `conservative`.
 - `execute_with_scheduler` is not available, as with the OpenMP and TBB
   plugins.
 - Exceptions must not leave `left` or `right`.

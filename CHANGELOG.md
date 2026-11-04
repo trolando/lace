@@ -6,6 +6,10 @@ All notable changes to Lace will be documented in this file.
 
 ### Added
 
+- Workers are pinned by default on Linux (`LACE_PIN_WORKERS`): each to its
+  own CPU if the workers fill the available cores, otherwise to all of them.
+  `lace_set_pinning()`, `lace_set_pin_cpus()` and the `LACE_PIN` environment
+  variable choose other modes (`test_pin`).
 - A ParlayLib scheduler plugin (`contrib/parlaylib`), to run ParlayLib
   programs such as the PBBS benchmarks on Lace.
 - `lace_release_memory()` gives the memory that idle workers hold back to
@@ -17,6 +21,14 @@ All notable changes to Lace will be documented in this file.
 
 ### Changed
 
+- A worker that waits at a join no longer steals random tasks. It steals
+  only from its thief and, transitively, from the workers that thief waits
+  for.
+- Idle workers use much less CPU. Two idle workers stay awake as sentinels
+  and wake the others when work appears, so sleeping workers back off to
+  100 ms instead of 1 ms.
+- Idle workers no longer fight over tasks that are too small to be worth
+  stealing (steal storms).
 - Cheaper calls from outside Lace: `lace_run_task` spins briefly before it
   sleeps, and wake-ups are only sent to threads that sleep.
 - Lace's own targets are built without stack protector, unless
@@ -32,11 +44,16 @@ All notable changes to Lace will be documented in this file.
   (`test_stack`).
 - The benchmarks print a checksum of their result.
 
+### Removed
+
+- The `LACE_LEAP_RANDOM` macro (random steals while waiting at a join).
+
 ### Fixed
 
 - A single worker kept a core busy while idle (`test_idle`).
 - Without hwloc, Lace ignored the affinity mask on Linux (`taskset`,
   cgroups, SLURM) and started one worker per online CPU (`test_affinity`).
+- Parallel regions started while the workers slept ran almost serially.
 - Lace no longer consumes the program's `rand()` sequence (`test_rand`).
 - `lace_start` exited the program under an address-space limit
   (`ulimit -v`); the scratch arenas now fall back to 16 MiB per worker.

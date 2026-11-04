@@ -33,8 +33,8 @@ int main(int argc, char** argv)
 ## Features
 
 - ⚡ Low-overhead, lock-free work-stealing
-- 💤 Sleeps when idle (exponential backoff) to save CPU time
-- 📌 Optional thread pinning with `hwloc`
+- 💤 Quiet when idle, quick to wake up
+- 📌 Thread pinning per CPU, core, cache or NUMA node (Linux)
 - 📈 Low-overhead statistics per worker
 - ⛔ Interrupt support for coordinating all workers to a safe point (e.g. stop-the-world GC)
 

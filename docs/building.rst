@@ -92,9 +92,14 @@ CMake options
    * - Option
      - Description
      - Default
+   * - ``LACE_PIN_WORKERS``
+     - Pin worker threads by default (Linux), within the affinity mask the
+       program is given; see `Worker pinning`_. ``lace_set_pinning()`` or the
+       ``LACE_PIN`` environment variable choose the mode at run time.
+     - ON
    * - ``LACE_USE_HWLOC``
-     - Use the ``hwloc`` library to pin worker threads to CPU cores.
-       Important for NUMA systems where memory locality affects performance.
+     - Use the ``hwloc`` library to pin worker threads to CPU cores, instead
+       of the built-in pinning.
      - OFF
    * - ``LACE_BACKOFF``
      - Workers sleep with exponential backoff when no work is available,
@@ -181,10 +186,10 @@ throughput, but it prevents idle workers from consuming 100% CPU when there
 is no work. There is no reason to turn this off unless you are doing very
 precise micro-benchmarking of steal overhead.
 
-**Use LACE_USE_HWLOC for NUMA systems.** On multi-socket machines, enabling
-hwloc ensures that worker threads are pinned to cores and that memory is
-allocated close to the core that uses it. On single-socket desktop machines
-the benefit is smaller but still measurable for memory-intensive workloads.
+**Keep LACE_PIN_WORKERS on.** Pinned workers stay on their core and keep
+their caches warm; in benchmarks on Intel and AMD machines with one, two and
+four sockets, unpinned workers were 2-13% slower. The default mode leaves cores
+to other programs when Lace does not use all of them (see `Worker pinning`_).
 
 **Use LACE_NATIVE_OPT for local benchmarking** but not for portable or
 distributed builds, since ``-march=native`` produces binaries tied to the
@@ -212,6 +217,58 @@ CET marking of the whole program.
 
 **Sanitiser options are mutually exclusive.** AddressSanitizer and
 ThreadSanitizer cannot be combined. Use them individually during development.
+
+
+Worker pinning
+--------------
+
+On Linux, Lace pins its workers within the affinity mask of the thread that
+calls ``lace_start()``, as ``taskset``, cgroups or a job scheduler such as
+SLURM set it. Lace never pins to CPUs outside that mask. The mode says what
+each worker may run on:
+
+.. list-table::
+   :header-rows: 1
+   :widths: 22 78
+
+   * - Mode
+     - Each worker may run on
+   * - ``LACE_PIN_AUTO``
+     - The default: ``LACE_PIN_CPU`` if the workers fill the cores of the
+       mask (as with the default number of workers, or ``taskset`` with as
+       many cores as workers), otherwise ``LACE_PIN_ALL``. A program that
+       leaves cores free may share the machine with another, and two
+       programs that pin worker *i* to the same CPU would share their cores.
+   * - ``LACE_PIN_CPU``
+     - One hardware thread, taking one of every physical core before any
+       second hardware thread of a core.
+   * - ``LACE_PIN_CORE``
+     - One physical core (its hardware threads).
+   * - ``LACE_PIN_L2``, ``LACE_PIN_L3``, ``LACE_PIN_NUMA``
+     - The cores that share an L2 cache, an L3 cache (a chiplet, or a
+       socket) or a NUMA node. The workers are spread over these groups in
+       proportion to their number of cores.
+   * - ``LACE_PIN_ALL``
+     - Any physical core of the mask, one hardware thread per core.
+   * - ``LACE_PIN_OFF``
+     - Any CPU of the mask (no pinning).
+
+With more workers than places (hardware threads for ``LACE_PIN_CPU``, cores
+for the other modes), Lace does not pin.
+
+A program chooses the mode with ``lace_set_pinning()``, or pins worker *i* to
+``cpus[i % n]`` with ``lace_set_pin_cpus(cpus, n)``, before ``lace_start()``:
+
+.. code-block:: c
+
+   lace_set_pinning(LACE_PIN_L3);
+   lace_start(0, 0, 0);
+
+If the program does not choose, the environment variable ``LACE_PIN`` does:
+``off``, ``auto``, ``cpu``, ``core``, ``l2``, ``l3``, ``numa``, ``all``, or a
+CPU list such as ``list:0,2,4-7``. ``LACE_PIN_PRINT=1`` prints the CPUs of every
+worker. On other systems, and with ``LACE_USE_HWLOC``, these calls have no
+effect.
 
 
 Installing

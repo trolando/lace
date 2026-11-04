@@ -21,9 +21,9 @@
 // state such as parlay::WorkerSpecific.
 //
 // The conservative flag is ignored. While it waits for a stolen task, a
-// Lace worker runs tasks spawned by that task (leapfrogging) and, by default
-// (LACE_LEAP_RANDOM), random other tasks too. Holding a lock across a
-// par_do can therefore deadlock, as with Parlay's own scheduler when
+// Lace worker runs tasks spawned by that task (leapfrogging), and rarely,
+// when the thief has just finished it, another task. Holding a lock across
+// a par_do can therefore deadlock, as with Parlay's own scheduler when
 // conservative is false.
 //
 // Exceptions must not leave a task: an exception thrown between the SPAWN

@@ -360,14 +360,14 @@ typedef struct lace_task lace_task;
  * Start Lace and spawn worker threads.
  *
  * Allocates per-worker deques and launches @p n_workers threads.
- * Workers begin busy-waiting for tasks immediately. If LACE_BACKOFF
- * is enabled (the default), CPU usage drops to near zero after roughly
- * one second of inactivity.
+ * Workers look for tasks immediately. With LACE_BACKOFF (the default),
+ * idle workers soon sleep, and an idle Lace uses almost no CPU.
  *
  * Deques are allocated as virtual memory and physical pages are committed
  * lazily, so a large @p dqsize has no upfront memory cost.
  *
- * When LACE_USE_HWLOC is enabled, worker threads are pinned to CPU cores.
+ * On Linux, workers are pinned as lace_set_pinning() chooses (by default
+ * LACE_PIN_AUTO); with LACE_USE_HWLOC, hwloc pins them to CPU cores.
  *
  * @param n_workers  Number of worker threads. Pass 0 to auto-detect
  *                   available cores.
@@ -429,6 +429,62 @@ int lace_is_running(void);
  * @param level  Verbosity level (0 = silent, 1 = verbose)
  */
 void lace_set_verbosity(int level);
+
+/**
+ * Pinning modes for lace_set_pinning().
+ */
+typedef enum lace_pin_mode {
+    LACE_PIN_OFF = 0,
+    LACE_PIN_AUTO = 1,
+    LACE_PIN_ALL = 2,
+    LACE_PIN_CPU = 3,
+    LACE_PIN_L3 = 4,
+    LACE_PIN_NUMA = 5,
+    LACE_PIN_CORE = 6,
+    LACE_PIN_L2 = 7,
+} lace_pin_mode;
+
+/**
+ * Choose what each worker may run on, within the affinity mask of the thread
+ * that calls lace_start() (as taskset, cgroups or a job scheduler set it).
+ *
+ * - LACE_PIN_AUTO (the default): LACE_PIN_CPU if the workers fill the cores
+ *   of the mask, else LACE_PIN_ALL. A program with as many workers as cores
+ *   owns them, and one CPU per worker is fastest; one that leaves cores free
+ *   may share the machine, and pinning to fixed CPUs would make two such
+ *   programs share the same cores.
+ * - LACE_PIN_CPU: one hardware thread per worker, one of every physical core
+ *   before any second hardware thread of a core.
+ * - LACE_PIN_CORE: one physical core per worker (its hardware threads).
+ * - LACE_PIN_L2, LACE_PIN_L3, LACE_PIN_NUMA: the cores that share an L2
+ *   cache, an L3 cache or a NUMA node. The workers are spread over these
+ *   groups in proportion to their number of cores.
+ * - LACE_PIN_ALL: any physical core of the mask, one hardware thread each.
+ * - LACE_PIN_OFF: no pinning.
+ *
+ * With more workers than places (hardware threads for LACE_PIN_CPU, cores
+ * otherwise) Lace does not pin. Without this call, the environment variable
+ * LACE_PIN chooses: off, auto, all, cpu, core, l2, l3, numa, or list:CPUS for
+ * worker i on the i-th CPU of a list such as list:0,2,4-7 (see
+ * lace_set_pin_cpus). Linux only (other systems do not pin), and not with
+ * LACE_USE_HWLOC, which pins in its own way. Call before lace_start().
+ *
+ * @param mode  The pinning mode (default LACE_PIN_AUTO)
+ * @see lace_set_pin_cpus
+ */
+void lace_set_pinning(lace_pin_mode mode);
+
+/**
+ * Pin worker i to cpus[i % n] (manual pinning).
+ *
+ * CPUs outside the affinity mask are left out. Overrides lace_set_pinning()
+ * and LACE_PIN; n = 0 undoes it. Call before lace_start().
+ *
+ * @param cpus  CPU numbers
+ * @param n     Number of entries in @p cpus
+ * @see lace_set_pinning
+ */
+void lace_set_pin_cpus(const int *cpus, unsigned int n);
 
 /**
  * Configure the per-worker scratch arena reservation size.
@@ -794,6 +850,7 @@ typedef enum {
     CTR_steal_busy,  /* Number of steal busies */
     CTR_leap_busy,   /* Number of leap busies */
     CTR_leap_strays, /* Leaps that stole a task unrelated to the awaited one */
+    CTR_leap_trans,  /* Successful leaps from a worker that the thief waits for */
 #endif
 #ifdef LACE_COUNT_SPLITS
     CTR_split_grow,  /* Number of split right */
@@ -860,6 +917,11 @@ typedef struct lace_worker_public {
     lace_task *dq;
     TailSplit ts;
     uint8_t allstolen;
+    /* While this worker leapfrogs: the thief of the task it waits for (the
+     * innermost wait), else NULL. Written on entering and leaving a leapfrog;
+     * read by leapfrogging workers whose own thief has nothing to steal. It
+     * shares the cache line that a steal attempt reads anyway. */
+    _Atomic(struct lace_worker_public*) waiting_on;
 
     LACE_ALIGN(LACE_PADDING_TARGET) uint8_t movesplit;
 } lace_worker_public;

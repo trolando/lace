@@ -78,11 +78,17 @@ is the only thread that accesses its private deque region.
 
 **SYNC (slow path / leapfrog).** When a task has been stolen, the
 owner enters leapfrog mode: it follows the thief pointer and
-attempts to steal work from the thief's deque, recursively.
-The owner reads ``t->thief`` in a loop until it observes
-``THIEF_COMPLETED``, at which point an ``acquire`` fence ensures
-all stores made by the thief (including the task result) are
-visible.
+attempts to steal work from the thief's deque, recursively. When the
+thief has nothing to steal, the owner publishes the thief in its own
+``waiting_on`` field and steals from the worker that the thief waits
+for, down the chain (at most ``LACE_LEAP_HOPS``, 4): all of these work on
+parts of the awaited task (transitive leapfrogging, as in Wool). A
+waiting worker never steals unrelated tasks: such a task would keep
+the join blocked under it until it finishes, which delayed the next
+phase of phased algorithms (cholesky took twice as long). The owner
+reads ``t->thief`` in a loop until it observes ``THIEF_COMPLETED``,
+at which point an ``acquire`` fence ensures all stores made by the
+thief (including the task result) are visible.
 
 .. code-block:: text
 
@@ -127,22 +133,35 @@ write traffic on the shared slot array when most slots are empty.
  
 The submitting thread waits on a per-task state word, which the
 worker moves from *running* to *done*. It first spins for
-``LACE_EXT_SPIN_US`` (20 µs) with PAUSE, since a short task finishes
-sooner than a sleep and a wake-up take; a tiny task from outside Lace
-then costs about 3 µs instead of a context switch. After the spin it
-marks the state *sleeping* and waits on the futex without a timeout.
-The worker swaps the state to *done* and calls ``futex_wake`` only if
-it was *sleeping*, so a short task costs no system call on either
-side. The ``ext_lace_task`` struct lives on the submitting thread's
-stack, so no heap allocation is needed and no initialisation or
-destruction is required for the futex word (a wake-up that reaches
+``LACE_EXT_SPIN_US`` (20 µs), since a short task finishes sooner than a
+sleep and a wake-up take; a tiny task from outside Lace then costs
+2-3 µs instead of a context switch. For the first ``LACE_EXT_YIELD_US``
+(5 µs) it spins with PAUSE only; after that it also yields now and then,
+in case it shares its CPU with the worker that runs its task. After the
+spin it marks the state *sleeping* and waits on the futex without a
+timeout. The worker swaps the state to *done* and calls ``futex_wake``
+only if it was *sleeping*, so a short task costs no system call on
+either side. The ``ext_lace_task`` struct lives on the submitting
+thread's stack, so no heap allocation is needed and no initialisation
+or destruction is required for the futex word (a wake-up that reaches
 the address after the submitter returned is harmless).
 
 When an external task is published, the submitter wakes one sleeping
-worker, if any sleeps. A worker counts itself in ``n_sleeping`` and
-then checks ``external_task_count`` once more before it sleeps; both
-sides use sequentially consistent operations, so either the worker
-sees the task or the submitter sees the sleeper.
+worker if any sleeps and no sentinel is awake (see below), or ends a
+sentinel's nap. A worker counts itself in ``n_sleeping`` and then checks
+``external_task_count`` once more before it sleeps; both sides use
+sequentially consistent operations, so either the worker sees the task
+or the submitter sees the sleeper.
+
+The task may spawn work while the other workers sleep, so a second
+worker is woken to help (if no sentinel watches). The waiting submitter
+does that, once it sees its task taken: the worker that took the task
+then starts it at once instead of after a futex call, and a task that is
+done before the submitter looks wakes nobody. If the submitter sleeps
+already when the task is taken, the worker wakes the helper itself; the
+submitter checks for a taken task after it marked itself sleeping, and
+the worker checks for a sleeping submitter after it marked the task
+taken, both sequentially consistent, so one of them always does.
  
 Multiple external threads can submit concurrently without contention
 on a single slot. The atomic counter keeps the fast path (no external
@@ -151,64 +170,86 @@ tasks) to a single relaxed load.
 
 Worker idle strategy
 --------------------
- 
-When a worker fails to find work, it progresses through idle stages
-of increasing aggressiveness to balance responsiveness against CPU
-and cache-bus overhead.
- 
-**Stage 1: Yield (0–256 failed attempts).** The worker calls
+
+An idle Lace should use almost no CPU, and a parallel region that starts
+after an idle period should start quickly; experiments measured each
+of the mechanisms below against alternatives on several machines.
+
+**Stage 1: Yield (0-256 failed attempts).** The worker calls
 ``sched_yield()`` (or ``SwitchToThread()`` on Windows) on each
 iteration. This gives the OS scheduler an opportunity to run other
 threads while remaining responsive to new work. No PAUSE stage
 precedes this: on modern out-of-order CPUs, PAUSE instructions
 provide insufficient throttling and the core continues to drive
 cache-coherence traffic at near-full rate.
- 
-**Stage 2: Futex sleep with ramping timeout (256+ failed attempts).**
-The worker increments an ``n_sleeping`` counter, then enters
-``futex_wait`` on a shared ``wake_futex`` word. The timeout starts
-at 100 µs and increases by 100 µs per futex cycle, capping at
-1 ms. This ramp avoids two failure modes:
- 
-- Too-short timeouts cause excessive futex syscall overhead
-  (each ``futex_wait``/return is ~3–5 µs of kernel entry/exit).
-- Too-long timeouts cause barrier-synchronized workloads
-  (cholesky, LU) to miss the start of a new parallel phase.
- 
-The 1 ms cap was determined empirically: 10 ms caused measurable
-regressions in LU decomposition; 100 ms caused severe regressions
-in multiple structured benchmarks.
- 
-**Wake signals.** Workers can be woken from futex sleep by:
- 
+
+**Tiny steals.** A successful steal resets the backoff only if the stolen
+task was worth a steal. Otherwise, with many idle workers and only small
+tasks, the thieves keep succeeding at stealing worthless tasks and never
+back off (a *steal storm*), and every stolen task makes its owner's join
+remote. A stolen task counts as a failed steal if it ran shorter than
+``LACE_IDLE_STEAL_MIN_X`` (16) times the thief's running average of its
+steal cost (the time from the attempt until it holds the task, a few
+cache-line transfers, more across chiplets and sockets and under
+contention). Each sample moves the average by at most an eighth, between
+half and twice its value, so a preempted steal does not throw it off. A
+lost race for a task (``LACE_BUSY``) does not reset the backoff either.
+
+**Sentinels.** Before it sleeps, a worker becomes a *sentinel* if fewer
+than ``LACE_IDLE_SENTINELS`` (2) workers are, and it ran a task since it
+last slept or another worker runs one now. A sentinel looks at every
+other worker's deque in rounds (it only looks, it never steals), spins
+for ``LACE_SENTINEL_SPIN_US`` (200 µs) after it became one, and then
+naps ``LACE_SENTINEL_NAP_US`` (20 µs, with a timer slack of 1 µs on Linux)
+on a futex between rounds; ``lace_run_task`` ends such a nap at once.
+When a sentinel sees work, or an external task, it gives up its slot and
+returns to the steal loop, which steals; while it was a sentinel it
+never ran a task, so the slot always stands for a watching worker. A
+sentinel retires when no worker has run a task for
+``LACE_SENTINEL_GRACE_US`` (10 ms).
+
+**Stage 2: Futex sleep.** The worker increments an ``n_sleeping`` counter,
+then enters ``futex_wait`` on a shared ``wake_futex`` word. Because a
+sentinel watches while any worker is active, the timeout can grow: it
+starts at 100 µs and doubles per sleep up to 100 ms, so an idle Lace
+wakes rarely. For ``LACE_IDLE_SHALLOW_US`` (20 ms) after it ran a task, a
+worker keeps the shortest timeout, so that its core stays in a shallow
+idle state and the next region starts fast.
+
+**Wake signals.** Workers are woken from futex sleep by:
+
 1. ``lace_run_task``: wakes one worker when an external task is
-   submitted and a worker sleeps. This is the primary mechanism for
-   external task responsiveness.
- 
-2. Successful steal with remaining work (``LACE_STOLEN``, not
-   ``LACE_STOLEN_LAST``): the thief knows the victim still has
-   stealable tasks, so it wakes one sleeping worker to help.
-   This creates a cascade: workers wake proportionally to
-   available parallelism. The ``LACE_STOLEN_LAST`` distinction
-   prevents spurious wakes when the stolen task was the last one.
- 
+   submitted, a worker sleeps and no sentinel watches, and the
+   submitter wakes a helper once the task is taken (see above).
+
+2. A steal from the steal loop, before the stolen task runs: if the
+   victim still has stealable tasks, the thief wakes as many sleepers as
+   the victim has tasks left (one ``futex_wake``), so a large region gets
+   all workers in one round of wake-ups instead of a chain of them; if
+   no sentinel watches, it wakes one, for the work that the stolen task
+   will spawn (a region after a long idle).
+
 3. ``lace_stop``: wakes all sleeping workers so they observe the
    quit flag and exit promptly.
- 
+
 The ``wake_futex`` word is incremented (``fetch_add``) before each
 ``futex_wake`` call. This ensures the futex value has changed,
 preventing the lost-wake race where a worker enters ``futex_wait``
 between the value change and the wake signal.
 
+Only the worker that ran an external task resets its backoff; the
+others keep backing off, so that a stream of calls from outside Lace
+does not keep every idle worker spinning.
+
 A lone worker (``n_workers`` 1) has no victims, so every round of its
 loop counts as a failed attempt and it goes through the same stages.
- 
+
 **Steal result signalling.** ``lace_steal`` returns one of:
  
 - ``LACE_STOLEN`` — task stolen, victim still has more work
-  (``tail < split`` after CAS). Triggers a wake signal.
+  (``tail < split`` after CAS).
 - ``LACE_STOLEN_LAST`` — task stolen, but it was the last
-  stealable task. No wake signal.
+  stealable task.
 - ``LACE_BUSY`` — CAS failed, another thief was concurrent.
 - ``LACE_NOWORK`` — victim has no stealable tasks.
  
@@ -298,9 +339,10 @@ Because a reserved stack costs only address space, the default stack
 (``stacksize`` 0 in ``lace_start``) is a 1 GB reservation per worker on
 64-bit systems, like the scratch arena. Deep task trees need it: a
 worker that waits for a stolen task runs other tasks on top of the
-waiting frame (leapfrogging, and with ``LACE_LEAP_RANDOM`` also random
-steals), so its stack can hold several root-to-leaf paths at once. On
-Windows only MSVC builds get the large default, since they create
+waiting frame (leapfrogging), so its stack can hold several root-to-leaf
+paths at once.
+
+On Windows only MSVC builds get the large default, since they create
 threads with ``STACK_SIZE_PARAM_IS_A_RESERVATION``; MinGW and 32-bit
 builds, and builds with ``LACE_DONT_OVERCOMMIT``, use the calling
 thread's stack limit clamped to 16-64 MB. If the large stacks cannot be
