@@ -40,4 +40,20 @@ static inline double wctime(void)
 }
 #endif
 
+
+/* A hash of a benchmark's output, printed after the timed region as "Result
+ * checksum = ...". The programs are deterministic, so it must be the same for
+ * every worker count and every scheduler (FNV-1a over the bytes). */
+#include <inttypes.h>
+#include <stddef.h>
+#include <stdint.h>
+#define RESULT_HASH_INIT 1469598103934665603ULL
+static inline uint64_t result_hash(uint64_t h, const void *p, size_t n)
+{
+    const unsigned char *b = (const unsigned char *)p;
+    for (size_t i = 0; i < n; i++) { h ^= b[i]; h *= 1099511628211ULL; }
+    return h;
+}
+#define PRINT_RESULT_HASH(h) printf("Result checksum = %016" PRIx64 "\n", (uint64_t)(h))
+
 #endif // COMMON_H

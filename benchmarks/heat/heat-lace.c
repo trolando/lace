@@ -248,6 +248,12 @@ int main( int argc, char **argv )
     double t1 = wctime();
     test();
     double t2 = wctime();
+    {
+        double **mres = nt % 2 ? odd : even;
+        uint64_t hres = RESULT_HASH_INIT;
+        for (int i = 0; i < nx; i++) hres = result_hash(hres, mres[i], (size_t)ny * sizeof(double));
+        PRINT_RESULT_HASH(hres);
+    }
     verify();
 
     printf("Time: %f\n", t2-t1);

@@ -94,6 +94,9 @@ Then run individual benchmarks from the build directory:
 
 Most benchmarks accept a ``-w N`` flag to set the number of worker threads.
 Run without arguments to see usage information.
+The matmul, strassen, lu, fft, quicksort, cilksort, rectmul, heat and
+cholesky benchmarks print a checksum of their result, so that the outputs
+of different builds and worker counts can be compared.
 In addition, there is a ``bench.py`` program in the ``build/benchmarks`` directory
 that can be used to automatically run the benchmarks.
 

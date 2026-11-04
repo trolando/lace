@@ -402,6 +402,7 @@ int main(int argc, char **argv)
     double t1 = wctime();
     lu(M, nBlocks);
     double t2 = wctime();
+    PRINT_RESULT_HASH(result_hash(RESULT_HASH_INIT, M, (size_t)n * (size_t)n * sizeof(double)));
     printf("Time: %f\n", t2-t1);
             
     lace_stop();

@@ -350,6 +350,7 @@ int main(int argc, char **argv)
     double t1 = wctime();
     multiply_matrix(A, y, B, z, x, y, z, R, z, 0);
     double t2 = wctime();
+    PRINT_RESULT_HASH(result_hash(RESULT_HASH_INIT, R, (size_t)x * (size_t)z * sizeof(block)));
 
     printf("Time: %f\n" , t2-t1);
     return 0;

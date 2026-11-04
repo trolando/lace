@@ -30,6 +30,7 @@ All notable changes to Lace will be documented in this file.
   64 MB, and the default is a 1 GB reservation per worker on 64-bit
   systems. The new option `LACE_DONT_OVERCOMMIT` keeps the old default
   (`test_stack`).
+- The benchmarks print a checksum of their result.
 
 ### Fixed
 
