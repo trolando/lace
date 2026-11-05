@@ -57,6 +57,7 @@ All notable changes to Lace will be documented in this file.
 - Lace no longer consumes the program's `rand()` sequence (`test_rand`).
 - `lace_start` exited the program under an address-space limit
   (`ulimit -v`); the scratch arenas now fall back to 16 MiB per worker.
+- The scratch arena was missing from the API reference.
 
 
 ## [2.4.0] - 2026-06-07

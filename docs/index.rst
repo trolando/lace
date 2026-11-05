@@ -47,6 +47,7 @@ Platform support
    api/lifecycle
    api/workers
    api/operations
+   api/scratch
    api/stats
    api/misc
 
