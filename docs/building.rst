@@ -195,10 +195,11 @@ to other programs when Lace does not use all of them (see `Worker pinning`_).
 distributed builds, since ``-march=native`` produces binaries tied to the
 build machine's CPU.
 
-**Statistics options ruin timing measurements.** The ``LACE_PIE_TIMES``,
-``LACE_COUNT_TASKS``, ``LACE_COUNT_STEALS``, and ``LACE_COUNT_SPLITS``
-options add instrumentation overhead. Enable them for profiling and debugging,
-but never for performance benchmarking.
+**Compare timings only between builds with the same statistics options.**
+The ``LACE_PIE_TIMES``, ``LACE_COUNT_TASKS``, ``LACE_COUNT_STEALS``, and
+``LACE_COUNT_SPLITS`` options cost about 1% or less in the benchmarks (see
+:doc:`scheduling-experiments`), but they change the code layout, which can
+move a single program by several percent.
 
 **Hardening defaults cost time in task code.** Many distributions configure
 GCC to add a stack protector and stack clash protection by default. These

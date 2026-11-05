@@ -112,5 +112,5 @@ appropriate options:
    cmake --build build
 
 Then call ``lace_count_report`` at the end of your program.
-Note that enabling statistics adds instrumentation overhead, so the reported wall-clock times will not
-be representative of production performance.
+The statistics cost little, but they change the code layout, so compare
+timings only between builds with the same options.

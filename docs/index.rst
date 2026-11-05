@@ -36,6 +36,7 @@ Platform support
    variants
    tasks
    design
+   scheduling-experiments
    benchmarks
    migrating
 

@@ -36,7 +36,8 @@
 #include <time.h> // for clock_gettime
 
 /*
- * Constants of the leapfrogging and idle policies.
+ * Constants of the leapfrogging and idle policies; docs/scheduling-experiments.rst
+ * reports the measurements behind each value.
  */
 #ifndef LACE_LEAP_HOPS /* How far a leapfrogging worker follows the chain of workers that wait for each other */
 #define LACE_LEAP_HOPS 4

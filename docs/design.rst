@@ -172,8 +172,9 @@ Worker idle strategy
 --------------------
 
 An idle Lace should use almost no CPU, and a parallel region that starts
-after an idle period should start quickly; experiments measured each
-of the mechanisms below against alternatives on several machines.
+after an idle period should start quickly; the scheduling experiments
+(:doc:`scheduling-experiments`) measured each of the mechanisms below
+against alternatives on several machines.
 
 **Stage 1: Yield (0-256 failed attempts).** The worker calls
 ``sched_yield()`` (or ``SwitchToThread()`` on Windows) on each
