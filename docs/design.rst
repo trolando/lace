@@ -294,7 +294,17 @@ Barrier
 
 Lace uses a custom sense-reversing barrier. A shared ``wait`` flag is
 flipped by the last thread to arrive (the leader). Other threads spin
-on this flag with ``acquire`` loads. A ``leaving`` counter tracks how
+on this flag with ``acquire`` loads for ``LACE_BARRIER_SPIN_US``
+(20 µs), then sleep on it like an idle worker: in naps of 100 µs for
+20 ms, then until woken. The leader wakes the sleepers if the
+``sleeping`` counter says that a thread sleeps, which ends a nap at
+once; the flip and the counter are ``seq_cst``, so either the leader
+sees a sleeper or the sleeper sees the flip before it sleeps. Without
+the sleep, threads that share CPUs with the threads they wait for (more
+threads than CPUs) keep those off the CPU, and a TOGETHER can take
+minutes. Without the naps, the core of a sleeper goes into a deep idle
+state, which took 30-140 µs to leave against 9-26 µs from a nap. A
+``leaving`` counter tracks how
 many threads have exited the barrier, used by ``lace_barrier_destroy``
 to wait for all threads to leave before tearing down the barrier.
 
@@ -311,7 +321,7 @@ chain: each ``fetch_add`` on ``count`` acquires all stores released
 by prior ``fetch_add`` operations (via the modification order of
 ``count``), so the leader acquires all pre-barrier stores from all
 threads. The leader then releases through the ``wait`` flip, which
-the spinning threads acquire.
+the waiting threads acquire.
 
 
 Stack and deque allocation

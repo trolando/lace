@@ -58,6 +58,9 @@ All notable changes to Lace will be documented in this file.
 - `lace_start` exited the program under an address-space limit
   (`ulimit -v`); the scratch arenas now fall back to 16 MiB per worker.
 - The scratch arena was missing from the API reference.
+- Workers waiting at a barrier now back off like idle workers instead of
+  spinning; with more threads than CPUs, the spinning made TOGETHER and
+  NEWFRAME take minutes.
 
 
 ## [2.4.0] - 2026-06-07

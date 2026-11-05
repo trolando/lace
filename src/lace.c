@@ -1026,6 +1026,7 @@ typedef struct {
     LACE_ALIGN(LACE_PADDING_TARGET) atomic_int count;
     LACE_ALIGN(LACE_PADDING_TARGET) atomic_int leaving;
     LACE_ALIGN(LACE_PADDING_TARGET) atomic_int wait;
+    atomic_int sleeping; // waiters asleep on wait (its cache line: the leader reads it after the flip)
 } barrier_t;
 
 #if LACE_MSVC
@@ -1033,6 +1034,32 @@ typedef struct {
 #endif
 
 static barrier_t lace_bar;
+
+#ifndef LACE_BARRIER_SPIN_US /* How long a worker spins at a barrier before it sleeps */
+#define LACE_BARRIER_SPIN_US 20
+#endif
+
+/**
+ * The slow path of lace_barrier: sleep on the wait flag until the leader
+ * flips it, like an idle worker (lace_steal_loop): in naps of
+ * LACE_IDLE_FUTEX_TIMEOUT_MIN for LACE_IDLE_SHALLOW_US after the wait began,
+ * then until woken. The leader wakes the sleepers, which ends a nap at once;
+ * the naps only keep the core in a shallow idle state. A sleep without a
+ * timeout let the core go into a deep idle state that took 30-140 us to leave.
+ */
+static LACE_NOINLINE void
+lace_barrier_sleep(int wait, uint64_t start)
+{
+    /* seq_cst, as the flip and the load of sleeping by the leader: either
+     * the leader sees us sleeping, or we see the flip before we sleep */
+    atomic_fetch_add_explicit(&lace_bar.sleeping, 1, memory_order_seq_cst);
+    while (atomic_load_explicit(&lace_bar.wait, memory_order_seq_cst) == wait) {
+        const int64_t timeout = lace_now_us() - start < (uint64_t)LACE_IDLE_SHALLOW_US ?
+            LACE_IDLE_FUTEX_TIMEOUT_MIN : -1;
+        lace_futex_wait(&lace_bar.wait, wait, timeout);
+    }
+    atomic_fetch_sub_explicit(&lace_bar.sleeping, 1, memory_order_relaxed);
+}
 
 /**
  * Enter the Lace barrier and wait until all workers have entered the Lace barrier.
@@ -1045,11 +1072,29 @@ lace_barrier(void)
         // This thread is the last to arrive (the leader)
         atomic_store_explicit(&lace_bar.count, 0, memory_order_relaxed);
         atomic_store_explicit(&lace_bar.leaving, (int)n_workers, memory_order_relaxed);
-        atomic_fetch_xor_explicit(&lace_bar.wait, 1, memory_order_acq_rel);
+        /* seq_cst, as the sleeper count: either we see a sleeper, or the
+         * sleeper sees the flip before it sleeps */
+        atomic_fetch_xor_explicit(&lace_bar.wait, 1, memory_order_seq_cst);
+        if (atomic_load_explicit(&lace_bar.sleeping, memory_order_seq_cst) > 0) {
+            lace_futex_wake_all(&lace_bar.wait);
+        }
     } else {
-        // Wait until leader flips the wait value
-        while (atomic_load_explicit(&lace_bar.wait, memory_order_acquire) == wait) {
-            // possibly pause/yield
+        /* Wait until the leader flips the wait value. Spin briefly, since
+         * the others usually arrive within microseconds, then sleep: with
+         * more threads than CPUs, spinning waiters keep the workers they
+         * wait for off the CPU, and a TOGETHER took minutes. The clock is
+         * read only after 64 rounds, so short waits do not read it. */
+        uint64_t start = 0;
+        for (unsigned int spin = 1; atomic_load_explicit(&lace_bar.wait, memory_order_acquire) == wait; spin++) {
+            lace_cpu_pause();
+            if ((spin & 63) != 0) continue;
+            const uint64_t now = lace_now_us();
+            if (spin == 64) {
+                start = now;
+            } else if (now - start >= LACE_BARRIER_SPIN_US) {
+                lace_barrier_sleep(wait, start);
+                break;
+            }
         }
     }
     // Needed for lace_barrier_destroy to observe all threads have exited
@@ -1065,6 +1110,7 @@ lace_barrier_init(void)
     atomic_init(&lace_bar.count, 0);
     atomic_init(&lace_bar.leaving, 0);
     atomic_init(&lace_bar.wait, 0);
+    atomic_init(&lace_bar.sleeping, 0);
 }
 
 /**
