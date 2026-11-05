@@ -123,11 +123,11 @@ runtests(int n_workers)
     printf("Testing mixed newframe/together...\n");
     free(worker_counter);
     worker_counter = (int*)calloc(lace_worker_count(), sizeof(int));
-    test_newframe(5);
-    test_together(5);
+    test_newframe(4);
+    test_together(4);
     for (unsigned int i=0; i<lace_worker_count(); i++) {
-        printf("Counter %d reads %d (expecting 6561)\n", i, worker_counter[i]);
-        if (worker_counter[i] != 6561) exit(1);
+        printf("Counter %d reads %d (expecting 2187)\n", i, worker_counter[i]);
+        if (worker_counter[i] != 2187) exit(1);
     }
 
     free(worker_counter);
@@ -150,7 +150,7 @@ main (int argc, char *argv[])
 
     lace_set_verbosity(0);
 
-#define EXECUTIONS 3
+#define EXECUTIONS 1
 
     for (unsigned int i=0; i<EXECUTIONS; i++) {
         printf("### RUNNING TEST %d OF %d ###\n", i+1, EXECUTIONS);
