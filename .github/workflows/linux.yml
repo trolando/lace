@@ -26,6 +26,7 @@ jobs:
           - { name: GCC-9,  os: ubuntu-22.04, cc: gcc-9,  cxx: g++-9,  pkg: gcc-9 g++-9,   build_type: RelWithDebInfo }
           - { name: GCC-14, os: ubuntu-latest, cc: gcc-14, cxx: g++-14, pkg: gcc-14 g++-14,  build_type: RelWithDebInfo }
           - { name: GCC-14, os: ubuntu-latest, cc: gcc-14, cxx: g++-14, pkg: gcc-14 g++-14,  build_type: Debug   }
+          - { name: GCC-14 arm64, os: ubuntu-24.04-arm, cc: gcc-14, cxx: g++-14, pkg: gcc-14 g++-14, build_type: RelWithDebInfo }
     steps:
     - uses: actions/checkout@v6
     - name: Install dependencies
@@ -59,12 +60,15 @@ jobs:
 
   clang-build:
     needs: check-generated
-    name: 'Linux Clang-18 ${{matrix.build_type}}'
-    runs-on: ubuntu-latest
+    name: 'Linux Clang-18${{matrix.arch}} ${{matrix.build_type}}'
+    runs-on: ${{matrix.os}}
     strategy:
       fail-fast: false
       matrix:
         build_type: [RelWithDebInfo, Debug]
+        os: [ubuntu-latest]
+        include:
+          - { build_type: RelWithDebInfo, os: ubuntu-24.04-arm, arch: ' arm64' }
     steps:
     - uses: actions/checkout@v6
     - name: Install dependencies
@@ -155,21 +159,3 @@ jobs:
       run: cmake --build build32
     - name: Test
       run: ctest --test-dir build32 --output-on-failure -VV --timeout 60 -j 1
-
-  armv7-qemu:
-    needs: check-generated
-    name: 'Linux armv7 (QEMU) RelWithDebInfo'
-    runs-on: ubuntu-latest
-    steps:
-    - uses: actions/checkout@v6
-    - uses: uraimo/run-on-arch-action@v3
-      with:
-        arch: armv7
-        distro: ubuntu24.04
-        install: |
-          apt-get update
-          apt-get install -y cmake ninja-build gcc g++ pkg-config
-        run: |
-          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo -DLACE_BUILD_TESTS=ON -DLACE_BUILD_BENCHMARKS=OFF
-          cmake --build build
-          ctest --test-dir build --output-on-failure -VV --timeout 120 -j 1
