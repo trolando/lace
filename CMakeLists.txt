@@ -80,6 +80,9 @@ endif()
  
 if(LACE_USE_HWLOC)
     find_package(HWLOC REQUIRED)
+    if(APPLE)
+        message(WARNING "LACE_USE_HWLOC: macOS does not let programs pin threads, so hwloc cannot pin Lace's workers")
+    endif()
 endif()
 
 # ── Sanitizer support (top-level builds only) ────────────────────────────────

@@ -55,6 +55,9 @@ All notable changes to Lace will be documented in this file.
   cgroups, SLURM) and started one worker per online CPU (`test_affinity`).
 - With hwloc, Lace pinned workers to cores outside the affinity mask
   (`test_pin`).
+- With hwloc, every worker printed errors where the system cannot pin
+  threads or bind memory (macOS); Lace now says once that it cannot pin,
+  and CMake warns about it on macOS.
 - Parallel regions started while the workers slept ran almost serially.
 - Lace no longer consumes the program's `rand()` sequence (`test_rand`).
 - `lace_start` exited the program under an address-space limit
