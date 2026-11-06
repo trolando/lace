@@ -838,6 +838,7 @@ typedef enum {
     CTR_leaps,       /* Number of succesful leaps */
     CTR_steal_busy,  /* Number of steal busies */
     CTR_leap_busy,   /* Number of leap busies */
+    CTR_leap_strays, /* Leaps that stole a task unrelated to the awaited one */
 #endif
 #if LACE_COUNT_SPLITS
     CTR_split_grow,  /* Number of split right */
@@ -939,6 +940,9 @@ typedef struct _WorkerP {
     uint64_t ctr[CTR_MAX];      // counters
     uint64_t time;
     int level;
+#endif
+#if LACE_COUNT_STEALS
+    Task *leap_task;            // awaited task during a leap attempt (for CTR_leap_strays)
 #endif
 } WorkerP;
 
@@ -1161,6 +1165,18 @@ Worker* lace_steal(WorkerP *self, Task *__dq_head, Worker *victim)
             if (atomic_compare_exchange_weak(&victim->ts.v, &expected, ts_new.v)) {
                 // Stolen
                 Task *t = &victim->dq[ts.ts.tail];
+#if LACE_COUNT_STEALS
+                /* A leap normally steals a descendant of the awaited task,
+                 * which cannot complete before that descendant has run. So
+                 * if it has completed already, the thief finished it and
+                 * moved on before our steal: this task is unrelated. */
+                if (self->leap_task != NULL) {
+                    if (atomic_load_explicit(&self->leap_task->thief, memory_order_relaxed) == THIEF_COMPLETED) {
+                        PR_COUNTSTEALS(self, CTR_leap_strays);
+                    }
+                    self->leap_task = NULL;
+                }
+#endif
                 atomic_store_explicit(&t->thief, self->_public, memory_order_relaxed);
                 lace_time_event(self, 1);
                 t->f(self, __dq_head, t);
@@ -1234,7 +1250,13 @@ lace_leapfrog(WorkerP *__lace_worker, Task *__lace_dq_head)
         int attempts = 32;
         while (thief != THIEF_COMPLETED) {
             PR_COUNTSTEALS(__lace_worker, CTR_leap_tries);
+#if LACE_COUNT_STEALS
+            __lace_worker->leap_task = t;
+#endif
             Worker *res = lace_steal(__lace_worker, __lace_dq_head, thief);
+#if LACE_COUNT_STEALS
+            __lace_worker->leap_task = NULL;
+#endif
             if (res == LACE_NOWORK) {
                 YIELD_NEWFRAME();
                 if ((LACE_LEAP_RANDOM) && (--attempts == 0)) { lace_steal_random(); attempts = 32; }
