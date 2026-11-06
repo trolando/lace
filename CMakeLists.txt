@@ -32,6 +32,7 @@ option(LACE_COUNT_TASKS  "Let Lace record the number of tasks"                  
 option(LACE_COUNT_STEALS "Let Lace count #steals and #leaps"                         OFF)
 option(LACE_COUNT_SPLITS "Let Lace count #splits"                                    OFF)
 option(LACE_HARDENING    "Keep the compiler's stack protector/clash checks in Lace" OFF)
+option(LACE_PIN_WORKERS  "Pin workers by default (LACE_PIN_AUTO, Linux; lace_set_pinning() or LACE_PIN choose another mode)" ON)
 option(LACE_DONT_OVERCOMMIT "Default to 16-64 MB worker stacks instead of reserving 1 GB each" OFF)
 
 if(lace_IS_TOP_LEVEL)
@@ -298,6 +299,7 @@ if(NOT lace_IS_TOP_LEVEL)
         LACE_COUNT_TASKS
         LACE_COUNT_STEALS
         LACE_COUNT_SPLITS
+        LACE_PIN_WORKERS
         LACE_DONT_OVERCOMMIT
     )
 endif()
@@ -393,6 +395,7 @@ message(STATUS "  Use HWLOC         : ${LACE_USE_HWLOC}")
 message(STATUS "  Use -march=native : ${LACE_NATIVE_OPT}")
 message(STATUS "  Use -fPIC         : ${LACE_ENABLE_PIC}")
 message(STATUS "  Backoff when idle : ${LACE_BACKOFF}")
+message(STATUS "  Pin workers       : ${LACE_PIN_WORKERS}")
 message(STATUS "  Don't overcommit  : ${LACE_DONT_OVERCOMMIT}")
 message(STATUS "  Count tasks       : ${LACE_COUNT_TASKS}")
 message(STATUS "  Count steals      : ${LACE_COUNT_STEALS}")

@@ -312,10 +312,6 @@
 #define LACE_TASKSIZE (128)
 #endif
 
-#ifndef LACE_LEAP_RANDOM /* Use random leaping when leapfrogging fails */
-#define LACE_LEAP_RANDOM 1
-#endif
-
 #ifdef __cplusplus
 extern "C" {
 #endif /* __cplusplus */
@@ -352,6 +348,62 @@ typedef struct _Task Task;
  * Default level: 0
  */
 void lace_set_verbosity(int level);
+
+/**
+ * Pinning modes for lace_set_pinning().
+ */
+typedef enum lace_pin_mode {
+    LACE_PIN_OFF = 0,
+    LACE_PIN_AUTO = 1,
+    LACE_PIN_ALL = 2,
+    LACE_PIN_CPU = 3,
+    LACE_PIN_L3 = 4,
+    LACE_PIN_NUMA = 5,
+    LACE_PIN_CORE = 6,
+    LACE_PIN_L2 = 7,
+} lace_pin_mode;
+
+/**
+ * Choose what each worker may run on, within the affinity mask of the thread
+ * that calls lace_start() (as taskset, cgroups or a job scheduler set it).
+ *
+ * - LACE_PIN_AUTO (the default): LACE_PIN_CPU if the workers fill the cores
+ *   of the mask, else LACE_PIN_ALL. A program with as many workers as cores
+ *   owns them, and one CPU per worker is fastest; one that leaves cores free
+ *   may share the machine, and pinning to fixed CPUs would make two such
+ *   programs share the same cores.
+ * - LACE_PIN_CPU: one hardware thread per worker, one of every physical core
+ *   before any second hardware thread of a core.
+ * - LACE_PIN_CORE: one physical core per worker (its hardware threads).
+ * - LACE_PIN_L2, LACE_PIN_L3, LACE_PIN_NUMA: the cores that share an L2
+ *   cache, an L3 cache or a NUMA node. The workers are spread over these
+ *   groups in proportion to their number of cores.
+ * - LACE_PIN_ALL: any physical core of the mask, one hardware thread each.
+ * - LACE_PIN_OFF: no pinning.
+ *
+ * With more workers than places (hardware threads for LACE_PIN_CPU, cores
+ * otherwise) Lace does not pin. Without this call, the environment variable
+ * LACE_PIN chooses: off, auto, all, cpu, core, l2, l3, numa, or list:CPUS for
+ * worker i on the i-th CPU of a list such as list:0,2,4-7 (see
+ * lace_set_pin_cpus). Linux only (other systems do not pin), and not with
+ * LACE_USE_HWLOC, which pins in its own way. Call before lace_start().
+ *
+ * @param mode  The pinning mode (default LACE_PIN_AUTO)
+ * @see lace_set_pin_cpus
+ */
+void lace_set_pinning(lace_pin_mode mode);
+
+/**
+ * Pin worker i to cpus[i % n] (manual pinning).
+ *
+ * CPUs outside the affinity mask are left out. Overrides lace_set_pinning()
+ * and LACE_PIN; n = 0 undoes it. Call before lace_start().
+ *
+ * @param cpus  CPU numbers
+ * @param n     Number of entries in @p cpus
+ * @see lace_set_pinning
+ */
+void lace_set_pin_cpus(const int *cpus, unsigned int n);
  
 /**
  * Set the program stack size of Lace worker threads, at least 16 MB.
@@ -398,6 +450,10 @@ unsigned int lace_get_pu_count(void);
  * Start Lace with <n_workers> workers and a a task deque size of <dqsize> per worker.
  * If <n_workers> is set to 0, automatically detects available cores.
  * If <dqsize> is est to 0, uses a reasonable default value.
+ * With LACE_BACKOFF (the default), idle workers soon sleep, and an idle Lace
+ * uses almost no CPU. On Linux, workers are pinned as lace_set_pinning()
+ * chooses (by default LACE_PIN_AUTO); with LACE_USE_HWLOC, hwloc pins them
+ * to CPU cores.
  */
 void lace_start(unsigned int n_workers, size_t dqsize);
 
@@ -842,6 +898,7 @@ typedef enum {
     CTR_steal_busy,  /* Number of steal busies */
     CTR_leap_busy,   /* Number of leap busies */
     CTR_leap_strays, /* Leaps that stole a task unrelated to the awaited one */
+    CTR_leap_trans,  /* Successful leaps from a worker that the thief waits for */
 #endif
 #if LACE_COUNT_SPLITS
     CTR_split_grow,  /* Number of split right */
@@ -910,9 +967,14 @@ static_assert(sizeof(TailSplitNA) == 8, "TailSplit size should be 8 bytes");
 typedef struct _Worker {
     Task *dq;
     TailSplit ts;
+    /* While this worker leapfrogs: the thief of the task it waits for (the
+     * innermost wait), else NULL. Written on entering and leaving a leapfrog;
+     * read by leapfrogging workers whose own thief has nothing to steal. It
+     * shares the cache line that a steal attempt reads anyway. */
+    _Atomic(struct _Worker*) waiting_on;
     uint8_t allstolen;
 
-    char pad1[PAD(P_SZ+sizeof(TailSplit)+1, LACE_PADDING_TARGET)];
+    char pad1[PAD(2*P_SZ+sizeof(TailSplit)+1, LACE_PADDING_TARGET)];
 
     uint8_t movesplit;
 } Worker;
@@ -1151,59 +1213,6 @@ static LACE_UNUSED void lace_time_event(WorkerP *w, int event)
  */
 
 LACE_NO_SANITIZE_THREAD
-static LACE_NOINLINE
-Worker* lace_steal(WorkerP *self, Task *__dq_head, Worker *victim)
-{
-    if (victim != NULL && !victim->allstolen) {
-        TailSplitNA ts;
-        ts.v = atomic_load_explicit(&victim->ts.v, memory_order_relaxed);
-        if (ts.ts.tail < ts.ts.split) {
-            TailSplitNA ts_new;
-            ts_new.v = ts.v;
-            ts_new.ts.tail++;
-            /* A scalar expected value, not &ts.v: the union would have to live
-             * on the stack, and with -fstack-protector-strong that adds a
-             * canary check to every steal attempt. */
-            uint64_t expected = ts.v;
-            if (atomic_compare_exchange_weak(&victim->ts.v, &expected, ts_new.v)) {
-                // Stolen
-                Task *t = &victim->dq[ts.ts.tail];
-#if LACE_COUNT_STEALS
-                /* A leap normally steals a descendant of the awaited task,
-                 * which cannot complete before that descendant has run. So
-                 * if it has completed already, the thief finished it and
-                 * moved on before our steal: this task is unrelated. */
-                if (self->leap_task != NULL) {
-                    if (atomic_load_explicit(&self->leap_task->thief, memory_order_relaxed) == THIEF_COMPLETED) {
-                        PR_COUNTSTEALS(self, CTR_leap_strays);
-                    }
-                    self->leap_task = NULL;
-                }
-#endif
-                atomic_store_explicit(&t->thief, self->_public, memory_order_relaxed);
-                lace_time_event(self, 1);
-                t->f(self, __dq_head, t);
-                lace_time_event(self, 2);
-                atomic_store_explicit(&t->thief, THIEF_COMPLETED, memory_order_release);
-                lace_time_event(self, 8);
-                return ts_new.ts.tail < ts_new.ts.split ? LACE_STOLEN : LACE_STOLEN_LAST;
-            }
- 
-            lace_time_event(self, 7);
-            return LACE_BUSY;
-        }
- 
-        if (victim->movesplit == 0) {
-            victim->movesplit = 1;
-            PR_COUNTSPLITS(self, CTR_split_req);
-        }
-    }
- 
-    lace_time_event(self, 7);
-    return LACE_NOWORK;
-}
-
-LACE_NO_SANITIZE_THREAD
 static int
 lace_shrink_shared(WorkerP *w)
 {
@@ -1236,57 +1245,12 @@ lace_shrink_shared(WorkerP *w)
     return 1;
 }
 
-LACE_NO_SANITIZE_THREAD
-static inline void
-lace_leapfrog(WorkerP *__lace_worker, Task *__lace_dq_head)
-{
-    lace_time_event(__lace_worker, 3);
-    Task *t = __lace_dq_head;
-    Worker *thief = atomic_load_explicit(&t->thief, memory_order_relaxed);
-    if (thief != THIEF_COMPLETED) {
-        while ((size_t)thief <= 1) thief = atomic_load_explicit(&t->thief, memory_order_relaxed);
- 
-        /* PRE-LEAP: increase head again */
-        __lace_dq_head += 1;
- 
-        /* Now leapfrog */
-        int attempts = 32;
-        while (thief != THIEF_COMPLETED) {
-            PR_COUNTSTEALS(__lace_worker, CTR_leap_tries);
-#if LACE_COUNT_STEALS
-            __lace_worker->leap_task = t;
-#endif
-            Worker *res = lace_steal(__lace_worker, __lace_dq_head, thief);
-#if LACE_COUNT_STEALS
-            __lace_worker->leap_task = NULL;
-#endif
-            if (res == LACE_NOWORK) {
-                YIELD_NEWFRAME();
-                if ((LACE_LEAP_RANDOM) && (--attempts == 0)) { lace_steal_random(); attempts = 32; }
-            } else if (res == LACE_STOLEN) {
-                PR_COUNTSTEALS(__lace_worker, CTR_leaps);
-            } else if (res == LACE_BUSY) {
-                PR_COUNTSTEALS(__lace_worker, CTR_leap_busy);
-            }
-            atomic_thread_fence(memory_order_acquire);
-            thief = atomic_load_explicit(&t->thief, memory_order_relaxed);
-        }
- 
-        /* POST-LEAP: really pop the finished task */
-        atomic_thread_fence(memory_order_acquire);
-        if (__lace_worker->allstolen == 0) {
-            /* Assume: tail = split = head (pre-pop) */
-            /* Now we do a real pop ergo either decrease tail,split,head or declare allstolen */
-            Worker *wt = __lace_worker->_public;
-            wt->allstolen = 1;
-            __lace_worker->allstolen = 1;
-        }
-    }
- 
-    atomic_thread_fence(memory_order_acquire);
-    atomic_store_explicit(&t->thief, THIEF_EMPTY, memory_order_relaxed);
-    lace_time_event(__lace_worker, 4);
-}
+/**
+ * Wait for the stolen task at __lace_dq_head and pop it (lace.c). While its
+ * thief works on it, steal from the thief, or from the workers that the
+ * thief waits for: they all work on parts of the awaited task.
+ */
+void lace_leapfrog(WorkerP *__lace_worker, Task *__lace_dq_head);
 
 static LACE_NOINLINE
 void lace_drop_slow(WorkerP *w, Task *__dq_head)
