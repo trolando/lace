@@ -137,6 +137,22 @@ endif()
 # -fcf-protection stays: mixing objects with and without it would silently
 # drop CET for the whole program, and its cost is an endbr64 per function.
 
+# Clang 18 warns about its own -march=native on CPUs with AVX10.1 ("invalid
+# feature combination"), which -Werror turns into an error; older Clang does
+# not know the warning, hence the check.
+set(LACE_NATIVE_FLAGS "")
+if(LACE_NATIVE_OPT AND CMAKE_C_COMPILER_ID MATCHES "Clang")
+    include(CheckCCompilerFlag)
+    set(_saved_flags "${CMAKE_REQUIRED_FLAGS}")
+    string(APPEND CMAKE_REQUIRED_FLAGS " -Werror")
+    check_c_compiler_flag(-Wno-invalid-feature-combination LACE_HAS_WNO_INVALID_FEATURE_COMBINATION)
+    set(CMAKE_REQUIRED_FLAGS "${_saved_flags}")
+    unset(_saved_flags)
+    if(LACE_HAS_WNO_INVALID_FEATURE_COMBINATION)
+        list(APPEND LACE_NATIVE_FLAGS -Wno-invalid-feature-combination)
+    endif()
+endif()
+
 set(LACE_NO_HARDENING_FLAGS "")
 if(NOT LACE_HARDENING)
     if(MSVC)
@@ -248,6 +264,7 @@ foreach(_target lace lace32 lace128)
             -Watomic-implicit-seq-cst # ensure all atomic load/store are explicit
             $<$<CONFIG:Debug>:-O0>
             $<$<BOOL:${LACE_NATIVE_OPT}>:-march=native>
+            ${LACE_NATIVE_FLAGS}
         )
     elseif(MSVC)
         target_compile_options(${_target} PUBLIC

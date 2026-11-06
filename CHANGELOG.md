@@ -65,6 +65,7 @@ All notable changes to Lace will be documented in this file.
   threads or bind memory (macOS); Lace now says once that it cannot pin,
   and CMake warns about it on macOS.
 - Newer Clang failed to build Lace (`-Wunused-but-set-global` with `-Werror`).
+- Clang 18 failed to build Lace with `-march=native` on CPUs with AVX10.1.
 - Parallel regions started while the workers slept ran almost serially.
 - Lace no longer consumes the program's `rand()` sequence (`test_rand`).
 - `lace_start` exited the program under an address-space limit
