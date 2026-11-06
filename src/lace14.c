@@ -483,6 +483,14 @@ static atomic_int lace_quits = 0;
 static int is_running = 0;
 
 /**
+ * lace_release_memory: each worker compares release_gen in its idle loop and
+ * counts itself in release_done once it has released its memory.
+ */
+static atomic_uint release_gen = 0;
+static atomic_uint release_done = 0;
+static atomic_flag release_lock = ATOMIC_FLAG_INIT;
+
+/**
  * Futex-based idle system for progressive worker sleeping
  */
 static atomic_int wake_futex = 0;   /* futex word: incremented to wake sleeping workers */
@@ -1177,6 +1185,79 @@ TASK(void, lace_steal_random)
     }
 }
 
+#if !defined(_WIN32)
+/**
+ * Release the physical pages in [from, to), rounded inward to whole pages;
+ * touching a page again faults in a fresh zero page. Linux frees at once
+ * with MADV_DONTNEED and keeps the mapping, including an hwloc NUMA binding.
+ * Elsewhere madvise only marks pages for lazy reclaim (macOS keeps them
+ * resident), so a fresh anonymous mapping replaces the range; without the
+ * binding, first touch by the pinned worker places pages on its node.
+ */
+static void
+lace_release_pages(uintptr_t from, uintptr_t to)
+{
+    uintptr_t ps = (uintptr_t)lace_scratch_page_size;
+    from = (from + ps - 1) & ~(ps - 1);
+    to &= ~(ps - 1);
+    if (to <= from) return;
+#if defined(__linux__)
+    (void)madvise((void*)from, (size_t)(to - from), MADV_DONTNEED);
+#else
+    (void)mmap((void*)from, (size_t)(to - from), PROT_READ | PROT_WRITE,
+               MAP_PRIVATE | MAP_ANONYMOUS | MAP_NORESERVE | MAP_FIXED, -1, 0);
+#endif
+}
+#endif
+
+/* Stack kept below the frame that releases a worker's stack: madvise and the
+ * idle loop run there. */
+#define LACE_RELEASE_STACK_MARGIN ((uintptr_t)64 << 10)
+
+/**
+ * Release the memory an idle worker does not use: its stack below this
+ * frame, its deque past the head, and its scratch arena past the first band.
+ * Runs on the worker itself, from its idle loop, where no task is running.
+ */
+static LACE_NOINLINE void
+lace_release_worker_memory(WorkerP *lw, Task *head)
+{
+#if !defined(_WIN32)
+#if LACE_USE_HWLOC || !defined(__FreeBSD__)
+    if (worker_stacks != NULL && worker_stacks[lw->worker] != NULL) {
+        /* The frame address, not that of a local: AddressSanitizer may keep
+         * locals on a fake stack of its own (detect_stack_use_after_return).
+         * A top outside the stack releases nothing. */
+        uintptr_t low = (uintptr_t)worker_stacks[lw->worker] + worker_stack_page_size;
+        uintptr_t high = (uintptr_t)worker_stacks[lw->worker] + worker_stack_size;
+        uintptr_t top = (uintptr_t)__builtin_frame_address(0);
+        if (top > low + LACE_RELEASE_STACK_MARGIN && top <= high) lace_release_pages(low, top - LACE_RELEASE_STACK_MARGIN);
+    }
+#endif
+    lace_release_pages((uintptr_t)(head + 1), (uintptr_t)lw->end);
+#else
+    (void)head;
+#endif
+    lace_scratch_trim(lw);
+}
+
+void
+lace_release_memory(void)
+{
+    if (!is_running || lace_get_worker() != NULL) return;
+
+    while (atomic_flag_test_and_set_explicit(&release_lock, memory_order_acquire)) lace_sleep_us(50);
+    atomic_store_explicit(&release_done, 0, memory_order_relaxed);
+    atomic_fetch_add_explicit(&release_gen, 1, memory_order_release);
+
+    /* Wake sleeping workers, so they release now instead of at their next timeout */
+    atomic_fetch_add_explicit(&wake_futex, 1, memory_order_release);
+    lace_futex_wake_all(&wake_futex);
+
+    while (atomic_load_explicit(&release_done, memory_order_acquire) < n_workers) lace_sleep_us(50);
+    atomic_flag_clear_explicit(&release_lock, memory_order_release);
+}
+
 /**
  * Main Lace worker implementation.
  * Steal from random victims until "quit" is set.
@@ -1198,8 +1279,15 @@ TASK(void, lace_steal_loop, atomic_int*, quit)
     unsigned int n = n_workers;
     unsigned int last_victim = worker_id; // means no last victim
     unsigned int idle_count = 0;
+    unsigned int seen_release = 0; // lace_start resets release_gen to 0
 
     while (1) {
+        if (LACE_UNLIKELY(atomic_load_explicit(&release_gen, memory_order_acquire) != seen_release)) {
+            seen_release = atomic_load_explicit(&release_gen, memory_order_acquire);
+            lace_release_worker_memory(__lace_worker, __lace_dq_head);
+            atomic_fetch_add_explicit(&release_done, 1, memory_order_release);
+        }
+
         if (n > 1) {
             // Victim selection: try last successful victim first, then random
             if ((idle_count&1) == 0 && last_victim != worker_id) {
@@ -1563,6 +1651,8 @@ lace_start(unsigned int _n_workers, size_t dequesize)
     n_workers = _n_workers == 0 ? n_pus : _n_workers;
     dqsize = dequesize > 0 ? dequesize : 1048576;
     atomic_store_explicit(&lace_quits, 0, memory_order_relaxed);
+    atomic_store_explicit(&release_gen, 0, memory_order_relaxed);
+    atomic_store_explicit(&release_done, 0, memory_order_relaxed);
 
 #if LACE_USE_HWLOC
     // Distribute workers over cores.
