@@ -1243,24 +1243,28 @@ lace_pin_worker(void)
     // Get the worker id
     unsigned int worker = lace_get_worker()->worker;
 
-    // Pin the thread
-    if (hwloc_set_cpubind(topo, cpusets[worker], HWLOC_CPUBIND_THREAD) != 0) {
-        fprintf(stderr, "Lace warning: hwloc_set_cpubind failed!\n");
+    // Pin the thread and bind its memory to its NUMA node, where the system
+    // supports it (macOS does neither); report a failure once
+    static atomic_int warned_cpubind = 0, warned_membind = 0;
+    const struct hwloc_topology_support *support = hwloc_topology_get_support(topo);
+
+    if (support->cpubind->set_thisthread_cpubind &&
+        hwloc_set_cpubind(topo, cpusets[worker], HWLOC_CPUBIND_THREAD) != 0 &&
+        atomic_exchange(&warned_cpubind, 1) == 0) {
+        fprintf(stderr, "Lace warning: hwloc could not pin worker %u (%s); workers may run unpinned\n",
+            worker, strerror(errno));
     }
 
-    // Grab nodeset for this cpuset
-    hwloc_bitmap_t nodeset = hwloc_bitmap_alloc();
-    if (hwloc_cpuset_to_nodeset(topo, cpusets[worker], nodeset) != 0) {
-        fprintf(stderr, "Lace error: Unable to convert cpuset to nodeset!\n");
+    if (support->membind->set_area_membind && support->membind->migrate_membind) {
+        hwloc_bitmap_t nodeset = hwloc_bitmap_alloc();
+        hwloc_cpuset_to_nodeset(topo, cpusets[worker], nodeset);
+        if (hwloc_set_area_membind(topo, workers_memory[worker], workers_memory_size, nodeset, HWLOC_MEMBIND_BIND, HWLOC_MEMBIND_STRICT | HWLOC_MEMBIND_MIGRATE | HWLOC_MEMBIND_BYNODESET) != 0 &&
+            atomic_exchange(&warned_membind, 1) == 0) {
+            fprintf(stderr, "Lace warning: hwloc could not bind the memory of worker %u to its NUMA node (%s)\n",
+                worker, strerror(errno));
+        }
+        hwloc_bitmap_free(nodeset);
     }
-
-    // Pin the memory area
-    if (hwloc_set_area_membind(topo, workers_memory[worker], workers_memory_size, nodeset, HWLOC_MEMBIND_BIND, HWLOC_MEMBIND_STRICT | HWLOC_MEMBIND_MIGRATE | HWLOC_MEMBIND_BYNODESET) != 0) {
-        fprintf(stderr, "Lace error: Unable to bind worker memory to node!\n");
-    }
-
-    // Free allocated memory
-    hwloc_bitmap_free(nodeset);
 
     // Check if everything is on the correct node
     lace_check_memory();
@@ -2596,6 +2600,12 @@ lace_start(unsigned int _n_workers, size_t dequesize)
     n_nodes = (unsigned int)hwloc_get_nbobjs_by_type(topo, HWLOC_OBJ_NODE);
     n_cores = (unsigned int)hwloc_get_nbobjs_by_type(topo, HWLOC_OBJ_CORE);
     n_pus = (unsigned int)hwloc_get_nbobjs_by_type(topo, HWLOC_OBJ_PU);
+
+    static int told_no_pinning = 0;
+    if (!hwloc_topology_get_support(topo)->cpubind->set_thisthread_cpubind && !told_no_pinning) {
+        told_no_pinning = 1;
+        fprintf(stderr, "Lace warning: hwloc cannot pin threads on this system; the workers are not pinned\n");
+    }
 #else
     n_pus = lace_get_pu_count();
 #endif

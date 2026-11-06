@@ -84,7 +84,7 @@ Lace can be configured with the following CMake settings:
 Setting | Description | Default
 --------|-------------|--------
 `LACE_PIN_WORKERS` | Pin worker threads by default (Linux), within the affinity mask the program is given; `lace_set_pinning()` or the `LACE_PIN` environment variable choose the mode at run time | ON
-`LACE_USE_HWLOC` | Use the `hwloc` library to pin threads to CPUs and allocate memory on the correct NUMA node, instead of the built-in pinning | OFF
+`LACE_USE_HWLOC` | Use the `hwloc` library to pin threads to CPUs and allocate memory on the correct NUMA node, instead of the built-in pinning (macOS does not let programs pin threads) | OFF
 `LACE_BACKOFF` | Workers sleep with exponential backoff when no work is available, reducing CPU usage without affecting throughput | ON
 `LACE_NATIVE_OPT` | Optimise for the host CPU architecture (`-march=native`) | ON
 `LACE_ENABLE_PIC` | Compile with position-independent code (`-fPIC`) | OFF
