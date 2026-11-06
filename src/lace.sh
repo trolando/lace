@@ -370,13 +370,20 @@ typedef struct _Task Task;
 void lace_set_verbosity(int level);
  
 /**
- * Set the program stack size of Lace worker threads. (Not really needed, default is OK.)
+ * Set the program stack size of Lace worker threads, at least 16 MB.
+ * Call before lace_start. The default (0) is a 1 GB reservation on 64-bit
+ * systems where stack pages are committed on first touch (not with
+ * LACE_DONT_OVERCOMMIT, not on Windows except MSVC), otherwise the stack
+ * limit of the calling thread clamped to 16-64 MB. If the 1 GB stacks
+ * cannot be reserved (for example under ulimit -v), Lace falls back to
+ * the latter.
  */
 void lace_set_stacksize(size_t stacksize);
  
 /**
  * Get the program stack size of Lace worker threads.
- * If this returns 0, it uses the default.
+ * If this returns 0, it uses the default. After lace_start, this is the
+ * stack size that the workers use.
  */
 size_t lace_get_stacksize(void);
 

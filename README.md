@@ -91,6 +91,7 @@ Setting | Description | Default
 `LACE_COUNT_STEALS` | Let Lace count how often tasks were stolen | OFF
 `LACE_COUNT_SPLITS` | Let Lace count how often the queue split point was moved | OFF
 `LACE_PIE_TIMES` | Let Lace record precise overhead times | OFF
+`LACE_DONT_OVERCOMMIT` | Default worker stacks to the stack limit of the calling thread, clamped to 16-64 MB, instead of reserving 1 GB of address space per worker (for systems with strict overcommit accounting, `vm.overcommit_memory=2`); a size set with `lace_set_stacksize` is used either way | OFF
 `LACE_HARDENING` | Keep the compiler's default stack protector and stack clash protection in Lace's own code (when OFF, the library and the benchmarks are built with `-fno-stack-protector -fno-stack-clash-protection`, `/GS-` on MSVC) | OFF
 
 The following options are only available when Lace is the top-level project:

@@ -383,8 +383,10 @@ static Worker **workers = NULL;
 static size_t dqsize = 1048576; // 1M entries, virtual only, should be sufficient... (famous last words)
 
 /**
- * Size of the program stack of each Lace worker
+ * Program stack size of each Lace worker: as set with lace_set_stacksize (0
+ * for the default), and as used by the running workers
  */
+static size_t stacksize_set = 0;
 static size_t stacksize = 0;
 
 /**
@@ -495,6 +497,26 @@ static atomic_int n_sleeping = 0;   /* count of workers currently in futex_wait 
  * Thread-specific mechanism to access current worker data
  */
 LACE_TLS WorkerP* current_worker = NULL;
+
+/**
+ * Worker stack sizes. A stack is reserved address space; its pages are
+ * committed when first touched. Where that holds (64-bit, not Windows except
+ * MSVC, which reserves with STACK_SIZE_PARAM_IS_A_RESERVATION), the default is
+ * a large reservation, so deep recursion does not overflow. LACE_DONT_OVERCOMMIT
+ * restores the conservative default: RLIMIT_STACK clamped to [16 MB, 64 MB].
+ * An explicit stack size (lace_set_stacksize) is used as given (at least
+ * LACE_STACK_MIN).
+ */
+#define LACE_STACK_MIN        ((size_t)16 << 20)
+#define LACE_STACK_SMALL_MAX  ((size_t)64 << 20)
+#ifndef LACE_STACK_LARGE
+#define LACE_STACK_LARGE      ((size_t)1 << 30)
+#endif
+#if !LACE_DONT_OVERCOMMIT && SIZE_MAX > 0xffffffffu && (!defined(_WIN32) || LACE_MSVC)
+#define LACE_LARGE_STACKS 1
+#else
+#define LACE_LARGE_STACKS 0
+#endif
 
 /**
  * Global newframe variable used for the implementation of NEWFRAME and TOGETHER
@@ -1343,8 +1365,113 @@ lace_set_scratch_band(size_t size)
 void
 lace_set_stacksize(size_t new_stacksize)
 {
-    stacksize = new_stacksize;
+    stacksize_set = stacksize = new_stacksize;
 }
+
+/**
+ * The conservative worker stack size: RLIMIT_STACK of the calling thread,
+ * clamped to [LACE_STACK_MIN, LACE_STACK_SMALL_MAX].
+ */
+static LACE_UNUSED size_t
+lace_small_stack_size(void)
+{
+    size_t size = 0;
+#if !defined(_WIN32)
+    struct rlimit lim;
+    if (getrlimit(RLIMIT_STACK, &lim) == 0) size = (size_t)lim.rlim_cur;
+#endif
+    if (size < LACE_STACK_MIN) size = LACE_STACK_MIN;
+    if (size > LACE_STACK_SMALL_MAX) size = LACE_STACK_SMALL_MAX;
+    return size;
+}
+
+/**
+ * The worker stack size used when no stack size is set (lace_set_stacksize).
+ */
+static size_t
+lace_default_stack_size(void)
+{
+#if LACE_LARGE_STACKS
+    return LACE_STACK_LARGE;
+#else
+    return lace_small_stack_size();
+#endif
+}
+
+#if LACE_USE_HWLOC || (!defined(_WIN32) && !defined(__FreeBSD__))
+/**
+ * Free the first @p count worker stacks.
+ */
+static void
+lace_free_stacks(unsigned int count)
+{
+    for (unsigned int i = 0; i < count; i++) {
+#if LACE_USE_HWLOC
+        hwloc_free(topo, worker_stacks[i], worker_stack_size);
+#else
+        munmap(worker_stacks[i], worker_stack_size);
+#endif
+        worker_stacks[i] = NULL;
+    }
+}
+
+/**
+ * Free the @p count stacks allocated so far after a failed allocation;
+ * keeps errno.
+ */
+static int
+lace_alloc_stacks_failed(unsigned int count)
+{
+    int err = errno;
+    lace_free_stacks(count);
+    errno = err;
+    return -1;
+}
+
+/**
+ * Reserve a stack of @p size bytes (rounded up to the page size) plus a
+ * guard page at the low end for every worker. With hwloc the pages are bound
+ * to the worker's NUMA node; otherwise first-touch places them after pinning.
+ * Nothing is committed until touched. Returns 0, or -1 with errno set and no
+ * stacks left allocated.
+ */
+static int
+lace_alloc_stacks(size_t size)
+{
+    long ps = sysconf(_SC_PAGESIZE);
+    size_t page_size = (ps > 0) ? (size_t)ps : 4096;
+    size = (size + page_size - 1) & ~(page_size - 1);
+    worker_stack_size = size + page_size;
+    worker_stack_page_size = page_size;
+
+    for (unsigned int i = 0; i < n_workers; i++) {
+#if LACE_USE_HWLOC
+        hwloc_bitmap_t nodeset = hwloc_bitmap_alloc();
+        hwloc_cpuset_to_nodeset(topo, cpusets[i], nodeset);
+        void* stack = hwloc_alloc_membind(topo, worker_stack_size, nodeset,
+            HWLOC_MEMBIND_BIND, HWLOC_MEMBIND_BYNODESET);
+        hwloc_bitmap_free(nodeset);
+#else
+        void* stack = mmap(NULL, worker_stack_size, PROT_READ | PROT_WRITE,
+            MAP_PRIVATE | MAP_ANONYMOUS | MAP_NORESERVE, -1, 0);
+        if (stack == MAP_FAILED) stack = NULL;
+#endif
+        if (stack == NULL) return lace_alloc_stacks_failed(i);
+        worker_stacks[i] = stack;
+
+        // Guard page at the low end (stacks grow downward)
+#if defined(_WIN32)
+        DWORD old_protect;
+        if (!VirtualProtect(stack, page_size, PAGE_NOACCESS, &old_protect)) {
+#else
+        if (mprotect(stack, page_size, PROT_NONE) != 0) {
+#endif
+            return lace_alloc_stacks_failed(i + 1);
+        }
+    }
+    return 0;
+}
+#endif
 
 unsigned int
 lace_get_pu_count(void)
@@ -1512,11 +1639,15 @@ lace_start(unsigned int _n_workers, size_t dequesize)
     // Compute memory size for each worker
     workers_memory_size = sizeof(worker_data) + sizeof(Task) * dqsize;
 
+    stacksize = stacksize_set;
+    const int default_stack = (stacksize == 0);
+    if (default_stack) stacksize = lace_default_stack_size();
+    if (stacksize < LACE_STACK_MIN) stacksize = LACE_STACK_MIN;
+
 #if LACE_MSVC
-    // Windows MSVC: stack size is passed to thread creation directly.
-    if (stacksize == 0) stacksize = 16777216;
-    if (stacksize < 16777216) stacksize = 16777216;
-    if (stacksize > 67108864) stacksize = 67108864;
+    // Windows MSVC: the stack size is passed to thread creation directly, as
+    // a reservation (see _beginthreadex below); it must fit in an unsigned.
+    if (stacksize > ((size_t)1 << 31)) stacksize = (size_t)1 << 31;
 #else
     // Prepare structures for thread creation
     pthread_attr_t worker_attr;
@@ -1525,94 +1656,31 @@ lace_start(unsigned int _n_workers, size_t dequesize)
         exit(1);
     }
 
-    // Compute the stack size
-    if (stacksize == 0) {
-#ifndef _WIN32
-        struct rlimit lim;
-        if (getrlimit(RLIMIT_STACK, &lim) == 0) stacksize = (size_t)lim.rlim_cur;
-        if (stacksize > 67108864) stacksize = 67108864;
-#endif
+#if LACE_USE_HWLOC || (!defined(_WIN32) && !defined(__FreeBSD__))
+    // Allocate the stacks ourselves: with hwloc bound to the worker's NUMA
+    // node, otherwise with mmap so first-touch places pages on the right node
+    // after pinning.
+    worker_stacks = malloc(n_workers * sizeof(void*));
+    if (worker_stacks == NULL) {
+        fprintf(stderr, "Lace error: unable to allocate stack pointer array!\n");
+        exit(1);
     }
-    if (stacksize < 16777216) stacksize = 16777216;
-    if (stacksize > 67108864) stacksize = 67108864;
-
-#if LACE_USE_HWLOC
-    // Use hwloc to allocate stacks bound to the correct NUMA node
-    {
-        long ps = sysconf(_SC_PAGESIZE);
-        size_t page_size = (ps > 0) ? (size_t)ps : 4096;
-        stacksize = (stacksize + page_size - 1) & ~(page_size - 1);
-        worker_stack_size = stacksize + page_size;
-        worker_stack_page_size = page_size;
-
-        worker_stacks = malloc(n_workers * sizeof(void*));
-        if (worker_stacks == NULL) {
-            fprintf(stderr, "Lace error: unable to allocate stack pointer array!\n");
+    if (lace_alloc_stacks(stacksize) != 0) {
+        int err = errno;
+        size_t fallback = lace_small_stack_size();
+        if (default_stack && fallback < stacksize && lace_alloc_stacks(fallback) == 0) {
+            // e.g. a limit on address space (ulimit -v) or strict overcommit
+            if (verbosity) {
+                fprintf(stdout, "Lace startup: could not reserve %zu-byte stacks (%s), using %zu bytes.\n",
+                    stacksize, strerror(err), fallback);
+            }
+        } else {
+            fprintf(stderr, "Lace error: unable to allocate a %zu-byte stack for each of %u workers: %s\n",
+                stacksize, n_workers, strerror(err));
             exit(1);
         }
-
-        for (unsigned int i = 0; i < n_workers; i++) {
-            hwloc_bitmap_t nodeset = hwloc_bitmap_alloc();
-            hwloc_cpuset_to_nodeset(topo, cpusets[i], nodeset);
-
-            void* stack = hwloc_alloc_membind(topo, worker_stack_size,
-                nodeset,
-                HWLOC_MEMBIND_BIND,
-                HWLOC_MEMBIND_BYNODESET);
-            hwloc_bitmap_free(nodeset);
-
-            if (stack == NULL) {
-                fprintf(stderr, "Lace error: unable to allocate stack for worker %u!\n", i);
-                exit(1);
-            }
-
-            // Guard page at the low end (stacks grow downward)
-#if defined(_WIN32)
-            DWORD old_protect;
-            if (!VirtualProtect(stack, page_size, PAGE_NOACCESS, &old_protect)) {
-#else
-            if (mprotect(stack, page_size, PROT_NONE) != 0) {
-#endif
-                fprintf(stderr, "Lace error: unable to set guard page for worker %u: %s\n",
-                    i, strerror(errno));
-                exit(1);
-            }
-            worker_stacks[i] = stack;
-            }
-        }
-#elif !defined(_WIN32) && !defined(__FreeBSD__)
-    // Use mmap so first-touch places pages on the right NUMA node after pinning
-    {
-        long ps = sysconf(_SC_PAGESIZE);
-        size_t page_size = (ps > 0) ? (size_t)ps : 4096;
-        stacksize = (stacksize + page_size - 1) & ~(page_size - 1);
-        worker_stack_size = stacksize + page_size;
-        worker_stack_page_size = page_size;
-
-        worker_stacks = malloc(n_workers * sizeof(void*));
-        if (worker_stacks == NULL) {
-            fprintf(stderr, "Lace error: unable to allocate stack pointer array!\n");
-            exit(1);
-        }
-
-        for (unsigned int i = 0; i < n_workers; i++) {
-            void* stack = mmap(NULL, worker_stack_size,
-                PROT_READ | PROT_WRITE,
-                MAP_PRIVATE | MAP_ANONYMOUS | MAP_NORESERVE,
-                -1, 0);
-            if (stack == MAP_FAILED) {
-                fprintf(stderr, "Lace error: unable to mmap stack for worker %u: %s\n",
-                    i, strerror(errno));
-                exit(1);
-            }
-            if (mprotect(stack, page_size, PROT_NONE) != 0) {
-                fprintf(stderr, "Lace error: unable to set guard page for worker %u: %s\n",
-                    i, strerror(errno));
-                exit(1);
-            }
-            worker_stacks[i] = stack;
-        }
     }
+    stacksize = worker_stack_size - worker_stack_page_size;
 #else
     // _WIN32 or FreeBSD without HWLOC: just set stack size, let the OS handle it
     if (pthread_attr_setstacksize(&worker_attr, stacksize) != 0) {
@@ -1687,7 +1755,7 @@ lace_start(unsigned int _n_workers, size_t dequesize)
         unsigned thread_id;
         handles[i] = (HANDLE)_beginthreadex(
             NULL, (unsigned)stacksize, lace_worker_thread_win,
-            (void*)(size_t)i, 0, &thread_id);
+            (void*)(size_t)i, STACK_SIZE_PARAM_IS_A_RESERVATION, &thread_id);
         if (handles[i] == 0) {
             fprintf(stderr, "Lace error: failed to create worker thread %u\n", i);
             exit(1);
@@ -1870,19 +1938,9 @@ void lace_stop(void)
 
     free(handles);
 
-#if LACE_USE_HWLOC
+#if LACE_USE_HWLOC || (!defined(_WIN32) && !defined(__FreeBSD__))
     if (worker_stacks != NULL) {
-        for (unsigned int i = 0; i < n_workers; i++) {
-            hwloc_free(topo, worker_stacks[i], worker_stack_size);
-        }
-        free(worker_stacks);
-        worker_stacks = NULL;
-    }
-#elif !defined(_WIN32) && !defined(__FreeBSD__)
-    if (worker_stacks != NULL) {
-        for (unsigned int i = 0; i < n_workers; i++) {
-            munmap(worker_stacks[i], worker_stack_size);
-        }
+        lace_free_stacks(n_workers);
         free(worker_stacks);
         worker_stacks = NULL;
     }
