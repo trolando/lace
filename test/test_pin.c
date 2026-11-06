@@ -16,8 +16,9 @@
  * the affinity mask of the process: one distinct CPU per worker for
  * LACE_PIN_CPU, the whole mask for LACE_PIN_OFF, the same set of distinct
  * cores for all workers with LACE_PIN_ALL, a non-empty part of the mask for
- * the group modes, the listed CPU for a pin list. Linux only; elsewhere this
- * checks that every mode starts and runs.
+ * the group modes, the listed CPU for a pin list. With LACE_USE_HWLOC the
+ * modes have no effect, and only the mask is checked. Linux only; elsewhere
+ * this checks that every mode starts and runs.
  */
 
 #if defined(__linux__)
@@ -72,6 +73,7 @@ run_mode(const char *name, int mode, const int *list, unsigned int nlist, unsign
         CPU_AND(&both, m, &process_mask);
         CHECK(count > 0, "worker %u has no CPUs", w);
         CHECK(CPU_EQUAL(&both, m), "worker %u may run outside the process mask", w);
+        if (LACE_USE_HWLOC) continue;
         if (mode == LACE_PIN_OFF) CHECK(CPU_EQUAL(m, &process_mask), "worker %u is pinned", w);
         if (mode == LACE_PIN_CPU || list != NULL) {
             CHECK(count == 1, "worker %u may run on %d CPUs", w, count);

@@ -2582,23 +2582,20 @@ lace_start(unsigned int _n_workers, size_t dequesize)
     lace_scratch_init_page_size();
 
 #if LACE_USE_HWLOC
-    // Initialize topology and information about cpus
+    // Initialize topology and information about cpus, restricted to the CPUs
+    // the process may run on (taskset, cgroups, SLURM)
     hwloc_topology_init(&topo);
     hwloc_topology_load(topo);
+    hwloc_cpuset_t allowed = hwloc_bitmap_alloc();
+    if (allowed && hwloc_get_cpubind(topo, allowed, HWLOC_CPUBIND_PROCESS) == 0
+        && hwloc_topology_restrict(topo, allowed, 0) != 0 && errno == ENOMEM) {
+        hwloc_topology_load(topo); // the failed restrict reset the topology
+    }
+    if (allowed) hwloc_bitmap_free(allowed);
 
     n_nodes = (unsigned int)hwloc_get_nbobjs_by_type(topo, HWLOC_OBJ_NODE);
     n_cores = (unsigned int)hwloc_get_nbobjs_by_type(topo, HWLOC_OBJ_CORE);
-
-    // Allowed CPUs for this process/thread
-    hwloc_cpuset_t allowed = hwloc_bitmap_alloc();
-    if (allowed && hwloc_get_cpubind(topo, allowed, HWLOC_CPUBIND_PROCESS) == 0) {
-        int cnt = hwloc_bitmap_weight(allowed);
-        n_pus = (cnt > 0) ? (unsigned)cnt : (unsigned)hwloc_get_nbobjs_by_type(topo, HWLOC_OBJ_PU);
-    }
-    else {
-        n_pus = (unsigned)hwloc_get_nbobjs_by_type(topo, HWLOC_OBJ_PU);
-    }
-    if (allowed) hwloc_bitmap_free(allowed);
+    n_pus = (unsigned int)hwloc_get_nbobjs_by_type(topo, HWLOC_OBJ_PU);
 #else
     n_pus = lace_get_pu_count();
 #endif
