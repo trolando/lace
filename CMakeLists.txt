@@ -54,7 +54,14 @@ endif()
 # ── Platform feature detection ───────────────────────────────────────────────
  
 include(CheckSymbolExists)
+include(CMakePushCheckState)
+# glibc declares sched_getaffinity and CPU_COUNT only with _GNU_SOURCE (lace.c
+# defines it); without it the check fails and Lace counts every online CPU
+# instead of the ones in its affinity mask (taskset, cgroups, SLURM jobs).
+cmake_push_check_state()
+list(APPEND CMAKE_REQUIRED_DEFINITIONS -D_GNU_SOURCE)
 check_symbol_exists(sched_getaffinity "sched.h" HAVE_SCHED_GETAFFINITY)
+cmake_pop_check_state()
 check_symbol_exists(mmap "sys/mman.h" HAVE_MMAP)
  
 if(NOT WIN32 AND NOT HAVE_MMAP)
