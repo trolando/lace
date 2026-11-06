@@ -119,6 +119,7 @@ int main(int argc, char **argv)
     double t1 = wctime();
     RUN(quicksort, a, size);
     double t2 = wctime();
+    PRINT_RESULT_HASH(result_hash(RESULT_HASH_INIT, a, (size_t)size * sizeof *a));
     printf("Time: %f\n", t2-t1);
 
     lace_stop();

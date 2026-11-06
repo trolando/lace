@@ -484,6 +484,7 @@ int main(int argc, char *argv[])
     double t1 = wctime();
     RUN(cilksort, array, tmp, size);
     double t2 = wctime();
+    PRINT_RESULT_HASH(result_hash(RESULT_HASH_INIT, array, (size_t)size * sizeof(ELM)));
 
     printf("Time: %f\n", t2-t1);
 

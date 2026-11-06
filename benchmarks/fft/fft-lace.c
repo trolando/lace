@@ -317,6 +317,7 @@ int main(int argc, char *argv[])
     double t1 = wctime();
     RUN(fft, size, cp, out);
     double t2 = wctime();
+    PRINT_RESULT_HASH(result_hash(RESULT_HASH_INIT, out, (size_t)size * sizeof(COMPLEX)));
 
     printf("Time: %f\n", t2-t1);
 

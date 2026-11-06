@@ -263,6 +263,15 @@ void free_matrix(int depth, Matrix a)
     }
 }
 
+/* Hash of the matrix for the result checksum, in a fixed order (a NULL child counts too). */
+static uint64_t hash_matrix(uint64_t h, int depth, Matrix a)
+{
+    if (a == NULL) return result_hash(h, "-", 1);
+    if (depth == BLOCK_DEPTH) return result_hash(h, ((LeafNode *)a)->block, sizeof(Block));
+    for (int i = 0; i < 4; i++) h = hash_matrix(h, depth - 1, a->child[i]);
+    return h;
+}
+
 /*************************************************************\
  * Simple matrix operations
  \*************************************************************/
@@ -608,6 +617,7 @@ int main(int argc, char **argv)
     double t1 = wctime();
     R = RUN(cholesky, depth, R);
     double t2 = wctime();
+    PRINT_RESULT_HASH(hash_matrix(RESULT_HASH_INIT, depth, R));
     printf("Time: %f\n", t2-t1);
 
     lace_stop();

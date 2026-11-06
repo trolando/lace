@@ -762,6 +762,7 @@ int main(int argc, char *argv[])
     double t1=wctime();
     RUN(OptimizedStrassenMultiply, C2, A, B, n, n, n, n);
     double t2=wctime();
+    PRINT_RESULT_HASH(result_hash(RESULT_HASH_INIT, C2, (size_t)n * (size_t)n * sizeof(REAL)));
 
     if (verify) {
         matrixmul(n, A, n, B, n, C1, n);

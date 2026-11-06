@@ -157,6 +157,7 @@ int main(int argc, char *argv[])
     double t1 = wctime();
     RUN(rec_matmul, A, B, C2, n, n, n, n, 0); 
     double t2 = wctime();
+    PRINT_RESULT_HASH(result_hash(RESULT_HASH_INIT, C2, (size_t)n * (size_t)n * sizeof(REAL)));
 
     printf("Time: %f\n", t2-t1);
 
