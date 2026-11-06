@@ -2,6 +2,73 @@
 
 All notable changes to Lace will be documented in this file.
 
+## [1.8.0] - 2026-11-06
+
+This release backports the scheduling changes of Lace 2.5.0.
+
+### Added
+
+- Workers are pinned by default on Linux: each to its own CPU if the
+  workers fill the available cores, otherwise to all of them.
+  `lace_set_pinning()`, `lace_set_pin_cpus()` and the `LACE_PIN` environment
+  variable choose other modes, and the CMake option `LACE_DEFAULT_PIN` sets
+  the default (`test_pin`). With hwloc, the mode `off` turns pinning off.
+- `lace_release_memory()` gives the memory that idle workers hold back to
+  the operating system (`test_release`).
+- Statistics builds count leap strays and report the stack high-water mark
+  of each worker.
+- A test for mixed SYNC and DROP, `test_drop`.
+- A test that Lace starts under an address-space limit, `test_stack_limit`.
+
+### Changed
+
+- A worker that waits at a join no longer steals random tasks. It steals
+  only from its thief and, transitively, from the workers that thief waits
+  for.
+- Idle workers use much less CPU. Two idle workers stay awake as sentinels
+  and wake the others when work appears, so sleeping workers back off to
+  100 ms instead of 1 ms. TOGETHER and NEWFRAME wake sleeping workers.
+- Idle workers no longer fight over tasks that are too small to be worth
+  stealing (steal storms).
+- Cheaper calls from outside Lace: `RUN` spins briefly before it sleeps,
+  and wake-ups are only sent to threads that sleep.
+- Lace's own targets are built without stack protector, unless
+  `LACE_HARDENING` is set.
+- Leaner steal and leapfrog code. Random victims are picked without
+  division.
+- SPAWN, SYNC and DROP find the worker's public struct at a fixed offset
+  instead of loading a pointer.
+- Larger worker stacks: a stack size set with `lace_set_stacksize` is no
+  longer clamped to 64 MB, and the default is a 1 GB reservation per worker
+  on 64-bit systems. The new option `LACE_DONT_OVERCOMMIT` keeps the old
+  default (`test_stack`).
+- The benchmarks print a checksum of their result.
+
+### Removed
+
+- The `LACE_LEAP_RANDOM` macro (random steals while waiting at a join).
+
+### Fixed
+
+- A single worker kept a core busy while idle (`test_idle`).
+- Without hwloc, Lace ignored the affinity mask on Linux (`taskset`,
+  cgroups, SLURM) and started one worker per online CPU (`test_affinity`).
+- With hwloc, Lace pinned workers to cores outside the affinity mask
+  (`test_pin`).
+- With hwloc, every worker printed errors where the system cannot pin
+  threads or bind memory (macOS); Lace now says once that it cannot pin,
+  and CMake warns about it on macOS.
+- Newer Clang failed to build Lace (`-Wunused-but-set-global` with `-Werror`).
+- Clang 18 failed to build Lace with `-march=native` on CPUs with AVX10.1.
+- Parallel regions started while the workers slept ran almost serially.
+- Lace no longer consumes the program's `rand()` sequence (`test_rand`).
+- `lace_start` exited the program under an address-space limit
+  (`ulimit -v`); the scratch arenas now fall back to 16 MiB per worker.
+- Workers waiting at a barrier now back off like idle workers instead of
+  spinning; with more threads than CPUs, the spinning made TOGETHER and
+  NEWFRAME take minutes.
+
+
 ## [1.7.0] - 2026-05-23
 
 ### Added
