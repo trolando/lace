@@ -32,7 +32,7 @@ Feature | Description
 ---------|------------
 Low overhead | Lace uses a **scalable** double-ended queue for its implementation of work-stealing, which is **wait-free** for the thread spawning tasks and **lock-free** for the threads stealing tasks. The design of the datastructure minimizes interaction between CPUs.
 Quiet when idle | When idle, Lace workers sleep with exponential backoff (up to 100 ms), reducing CPU usage to near zero when there is no work. While work runs, two idle workers stay awake as sentinels and wake the others when work appears, so Lace is quick to wake up. This is controlled by the `LACE_BACKOFF` option (enabled by default).
-Pinning | On Linux, workers are pinned by default, per CPU, core, cache or NUMA node, within the affinity mask of the program (`LACE_PIN_WORKERS`, `lace_set_pinning`, `lace_set_pin_cpus` or the `LACE_PIN` environment variable).
+Pinning | On Linux, workers are pinned by default, per CPU, core, cache or NUMA node, within the affinity mask of the program (`LACE_DEFAULT_PIN`, `lace_set_pinning`, `lace_set_pin_cpus` or the `LACE_PIN` environment variable).
 Multi-threaded task submission | Non-Lace threads can submit tasks concurrently via `RUN`. Up to 64 external threads can submit tasks simultaneously without contention.
 Interrupting | Lace threads can be (cooperatively) interrupted to execute another task first. This is for example used by [Sylvan](https://github.com/trolando/sylvan) to perform garbage collection.
 Portable | Lace runs on Linux (GCC, Clang), macOS (Apple Clang), and Windows (MSVC, MSYS2/MinGW), with correct memory ordering on both x86 and ARM/AArch64.
@@ -83,7 +83,7 @@ Lace can be configured with the following CMake settings:
 
 Setting | Description | Default
 --------|-------------|--------
-`LACE_PIN_WORKERS` | Pin worker threads by default (Linux), within the affinity mask the program is given; `lace_set_pinning()` or the `LACE_PIN` environment variable choose the mode at run time | ON
+`LACE_DEFAULT_PIN` | The pinning mode (Linux) when neither `lace_set_pinning()` nor the `LACE_PIN` environment variable chooses one: `AUTO`, `OFF`, `CPU`, `CORE`, `L2`, `L3`, `NUMA` or `ALL`, within the affinity mask the program is given; with `LACE_USE_HWLOC`, any mode but `OFF` pins to cores | AUTO
 `LACE_USE_HWLOC` | Use the `hwloc` library to pin threads to CPUs and allocate memory on the correct NUMA node, instead of the built-in pinning (macOS does not let programs pin threads) | OFF
 `LACE_BACKOFF` | Workers sleep with exponential backoff when no work is available, reducing CPU usage without affecting throughput | ON
 `LACE_NATIVE_OPT` | Optimise for the host CPU architecture (`-march=native`) | ON

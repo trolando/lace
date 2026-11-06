@@ -74,8 +74,8 @@
 #define LACE_EXT_YIELD_US 5
 #endif
 
-#ifndef LACE_PIN_WORKERS /* Pin workers by default (LACE_PIN_AUTO); lace_set_pinning() or LACE_PIN choose another mode */
-#define LACE_PIN_WORKERS 1
+#ifndef LACE_DEFAULT_PIN /* The pinning mode when neither lace_set_pinning() nor LACE_PIN chooses one */
+#define LACE_DEFAULT_PIN LACE_PIN_AUTO
 #endif
 
 
@@ -505,13 +505,28 @@ lace_set_pin_cpus(const int *cpus, unsigned int n)
     pin_api_mode = 8; // LACE_PIN_LIST_
 }
 
+#if LACE_USE_HWLOC
+/* With hwloc, the mode (lace_set_pinning, else LACE_PIN, else LACE_DEFAULT_PIN)
+ * only chooses whether to pin: off does not, any other mode pins to cores */
+static int hwloc_pin = 1;
+
+static int
+lace_hwloc_pins(void)
+{
+    if (pin_api_mode >= 0) return pin_api_mode != LACE_PIN_OFF;
+    const char *pe = getenv("LACE_PIN");
+    if (pe != NULL && *pe != '\0') return strcmp(pe, "off") != 0;
+    return LACE_DEFAULT_PIN != LACE_PIN_OFF;
+}
+#endif
+
 #if defined(__linux__) && !LACE_USE_HWLOC
 /**
  * Pinning without hwloc (Linux), within the affinity mask of the thread that
  * calls lace_start (taskset, cgroups, SLURM). The modes are lace_pin_mode
  * (lace.h): what each worker may run on, from one hardware thread to a NUMA
  * node; lace_set_pinning() or else LACE_PIN in the environment chooses, else
- * the default is LACE_PIN_AUTO (or LACE_PIN_OFF with LACE_PIN_WORKERS off).
+ * the default is LACE_DEFAULT_PIN (CMake, LACE_PIN_AUTO unless set).
  * The CPUs come one of every physical core first (sysfs thread_siblings_list),
  * package by package, in mask order. In the group modes (L2, L3, NUMA) the
  * workers are spread over the groups in proportion to their cores, so that
@@ -652,7 +667,7 @@ lace_pin_setup(void)
     } else if (pe != NULL && *pe != '\0') {
         pin_mode = lace_pin_mode_env(pe, &list, &nlist);
     } else {
-        pin_mode = LACE_PIN_WORKERS ? LACE_PIN_AUTO : LACE_PIN_OFF;
+        pin_mode = LACE_DEFAULT_PIN;
     }
     cpu_set_t mask;
     if (pin_mode <= 0 || sched_getaffinity(0, sizeof(mask), &mask) != 0 || CPU_COUNT(&mask) == 0) goto done;
@@ -1240,6 +1255,8 @@ static void
 lace_pin_worker(void)
 {
 #if LACE_USE_HWLOC
+    if (!hwloc_pin) return;
+
     // Get the worker id
     unsigned int worker = lace_get_worker()->worker;
 
@@ -2601,8 +2618,9 @@ lace_start(unsigned int _n_workers, size_t dequesize)
     n_cores = (unsigned int)hwloc_get_nbobjs_by_type(topo, HWLOC_OBJ_CORE);
     n_pus = (unsigned int)hwloc_get_nbobjs_by_type(topo, HWLOC_OBJ_PU);
 
+    hwloc_pin = lace_hwloc_pins();
     static int told_no_pinning = 0;
-    if (!hwloc_topology_get_support(topo)->cpubind->set_thisthread_cpubind && !told_no_pinning) {
+    if (hwloc_pin && !hwloc_topology_get_support(topo)->cpubind->set_thisthread_cpubind && !told_no_pinning) {
         told_no_pinning = 1;
         fprintf(stderr, "Lace warning: hwloc cannot pin threads on this system; the workers are not pinned\n");
     }
