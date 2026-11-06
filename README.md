@@ -91,6 +91,7 @@ Setting | Description | Default
 `LACE_COUNT_STEALS` | Let Lace count how often tasks were stolen | OFF
 `LACE_COUNT_SPLITS` | Let Lace count how often the queue split point was moved | OFF
 `LACE_PIE_TIMES` | Let Lace record precise overhead times | OFF
+`LACE_HARDENING` | Keep the compiler's default stack protector and stack clash protection in Lace's own code (when OFF, the library and the benchmarks are built with `-fno-stack-protector -fno-stack-clash-protection`, `/GS-` on MSVC) | OFF
 
 The following options are only available when Lace is the top-level project:
 
@@ -104,6 +105,14 @@ Setting | Description | Default
 
 Worker deques are allocated using virtual memory (`mmap` on Unix, `VirtualAlloc` on Windows).
 The default deque size is 1 048 576 task slots, but only pages actually touched consume physical memory.
+
+Many distributions configure GCC to add a stack protector and stack clash protection by default.
+These guard against attacks through untrusted input, which a work-stealing scheduler does not handle,
+so Lace turns both off in its own targets (`LACE_HARDENING`).
+Your program keeps its own flags, also for the code that the task macros put in your functions;
+to turn them off there too, add for example
+`target_compile_options(myprog PRIVATE -fno-stack-protector -fno-stack-clash-protection)`.
+`-fcf-protection` stays on: mixing objects with and without it drops the CET marking of the whole program.
 
 ## Using Lace
 

@@ -11,6 +11,9 @@ macro(set_compilation_settings NAME)
         )
     endif()
 
+    # Same hardening flags as the library (LACE_HARDENING)
+    target_compile_options(${NAME} PRIVATE ${LACE_NO_HARDENING_FLAGS})
+
     # LTO per toolchain, per-config
     if(CMAKE_C_COMPILER_ID MATCHES "Clang|GNU")
         target_compile_options(${NAME} PRIVATE $<$<CONFIG:Release>:-flto>)

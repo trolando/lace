@@ -31,6 +31,7 @@ option(LACE_PIE_TIMES    "Let Lace record Pie times"                            
 option(LACE_COUNT_TASKS  "Let Lace record the number of tasks"                       OFF)
 option(LACE_COUNT_STEALS "Let Lace count #steals and #leaps"                         OFF)
 option(LACE_COUNT_SPLITS "Let Lace count #splits"                                    OFF)
+option(LACE_HARDENING    "Keep the compiler's stack protector/clash checks in Lace" OFF)
 
 if(lace_IS_TOP_LEVEL)
     option(LACE_BUILD_TESTS      "Build and run Lace tests"                          ON)
@@ -101,6 +102,54 @@ if(lace_IS_TOP_LEVEL)
         message(STATUS "Sanitizers enabled: ${_san_list}")
     endif()
     unset(_san)
+endif()
+
+# ── Hardening ────────────────────────────────────────────────────────────────
+#
+# Distribution compilers (Ubuntu, Fedora, ...) enable runtime hardening by
+# default: -fstack-protector-strong adds a canary check to every function with
+# an address-taken local, -fstack-clash-protection probes large stack frames.
+# That guards against attacks on untrusted input, and costs time in the
+# scheduler (steal, leapfrog) and in benchmark tasks. Unless LACE_HARDENING is
+# set, Lace's own targets (the library and the benchmarks) turn both
+# off. The flags are PRIVATE: a program that uses Lace keeps its own flags,
+# also for the SPAWN/SYNC code that the task macros put in its functions.
+# -fcf-protection stays: mixing objects with and without it would silently
+# drop CET for the whole program, and its cost is an endbr64 per function.
+
+set(LACE_NO_HARDENING_FLAGS "")
+if(NOT LACE_HARDENING)
+    if(MSVC)
+        list(APPEND LACE_NO_HARDENING_FLAGS /GS-)
+    elseif(CMAKE_C_COMPILER_ID MATCHES "Clang|GNU")
+        # -Werror: Clang accepts -fno-stack-clash-protection on targets
+        # without stack clash protection (arm64) but warns that it is unused.
+        include(CheckCCompilerFlag)
+        set(_saved_flags "${CMAKE_REQUIRED_FLAGS}")
+        string(APPEND CMAKE_REQUIRED_FLAGS " -Werror")
+        foreach(_flag -fno-stack-protector -fno-stack-clash-protection)
+            string(MAKE_C_IDENTIFIER "LACE_HAS${_flag}" _var)
+            check_c_compiler_flag(${_flag} ${_var})
+            if(${_var})
+                list(APPEND LACE_NO_HARDENING_FLAGS ${_flag})
+            endif()
+        endforeach()
+        set(CMAKE_REQUIRED_FLAGS "${_saved_flags}")
+        unset(_saved_flags)
+        unset(_flag)
+        unset(_var)
+    endif()
+endif()
+
+# Does the compiler protect the stack by default? Then programs that use Lace
+# pay for it in their tasks unless they turn it off (see README.md).
+if(CMAKE_C_COMPILER_ID MATCHES "Clang|GNU")
+    include(CheckCSourceCompiles)
+    check_c_source_compiles("
+#if !defined(__SSP__) && !defined(__SSP_STRONG__) && !defined(__SSP_ALL__)
+#error no stack protector
+#endif
+int main(void) { return 0; }" LACE_COMPILER_STACK_PROTECTOR)
 endif()
 
 # ── Generated header (before targets, so FILE_SET can reference it) ──────────
@@ -186,6 +235,8 @@ foreach(_target lace lace14)
         )
     endif()
  
+    target_compile_options(${_target} PRIVATE ${LACE_NO_HARDENING_FLAGS})
+
     # ── Link dependencies ────────────────────────────────────────────────
     if(NOT MSVC)
         target_link_libraries(${_target} PUBLIC Threads::Threads)
@@ -337,6 +388,17 @@ message(STATUS "  Count tasks       : ${LACE_COUNT_TASKS}")
 message(STATUS "  Count steals      : ${LACE_COUNT_STEALS}")
 message(STATUS "  Count splits      : ${LACE_COUNT_SPLITS}")
 message(STATUS "  Record PIE times  : ${LACE_PIE_TIMES}")
+if(LACE_NO_HARDENING_FLAGS)
+    string(REPLACE ";" " " _flags "${LACE_NO_HARDENING_FLAGS}")
+    message(STATUS "  Hardening         : OFF in Lace's own targets (${_flags})")
+    unset(_flags)
+else()
+    message(STATUS "  Hardening         : compiler default")
+endif()
+if(LACE_COMPILER_STACK_PROTECTOR)
+    message(STATUS "  Note: this compiler enables the stack protector by default; code using")
+    message(STATUS "        Lace's task macros keeps your flags (see README.md)")
+endif()
 if(lace_is_top_level)
     message(STATUS "  Build tests       : ${LACE_BUILD_TESTS}")
     message(STATUS "  Build benchmarks  : ${LACE_BUILD_BENCHMARKS}")
