@@ -936,6 +936,17 @@ typedef struct _WorkerP {
 } WorkerP;
 
 /**
+ * The public part of a worker. Lace allocates the public struct of a worker
+ * right before its private struct (worker_data in lace.c, which aligns the
+ * private struct to LACE_PADDING_TARGET), so the hot paths (SPAWN, SYNC,
+ * DROP) find it at a constant offset instead of loading w->_public first.
+ */
+static inline Worker* lace_worker_public_of(WorkerP *w)
+{
+    return (Worker*)(void*)((char*)w - ROUND(sizeof(Worker), LACE_PADDING_TARGET));
+}
+
+/**
  * Scratch arena public API.
  *
  * Use the save/alloc/restore pattern: lace_scratch_mark to record
@@ -1254,7 +1265,7 @@ void lace_drop_slow(WorkerP *w, Task *__dq_head)
 static inline LACE_UNUSED
 void lace_drop(WorkerP *w, Task *__dq_head)
 {
-    if (LACE_LIKELY(0 == w->_public->movesplit)) {
+    if (LACE_LIKELY(0 == lace_worker_public_of(w)->movesplit)) {
         if (LACE_LIKELY(w->split <= __dq_head)) {
             return;
         }
@@ -1349,7 +1360,7 @@ void NAME##_SPAWN(WorkerP *w, Task *__dq_head $FUN_ARGS)
     $TASK_INIT
     atomic_thread_fence(memory_order_release);
  
-    Worker *wt = w->_public;
+    Worker *wt = lace_worker_public_of(w);
     if (LACE_UNLIKELY(w->allstolen)) {
         if (wt->movesplit) wt->movesplit = 0;
         head = (uint32_t)(__dq_head - w->dq);
@@ -1438,7 +1449,7 @@ $RTYPE NAME##_SYNC(WorkerP *w, Task *__dq_head)
 {
     /* assert (__dq_head > 0); */  /* Commented out because we assume contract */
  
-    if (LACE_LIKELY(0 == w->_public->movesplit)) {
+    if (LACE_LIKELY(0 == lace_worker_public_of(w)->movesplit)) {
         if (LACE_LIKELY(w->split <= __dq_head)) {
             TD_##NAME *t = (TD_##NAME *)__dq_head;
             atomic_store_explicit(&t->thief, THIEF_EMPTY, memory_order_relaxed);

@@ -920,6 +920,17 @@ typedef struct _WorkerP {
 } WorkerP;
 
 /**
+ * The public part of a worker. Lace allocates the public struct of a worker
+ * right before its private struct (worker_data in lace.c, which aligns the
+ * private struct to LACE_PADDING_TARGET), so the hot paths (SPAWN, SYNC,
+ * DROP) find it at a constant offset instead of loading w->_public first.
+ */
+static inline Worker* lace_worker_public_of(WorkerP *w)
+{
+    return (Worker*)(void*)((char*)w - ROUND(sizeof(Worker), LACE_PADDING_TARGET));
+}
+
+/**
  * Scratch arena public API.
  *
  * Use the save/alloc/restore pattern: lace_scratch_mark to record
@@ -1238,7 +1249,7 @@ void lace_drop_slow(WorkerP *w, Task *__dq_head)
 static inline LACE_UNUSED
 void lace_drop(WorkerP *w, Task *__dq_head)
 {
-    if (LACE_LIKELY(0 == w->_public->movesplit)) {
+    if (LACE_LIKELY(0 == lace_worker_public_of(w)->movesplit)) {
         if (LACE_LIKELY(w->split <= __dq_head)) {
             return;
         }
@@ -1281,7 +1292,7 @@ void NAME##_SPAWN(WorkerP *w, Task *__dq_head )                                 
                                                                                       \
     atomic_thread_fence(memory_order_release);                                        \
                                                                                       \
-    Worker *wt = w->_public;                                                          \
+    Worker *wt = lace_worker_public_of(w);                                            \
     if (LACE_UNLIKELY(w->allstolen)) {                                                \
         if (wt->movesplit) wt->movesplit = 0;                                         \
         head = (uint32_t)(__dq_head - w->dq);                                         \
@@ -1370,7 +1381,7 @@ RTYPE NAME##_SYNC(WorkerP *w, Task *__dq_head)                                  
 {                                                                                     \
     /* assert (__dq_head > 0); */  /* Commented out because we assume contract */     \
                                                                                       \
-    if (LACE_LIKELY(0 == w->_public->movesplit)) {                                    \
+    if (LACE_LIKELY(0 == lace_worker_public_of(w)->movesplit)) {                      \
         if (LACE_LIKELY(w->split <= __dq_head)) {                                     \
             TD_##NAME *t = (TD_##NAME *)__dq_head;                                    \
             atomic_store_explicit(&t->thief, THIEF_EMPTY, memory_order_relaxed);      \
@@ -1439,7 +1450,7 @@ void NAME##_SPAWN(WorkerP *w, Task *__dq_head )                                 
                                                                                       \
     atomic_thread_fence(memory_order_release);                                        \
                                                                                       \
-    Worker *wt = w->_public;                                                          \
+    Worker *wt = lace_worker_public_of(w);                                            \
     if (LACE_UNLIKELY(w->allstolen)) {                                                \
         if (wt->movesplit) wt->movesplit = 0;                                         \
         head = (uint32_t)(__dq_head - w->dq);                                         \
@@ -1528,7 +1539,7 @@ void NAME##_SYNC(WorkerP *w, Task *__dq_head)                                   
 {                                                                                     \
     /* assert (__dq_head > 0); */  /* Commented out because we assume contract */     \
                                                                                       \
-    if (LACE_LIKELY(0 == w->_public->movesplit)) {                                    \
+    if (LACE_LIKELY(0 == lace_worker_public_of(w)->movesplit)) {                      \
         if (LACE_LIKELY(w->split <= __dq_head)) {                                     \
             TD_##NAME *t = (TD_##NAME *)__dq_head;                                    \
             atomic_store_explicit(&t->thief, THIEF_EMPTY, memory_order_relaxed);      \
@@ -1600,7 +1611,7 @@ void NAME##_SPAWN(WorkerP *w, Task *__dq_head , ATYPE_1 arg_1)                  
      t->d.args.arg_1 = arg_1;                                                         \
     atomic_thread_fence(memory_order_release);                                        \
                                                                                       \
-    Worker *wt = w->_public;                                                          \
+    Worker *wt = lace_worker_public_of(w);                                            \
     if (LACE_UNLIKELY(w->allstolen)) {                                                \
         if (wt->movesplit) wt->movesplit = 0;                                         \
         head = (uint32_t)(__dq_head - w->dq);                                         \
@@ -1689,7 +1700,7 @@ RTYPE NAME##_SYNC(WorkerP *w, Task *__dq_head)                                  
 {                                                                                     \
     /* assert (__dq_head > 0); */  /* Commented out because we assume contract */     \
                                                                                       \
-    if (LACE_LIKELY(0 == w->_public->movesplit)) {                                    \
+    if (LACE_LIKELY(0 == lace_worker_public_of(w)->movesplit)) {                      \
         if (LACE_LIKELY(w->split <= __dq_head)) {                                     \
             TD_##NAME *t = (TD_##NAME *)__dq_head;                                    \
             atomic_store_explicit(&t->thief, THIEF_EMPTY, memory_order_relaxed);      \
@@ -1758,7 +1769,7 @@ void NAME##_SPAWN(WorkerP *w, Task *__dq_head , ATYPE_1 arg_1)                  
      t->d.args.arg_1 = arg_1;                                                         \
     atomic_thread_fence(memory_order_release);                                        \
                                                                                       \
-    Worker *wt = w->_public;                                                          \
+    Worker *wt = lace_worker_public_of(w);                                            \
     if (LACE_UNLIKELY(w->allstolen)) {                                                \
         if (wt->movesplit) wt->movesplit = 0;                                         \
         head = (uint32_t)(__dq_head - w->dq);                                         \
@@ -1847,7 +1858,7 @@ void NAME##_SYNC(WorkerP *w, Task *__dq_head)                                   
 {                                                                                     \
     /* assert (__dq_head > 0); */  /* Commented out because we assume contract */     \
                                                                                       \
-    if (LACE_LIKELY(0 == w->_public->movesplit)) {                                    \
+    if (LACE_LIKELY(0 == lace_worker_public_of(w)->movesplit)) {                      \
         if (LACE_LIKELY(w->split <= __dq_head)) {                                     \
             TD_##NAME *t = (TD_##NAME *)__dq_head;                                    \
             atomic_store_explicit(&t->thief, THIEF_EMPTY, memory_order_relaxed);      \
@@ -1919,7 +1930,7 @@ void NAME##_SPAWN(WorkerP *w, Task *__dq_head , ATYPE_1 arg_1, ATYPE_2 arg_2)   
      t->d.args.arg_1 = arg_1; t->d.args.arg_2 = arg_2;                                \
     atomic_thread_fence(memory_order_release);                                        \
                                                                                       \
-    Worker *wt = w->_public;                                                          \
+    Worker *wt = lace_worker_public_of(w);                                            \
     if (LACE_UNLIKELY(w->allstolen)) {                                                \
         if (wt->movesplit) wt->movesplit = 0;                                         \
         head = (uint32_t)(__dq_head - w->dq);                                         \
@@ -2008,7 +2019,7 @@ RTYPE NAME##_SYNC(WorkerP *w, Task *__dq_head)                                  
 {                                                                                     \
     /* assert (__dq_head > 0); */  /* Commented out because we assume contract */     \
                                                                                       \
-    if (LACE_LIKELY(0 == w->_public->movesplit)) {                                    \
+    if (LACE_LIKELY(0 == lace_worker_public_of(w)->movesplit)) {                      \
         if (LACE_LIKELY(w->split <= __dq_head)) {                                     \
             TD_##NAME *t = (TD_##NAME *)__dq_head;                                    \
             atomic_store_explicit(&t->thief, THIEF_EMPTY, memory_order_relaxed);      \
@@ -2077,7 +2088,7 @@ void NAME##_SPAWN(WorkerP *w, Task *__dq_head , ATYPE_1 arg_1, ATYPE_2 arg_2)   
      t->d.args.arg_1 = arg_1; t->d.args.arg_2 = arg_2;                                \
     atomic_thread_fence(memory_order_release);                                        \
                                                                                       \
-    Worker *wt = w->_public;                                                          \
+    Worker *wt = lace_worker_public_of(w);                                            \
     if (LACE_UNLIKELY(w->allstolen)) {                                                \
         if (wt->movesplit) wt->movesplit = 0;                                         \
         head = (uint32_t)(__dq_head - w->dq);                                         \
@@ -2166,7 +2177,7 @@ void NAME##_SYNC(WorkerP *w, Task *__dq_head)                                   
 {                                                                                     \
     /* assert (__dq_head > 0); */  /* Commented out because we assume contract */     \
                                                                                       \
-    if (LACE_LIKELY(0 == w->_public->movesplit)) {                                    \
+    if (LACE_LIKELY(0 == lace_worker_public_of(w)->movesplit)) {                      \
         if (LACE_LIKELY(w->split <= __dq_head)) {                                     \
             TD_##NAME *t = (TD_##NAME *)__dq_head;                                    \
             atomic_store_explicit(&t->thief, THIEF_EMPTY, memory_order_relaxed);      \
@@ -2238,7 +2249,7 @@ void NAME##_SPAWN(WorkerP *w, Task *__dq_head , ATYPE_1 arg_1, ATYPE_2 arg_2, AT
      t->d.args.arg_1 = arg_1; t->d.args.arg_2 = arg_2; t->d.args.arg_3 = arg_3;       \
     atomic_thread_fence(memory_order_release);                                        \
                                                                                       \
-    Worker *wt = w->_public;                                                          \
+    Worker *wt = lace_worker_public_of(w);                                            \
     if (LACE_UNLIKELY(w->allstolen)) {                                                \
         if (wt->movesplit) wt->movesplit = 0;                                         \
         head = (uint32_t)(__dq_head - w->dq);                                         \
@@ -2327,7 +2338,7 @@ RTYPE NAME##_SYNC(WorkerP *w, Task *__dq_head)                                  
 {                                                                                     \
     /* assert (__dq_head > 0); */  /* Commented out because we assume contract */     \
                                                                                       \
-    if (LACE_LIKELY(0 == w->_public->movesplit)) {                                    \
+    if (LACE_LIKELY(0 == lace_worker_public_of(w)->movesplit)) {                      \
         if (LACE_LIKELY(w->split <= __dq_head)) {                                     \
             TD_##NAME *t = (TD_##NAME *)__dq_head;                                    \
             atomic_store_explicit(&t->thief, THIEF_EMPTY, memory_order_relaxed);      \
@@ -2396,7 +2407,7 @@ void NAME##_SPAWN(WorkerP *w, Task *__dq_head , ATYPE_1 arg_1, ATYPE_2 arg_2, AT
      t->d.args.arg_1 = arg_1; t->d.args.arg_2 = arg_2; t->d.args.arg_3 = arg_3;       \
     atomic_thread_fence(memory_order_release);                                        \
                                                                                       \
-    Worker *wt = w->_public;                                                          \
+    Worker *wt = lace_worker_public_of(w);                                            \
     if (LACE_UNLIKELY(w->allstolen)) {                                                \
         if (wt->movesplit) wt->movesplit = 0;                                         \
         head = (uint32_t)(__dq_head - w->dq);                                         \
@@ -2485,7 +2496,7 @@ void NAME##_SYNC(WorkerP *w, Task *__dq_head)                                   
 {                                                                                     \
     /* assert (__dq_head > 0); */  /* Commented out because we assume contract */     \
                                                                                       \
-    if (LACE_LIKELY(0 == w->_public->movesplit)) {                                    \
+    if (LACE_LIKELY(0 == lace_worker_public_of(w)->movesplit)) {                      \
         if (LACE_LIKELY(w->split <= __dq_head)) {                                     \
             TD_##NAME *t = (TD_##NAME *)__dq_head;                                    \
             atomic_store_explicit(&t->thief, THIEF_EMPTY, memory_order_relaxed);      \
@@ -2557,7 +2568,7 @@ void NAME##_SPAWN(WorkerP *w, Task *__dq_head , ATYPE_1 arg_1, ATYPE_2 arg_2, AT
      t->d.args.arg_1 = arg_1; t->d.args.arg_2 = arg_2; t->d.args.arg_3 = arg_3; t->d.args.arg_4 = arg_4;\
     atomic_thread_fence(memory_order_release);                                        \
                                                                                       \
-    Worker *wt = w->_public;                                                          \
+    Worker *wt = lace_worker_public_of(w);                                            \
     if (LACE_UNLIKELY(w->allstolen)) {                                                \
         if (wt->movesplit) wt->movesplit = 0;                                         \
         head = (uint32_t)(__dq_head - w->dq);                                         \
@@ -2646,7 +2657,7 @@ RTYPE NAME##_SYNC(WorkerP *w, Task *__dq_head)                                  
 {                                                                                     \
     /* assert (__dq_head > 0); */  /* Commented out because we assume contract */     \
                                                                                       \
-    if (LACE_LIKELY(0 == w->_public->movesplit)) {                                    \
+    if (LACE_LIKELY(0 == lace_worker_public_of(w)->movesplit)) {                      \
         if (LACE_LIKELY(w->split <= __dq_head)) {                                     \
             TD_##NAME *t = (TD_##NAME *)__dq_head;                                    \
             atomic_store_explicit(&t->thief, THIEF_EMPTY, memory_order_relaxed);      \
@@ -2715,7 +2726,7 @@ void NAME##_SPAWN(WorkerP *w, Task *__dq_head , ATYPE_1 arg_1, ATYPE_2 arg_2, AT
      t->d.args.arg_1 = arg_1; t->d.args.arg_2 = arg_2; t->d.args.arg_3 = arg_3; t->d.args.arg_4 = arg_4;\
     atomic_thread_fence(memory_order_release);                                        \
                                                                                       \
-    Worker *wt = w->_public;                                                          \
+    Worker *wt = lace_worker_public_of(w);                                            \
     if (LACE_UNLIKELY(w->allstolen)) {                                                \
         if (wt->movesplit) wt->movesplit = 0;                                         \
         head = (uint32_t)(__dq_head - w->dq);                                         \
@@ -2804,7 +2815,7 @@ void NAME##_SYNC(WorkerP *w, Task *__dq_head)                                   
 {                                                                                     \
     /* assert (__dq_head > 0); */  /* Commented out because we assume contract */     \
                                                                                       \
-    if (LACE_LIKELY(0 == w->_public->movesplit)) {                                    \
+    if (LACE_LIKELY(0 == lace_worker_public_of(w)->movesplit)) {                      \
         if (LACE_LIKELY(w->split <= __dq_head)) {                                     \
             TD_##NAME *t = (TD_##NAME *)__dq_head;                                    \
             atomic_store_explicit(&t->thief, THIEF_EMPTY, memory_order_relaxed);      \
@@ -2876,7 +2887,7 @@ void NAME##_SPAWN(WorkerP *w, Task *__dq_head , ATYPE_1 arg_1, ATYPE_2 arg_2, AT
      t->d.args.arg_1 = arg_1; t->d.args.arg_2 = arg_2; t->d.args.arg_3 = arg_3; t->d.args.arg_4 = arg_4; t->d.args.arg_5 = arg_5;\
     atomic_thread_fence(memory_order_release);                                        \
                                                                                       \
-    Worker *wt = w->_public;                                                          \
+    Worker *wt = lace_worker_public_of(w);                                            \
     if (LACE_UNLIKELY(w->allstolen)) {                                                \
         if (wt->movesplit) wt->movesplit = 0;                                         \
         head = (uint32_t)(__dq_head - w->dq);                                         \
@@ -2965,7 +2976,7 @@ RTYPE NAME##_SYNC(WorkerP *w, Task *__dq_head)                                  
 {                                                                                     \
     /* assert (__dq_head > 0); */  /* Commented out because we assume contract */     \
                                                                                       \
-    if (LACE_LIKELY(0 == w->_public->movesplit)) {                                    \
+    if (LACE_LIKELY(0 == lace_worker_public_of(w)->movesplit)) {                      \
         if (LACE_LIKELY(w->split <= __dq_head)) {                                     \
             TD_##NAME *t = (TD_##NAME *)__dq_head;                                    \
             atomic_store_explicit(&t->thief, THIEF_EMPTY, memory_order_relaxed);      \
@@ -3034,7 +3045,7 @@ void NAME##_SPAWN(WorkerP *w, Task *__dq_head , ATYPE_1 arg_1, ATYPE_2 arg_2, AT
      t->d.args.arg_1 = arg_1; t->d.args.arg_2 = arg_2; t->d.args.arg_3 = arg_3; t->d.args.arg_4 = arg_4; t->d.args.arg_5 = arg_5;\
     atomic_thread_fence(memory_order_release);                                        \
                                                                                       \
-    Worker *wt = w->_public;                                                          \
+    Worker *wt = lace_worker_public_of(w);                                            \
     if (LACE_UNLIKELY(w->allstolen)) {                                                \
         if (wt->movesplit) wt->movesplit = 0;                                         \
         head = (uint32_t)(__dq_head - w->dq);                                         \
@@ -3123,7 +3134,7 @@ void NAME##_SYNC(WorkerP *w, Task *__dq_head)                                   
 {                                                                                     \
     /* assert (__dq_head > 0); */  /* Commented out because we assume contract */     \
                                                                                       \
-    if (LACE_LIKELY(0 == w->_public->movesplit)) {                                    \
+    if (LACE_LIKELY(0 == lace_worker_public_of(w)->movesplit)) {                      \
         if (LACE_LIKELY(w->split <= __dq_head)) {                                     \
             TD_##NAME *t = (TD_##NAME *)__dq_head;                                    \
             atomic_store_explicit(&t->thief, THIEF_EMPTY, memory_order_relaxed);      \
@@ -3195,7 +3206,7 @@ void NAME##_SPAWN(WorkerP *w, Task *__dq_head , ATYPE_1 arg_1, ATYPE_2 arg_2, AT
      t->d.args.arg_1 = arg_1; t->d.args.arg_2 = arg_2; t->d.args.arg_3 = arg_3; t->d.args.arg_4 = arg_4; t->d.args.arg_5 = arg_5; t->d.args.arg_6 = arg_6;\
     atomic_thread_fence(memory_order_release);                                        \
                                                                                       \
-    Worker *wt = w->_public;                                                          \
+    Worker *wt = lace_worker_public_of(w);                                            \
     if (LACE_UNLIKELY(w->allstolen)) {                                                \
         if (wt->movesplit) wt->movesplit = 0;                                         \
         head = (uint32_t)(__dq_head - w->dq);                                         \
@@ -3284,7 +3295,7 @@ RTYPE NAME##_SYNC(WorkerP *w, Task *__dq_head)                                  
 {                                                                                     \
     /* assert (__dq_head > 0); */  /* Commented out because we assume contract */     \
                                                                                       \
-    if (LACE_LIKELY(0 == w->_public->movesplit)) {                                    \
+    if (LACE_LIKELY(0 == lace_worker_public_of(w)->movesplit)) {                      \
         if (LACE_LIKELY(w->split <= __dq_head)) {                                     \
             TD_##NAME *t = (TD_##NAME *)__dq_head;                                    \
             atomic_store_explicit(&t->thief, THIEF_EMPTY, memory_order_relaxed);      \
@@ -3353,7 +3364,7 @@ void NAME##_SPAWN(WorkerP *w, Task *__dq_head , ATYPE_1 arg_1, ATYPE_2 arg_2, AT
      t->d.args.arg_1 = arg_1; t->d.args.arg_2 = arg_2; t->d.args.arg_3 = arg_3; t->d.args.arg_4 = arg_4; t->d.args.arg_5 = arg_5; t->d.args.arg_6 = arg_6;\
     atomic_thread_fence(memory_order_release);                                        \
                                                                                       \
-    Worker *wt = w->_public;                                                          \
+    Worker *wt = lace_worker_public_of(w);                                            \
     if (LACE_UNLIKELY(w->allstolen)) {                                                \
         if (wt->movesplit) wt->movesplit = 0;                                         \
         head = (uint32_t)(__dq_head - w->dq);                                         \
@@ -3442,7 +3453,7 @@ void NAME##_SYNC(WorkerP *w, Task *__dq_head)                                   
 {                                                                                     \
     /* assert (__dq_head > 0); */  /* Commented out because we assume contract */     \
                                                                                       \
-    if (LACE_LIKELY(0 == w->_public->movesplit)) {                                    \
+    if (LACE_LIKELY(0 == lace_worker_public_of(w)->movesplit)) {                      \
         if (LACE_LIKELY(w->split <= __dq_head)) {                                     \
             TD_##NAME *t = (TD_##NAME *)__dq_head;                                    \
             atomic_store_explicit(&t->thief, THIEF_EMPTY, memory_order_relaxed);      \
@@ -3514,7 +3525,7 @@ void NAME##_SPAWN(WorkerP *w, Task *__dq_head , ATYPE_1 arg_1, ATYPE_2 arg_2, AT
      t->d.args.arg_1 = arg_1; t->d.args.arg_2 = arg_2; t->d.args.arg_3 = arg_3; t->d.args.arg_4 = arg_4; t->d.args.arg_5 = arg_5; t->d.args.arg_6 = arg_6; t->d.args.arg_7 = arg_7;\
     atomic_thread_fence(memory_order_release);                                        \
                                                                                       \
-    Worker *wt = w->_public;                                                          \
+    Worker *wt = lace_worker_public_of(w);                                            \
     if (LACE_UNLIKELY(w->allstolen)) {                                                \
         if (wt->movesplit) wt->movesplit = 0;                                         \
         head = (uint32_t)(__dq_head - w->dq);                                         \
@@ -3603,7 +3614,7 @@ RTYPE NAME##_SYNC(WorkerP *w, Task *__dq_head)                                  
 {                                                                                     \
     /* assert (__dq_head > 0); */  /* Commented out because we assume contract */     \
                                                                                       \
-    if (LACE_LIKELY(0 == w->_public->movesplit)) {                                    \
+    if (LACE_LIKELY(0 == lace_worker_public_of(w)->movesplit)) {                      \
         if (LACE_LIKELY(w->split <= __dq_head)) {                                     \
             TD_##NAME *t = (TD_##NAME *)__dq_head;                                    \
             atomic_store_explicit(&t->thief, THIEF_EMPTY, memory_order_relaxed);      \
@@ -3672,7 +3683,7 @@ void NAME##_SPAWN(WorkerP *w, Task *__dq_head , ATYPE_1 arg_1, ATYPE_2 arg_2, AT
      t->d.args.arg_1 = arg_1; t->d.args.arg_2 = arg_2; t->d.args.arg_3 = arg_3; t->d.args.arg_4 = arg_4; t->d.args.arg_5 = arg_5; t->d.args.arg_6 = arg_6; t->d.args.arg_7 = arg_7;\
     atomic_thread_fence(memory_order_release);                                        \
                                                                                       \
-    Worker *wt = w->_public;                                                          \
+    Worker *wt = lace_worker_public_of(w);                                            \
     if (LACE_UNLIKELY(w->allstolen)) {                                                \
         if (wt->movesplit) wt->movesplit = 0;                                         \
         head = (uint32_t)(__dq_head - w->dq);                                         \
@@ -3761,7 +3772,7 @@ void NAME##_SYNC(WorkerP *w, Task *__dq_head)                                   
 {                                                                                     \
     /* assert (__dq_head > 0); */  /* Commented out because we assume contract */     \
                                                                                       \
-    if (LACE_LIKELY(0 == w->_public->movesplit)) {                                    \
+    if (LACE_LIKELY(0 == lace_worker_public_of(w)->movesplit)) {                      \
         if (LACE_LIKELY(w->split <= __dq_head)) {                                     \
             TD_##NAME *t = (TD_##NAME *)__dq_head;                                    \
             atomic_store_explicit(&t->thief, THIEF_EMPTY, memory_order_relaxed);      \
@@ -3833,7 +3844,7 @@ void NAME##_SPAWN(WorkerP *w, Task *__dq_head , ATYPE_1 arg_1, ATYPE_2 arg_2, AT
      t->d.args.arg_1 = arg_1; t->d.args.arg_2 = arg_2; t->d.args.arg_3 = arg_3; t->d.args.arg_4 = arg_4; t->d.args.arg_5 = arg_5; t->d.args.arg_6 = arg_6; t->d.args.arg_7 = arg_7; t->d.args.arg_8 = arg_8;\
     atomic_thread_fence(memory_order_release);                                        \
                                                                                       \
-    Worker *wt = w->_public;                                                          \
+    Worker *wt = lace_worker_public_of(w);                                            \
     if (LACE_UNLIKELY(w->allstolen)) {                                                \
         if (wt->movesplit) wt->movesplit = 0;                                         \
         head = (uint32_t)(__dq_head - w->dq);                                         \
@@ -3922,7 +3933,7 @@ RTYPE NAME##_SYNC(WorkerP *w, Task *__dq_head)                                  
 {                                                                                     \
     /* assert (__dq_head > 0); */  /* Commented out because we assume contract */     \
                                                                                       \
-    if (LACE_LIKELY(0 == w->_public->movesplit)) {                                    \
+    if (LACE_LIKELY(0 == lace_worker_public_of(w)->movesplit)) {                      \
         if (LACE_LIKELY(w->split <= __dq_head)) {                                     \
             TD_##NAME *t = (TD_##NAME *)__dq_head;                                    \
             atomic_store_explicit(&t->thief, THIEF_EMPTY, memory_order_relaxed);      \
@@ -3991,7 +4002,7 @@ void NAME##_SPAWN(WorkerP *w, Task *__dq_head , ATYPE_1 arg_1, ATYPE_2 arg_2, AT
      t->d.args.arg_1 = arg_1; t->d.args.arg_2 = arg_2; t->d.args.arg_3 = arg_3; t->d.args.arg_4 = arg_4; t->d.args.arg_5 = arg_5; t->d.args.arg_6 = arg_6; t->d.args.arg_7 = arg_7; t->d.args.arg_8 = arg_8;\
     atomic_thread_fence(memory_order_release);                                        \
                                                                                       \
-    Worker *wt = w->_public;                                                          \
+    Worker *wt = lace_worker_public_of(w);                                            \
     if (LACE_UNLIKELY(w->allstolen)) {                                                \
         if (wt->movesplit) wt->movesplit = 0;                                         \
         head = (uint32_t)(__dq_head - w->dq);                                         \
@@ -4080,7 +4091,7 @@ void NAME##_SYNC(WorkerP *w, Task *__dq_head)                                   
 {                                                                                     \
     /* assert (__dq_head > 0); */  /* Commented out because we assume contract */     \
                                                                                       \
-    if (LACE_LIKELY(0 == w->_public->movesplit)) {                                    \
+    if (LACE_LIKELY(0 == lace_worker_public_of(w)->movesplit)) {                      \
         if (LACE_LIKELY(w->split <= __dq_head)) {                                     \
             TD_##NAME *t = (TD_##NAME *)__dq_head;                                    \
             atomic_store_explicit(&t->thief, THIEF_EMPTY, memory_order_relaxed);      \
@@ -4152,7 +4163,7 @@ void NAME##_SPAWN(WorkerP *w, Task *__dq_head , ATYPE_1 arg_1, ATYPE_2 arg_2, AT
      t->d.args.arg_1 = arg_1; t->d.args.arg_2 = arg_2; t->d.args.arg_3 = arg_3; t->d.args.arg_4 = arg_4; t->d.args.arg_5 = arg_5; t->d.args.arg_6 = arg_6; t->d.args.arg_7 = arg_7; t->d.args.arg_8 = arg_8; t->d.args.arg_9 = arg_9;\
     atomic_thread_fence(memory_order_release);                                        \
                                                                                       \
-    Worker *wt = w->_public;                                                          \
+    Worker *wt = lace_worker_public_of(w);                                            \
     if (LACE_UNLIKELY(w->allstolen)) {                                                \
         if (wt->movesplit) wt->movesplit = 0;                                         \
         head = (uint32_t)(__dq_head - w->dq);                                         \
@@ -4241,7 +4252,7 @@ RTYPE NAME##_SYNC(WorkerP *w, Task *__dq_head)                                  
 {                                                                                     \
     /* assert (__dq_head > 0); */  /* Commented out because we assume contract */     \
                                                                                       \
-    if (LACE_LIKELY(0 == w->_public->movesplit)) {                                    \
+    if (LACE_LIKELY(0 == lace_worker_public_of(w)->movesplit)) {                      \
         if (LACE_LIKELY(w->split <= __dq_head)) {                                     \
             TD_##NAME *t = (TD_##NAME *)__dq_head;                                    \
             atomic_store_explicit(&t->thief, THIEF_EMPTY, memory_order_relaxed);      \
@@ -4310,7 +4321,7 @@ void NAME##_SPAWN(WorkerP *w, Task *__dq_head , ATYPE_1 arg_1, ATYPE_2 arg_2, AT
      t->d.args.arg_1 = arg_1; t->d.args.arg_2 = arg_2; t->d.args.arg_3 = arg_3; t->d.args.arg_4 = arg_4; t->d.args.arg_5 = arg_5; t->d.args.arg_6 = arg_6; t->d.args.arg_7 = arg_7; t->d.args.arg_8 = arg_8; t->d.args.arg_9 = arg_9;\
     atomic_thread_fence(memory_order_release);                                        \
                                                                                       \
-    Worker *wt = w->_public;                                                          \
+    Worker *wt = lace_worker_public_of(w);                                            \
     if (LACE_UNLIKELY(w->allstolen)) {                                                \
         if (wt->movesplit) wt->movesplit = 0;                                         \
         head = (uint32_t)(__dq_head - w->dq);                                         \
@@ -4399,7 +4410,7 @@ void NAME##_SYNC(WorkerP *w, Task *__dq_head)                                   
 {                                                                                     \
     /* assert (__dq_head > 0); */  /* Commented out because we assume contract */     \
                                                                                       \
-    if (LACE_LIKELY(0 == w->_public->movesplit)) {                                    \
+    if (LACE_LIKELY(0 == lace_worker_public_of(w)->movesplit)) {                      \
         if (LACE_LIKELY(w->split <= __dq_head)) {                                     \
             TD_##NAME *t = (TD_##NAME *)__dq_head;                                    \
             atomic_store_explicit(&t->thief, THIEF_EMPTY, memory_order_relaxed);      \
@@ -4471,7 +4482,7 @@ void NAME##_SPAWN(WorkerP *w, Task *__dq_head , ATYPE_1 arg_1, ATYPE_2 arg_2, AT
      t->d.args.arg_1 = arg_1; t->d.args.arg_2 = arg_2; t->d.args.arg_3 = arg_3; t->d.args.arg_4 = arg_4; t->d.args.arg_5 = arg_5; t->d.args.arg_6 = arg_6; t->d.args.arg_7 = arg_7; t->d.args.arg_8 = arg_8; t->d.args.arg_9 = arg_9; t->d.args.arg_10 = arg_10;\
     atomic_thread_fence(memory_order_release);                                        \
                                                                                       \
-    Worker *wt = w->_public;                                                          \
+    Worker *wt = lace_worker_public_of(w);                                            \
     if (LACE_UNLIKELY(w->allstolen)) {                                                \
         if (wt->movesplit) wt->movesplit = 0;                                         \
         head = (uint32_t)(__dq_head - w->dq);                                         \
@@ -4560,7 +4571,7 @@ RTYPE NAME##_SYNC(WorkerP *w, Task *__dq_head)                                  
 {                                                                                     \
     /* assert (__dq_head > 0); */  /* Commented out because we assume contract */     \
                                                                                       \
-    if (LACE_LIKELY(0 == w->_public->movesplit)) {                                    \
+    if (LACE_LIKELY(0 == lace_worker_public_of(w)->movesplit)) {                      \
         if (LACE_LIKELY(w->split <= __dq_head)) {                                     \
             TD_##NAME *t = (TD_##NAME *)__dq_head;                                    \
             atomic_store_explicit(&t->thief, THIEF_EMPTY, memory_order_relaxed);      \
@@ -4629,7 +4640,7 @@ void NAME##_SPAWN(WorkerP *w, Task *__dq_head , ATYPE_1 arg_1, ATYPE_2 arg_2, AT
      t->d.args.arg_1 = arg_1; t->d.args.arg_2 = arg_2; t->d.args.arg_3 = arg_3; t->d.args.arg_4 = arg_4; t->d.args.arg_5 = arg_5; t->d.args.arg_6 = arg_6; t->d.args.arg_7 = arg_7; t->d.args.arg_8 = arg_8; t->d.args.arg_9 = arg_9; t->d.args.arg_10 = arg_10;\
     atomic_thread_fence(memory_order_release);                                        \
                                                                                       \
-    Worker *wt = w->_public;                                                          \
+    Worker *wt = lace_worker_public_of(w);                                            \
     if (LACE_UNLIKELY(w->allstolen)) {                                                \
         if (wt->movesplit) wt->movesplit = 0;                                         \
         head = (uint32_t)(__dq_head - w->dq);                                         \
@@ -4718,7 +4729,7 @@ void NAME##_SYNC(WorkerP *w, Task *__dq_head)                                   
 {                                                                                     \
     /* assert (__dq_head > 0); */  /* Commented out because we assume contract */     \
                                                                                       \
-    if (LACE_LIKELY(0 == w->_public->movesplit)) {                                    \
+    if (LACE_LIKELY(0 == lace_worker_public_of(w)->movesplit)) {                      \
         if (LACE_LIKELY(w->split <= __dq_head)) {                                     \
             TD_##NAME *t = (TD_##NAME *)__dq_head;                                    \
             atomic_store_explicit(&t->thief, THIEF_EMPTY, memory_order_relaxed);      \
@@ -4790,7 +4801,7 @@ void NAME##_SPAWN(WorkerP *w, Task *__dq_head , ATYPE_1 arg_1, ATYPE_2 arg_2, AT
      t->d.args.arg_1 = arg_1; t->d.args.arg_2 = arg_2; t->d.args.arg_3 = arg_3; t->d.args.arg_4 = arg_4; t->d.args.arg_5 = arg_5; t->d.args.arg_6 = arg_6; t->d.args.arg_7 = arg_7; t->d.args.arg_8 = arg_8; t->d.args.arg_9 = arg_9; t->d.args.arg_10 = arg_10; t->d.args.arg_11 = arg_11;\
     atomic_thread_fence(memory_order_release);                                        \
                                                                                       \
-    Worker *wt = w->_public;                                                          \
+    Worker *wt = lace_worker_public_of(w);                                            \
     if (LACE_UNLIKELY(w->allstolen)) {                                                \
         if (wt->movesplit) wt->movesplit = 0;                                         \
         head = (uint32_t)(__dq_head - w->dq);                                         \
@@ -4879,7 +4890,7 @@ RTYPE NAME##_SYNC(WorkerP *w, Task *__dq_head)                                  
 {                                                                                     \
     /* assert (__dq_head > 0); */  /* Commented out because we assume contract */     \
                                                                                       \
-    if (LACE_LIKELY(0 == w->_public->movesplit)) {                                    \
+    if (LACE_LIKELY(0 == lace_worker_public_of(w)->movesplit)) {                      \
         if (LACE_LIKELY(w->split <= __dq_head)) {                                     \
             TD_##NAME *t = (TD_##NAME *)__dq_head;                                    \
             atomic_store_explicit(&t->thief, THIEF_EMPTY, memory_order_relaxed);      \
@@ -4948,7 +4959,7 @@ void NAME##_SPAWN(WorkerP *w, Task *__dq_head , ATYPE_1 arg_1, ATYPE_2 arg_2, AT
      t->d.args.arg_1 = arg_1; t->d.args.arg_2 = arg_2; t->d.args.arg_3 = arg_3; t->d.args.arg_4 = arg_4; t->d.args.arg_5 = arg_5; t->d.args.arg_6 = arg_6; t->d.args.arg_7 = arg_7; t->d.args.arg_8 = arg_8; t->d.args.arg_9 = arg_9; t->d.args.arg_10 = arg_10; t->d.args.arg_11 = arg_11;\
     atomic_thread_fence(memory_order_release);                                        \
                                                                                       \
-    Worker *wt = w->_public;                                                          \
+    Worker *wt = lace_worker_public_of(w);                                            \
     if (LACE_UNLIKELY(w->allstolen)) {                                                \
         if (wt->movesplit) wt->movesplit = 0;                                         \
         head = (uint32_t)(__dq_head - w->dq);                                         \
@@ -5037,7 +5048,7 @@ void NAME##_SYNC(WorkerP *w, Task *__dq_head)                                   
 {                                                                                     \
     /* assert (__dq_head > 0); */  /* Commented out because we assume contract */     \
                                                                                       \
-    if (LACE_LIKELY(0 == w->_public->movesplit)) {                                    \
+    if (LACE_LIKELY(0 == lace_worker_public_of(w)->movesplit)) {                      \
         if (LACE_LIKELY(w->split <= __dq_head)) {                                     \
             TD_##NAME *t = (TD_##NAME *)__dq_head;                                    \
             atomic_store_explicit(&t->thief, THIEF_EMPTY, memory_order_relaxed);      \
@@ -5109,7 +5120,7 @@ void NAME##_SPAWN(WorkerP *w, Task *__dq_head , ATYPE_1 arg_1, ATYPE_2 arg_2, AT
      t->d.args.arg_1 = arg_1; t->d.args.arg_2 = arg_2; t->d.args.arg_3 = arg_3; t->d.args.arg_4 = arg_4; t->d.args.arg_5 = arg_5; t->d.args.arg_6 = arg_6; t->d.args.arg_7 = arg_7; t->d.args.arg_8 = arg_8; t->d.args.arg_9 = arg_9; t->d.args.arg_10 = arg_10; t->d.args.arg_11 = arg_11; t->d.args.arg_12 = arg_12;\
     atomic_thread_fence(memory_order_release);                                        \
                                                                                       \
-    Worker *wt = w->_public;                                                          \
+    Worker *wt = lace_worker_public_of(w);                                            \
     if (LACE_UNLIKELY(w->allstolen)) {                                                \
         if (wt->movesplit) wt->movesplit = 0;                                         \
         head = (uint32_t)(__dq_head - w->dq);                                         \
@@ -5198,7 +5209,7 @@ RTYPE NAME##_SYNC(WorkerP *w, Task *__dq_head)                                  
 {                                                                                     \
     /* assert (__dq_head > 0); */  /* Commented out because we assume contract */     \
                                                                                       \
-    if (LACE_LIKELY(0 == w->_public->movesplit)) {                                    \
+    if (LACE_LIKELY(0 == lace_worker_public_of(w)->movesplit)) {                      \
         if (LACE_LIKELY(w->split <= __dq_head)) {                                     \
             TD_##NAME *t = (TD_##NAME *)__dq_head;                                    \
             atomic_store_explicit(&t->thief, THIEF_EMPTY, memory_order_relaxed);      \
@@ -5267,7 +5278,7 @@ void NAME##_SPAWN(WorkerP *w, Task *__dq_head , ATYPE_1 arg_1, ATYPE_2 arg_2, AT
      t->d.args.arg_1 = arg_1; t->d.args.arg_2 = arg_2; t->d.args.arg_3 = arg_3; t->d.args.arg_4 = arg_4; t->d.args.arg_5 = arg_5; t->d.args.arg_6 = arg_6; t->d.args.arg_7 = arg_7; t->d.args.arg_8 = arg_8; t->d.args.arg_9 = arg_9; t->d.args.arg_10 = arg_10; t->d.args.arg_11 = arg_11; t->d.args.arg_12 = arg_12;\
     atomic_thread_fence(memory_order_release);                                        \
                                                                                       \
-    Worker *wt = w->_public;                                                          \
+    Worker *wt = lace_worker_public_of(w);                                            \
     if (LACE_UNLIKELY(w->allstolen)) {                                                \
         if (wt->movesplit) wt->movesplit = 0;                                         \
         head = (uint32_t)(__dq_head - w->dq);                                         \
@@ -5356,7 +5367,7 @@ void NAME##_SYNC(WorkerP *w, Task *__dq_head)                                   
 {                                                                                     \
     /* assert (__dq_head > 0); */  /* Commented out because we assume contract */     \
                                                                                       \
-    if (LACE_LIKELY(0 == w->_public->movesplit)) {                                    \
+    if (LACE_LIKELY(0 == lace_worker_public_of(w)->movesplit)) {                      \
         if (LACE_LIKELY(w->split <= __dq_head)) {                                     \
             TD_##NAME *t = (TD_##NAME *)__dq_head;                                    \
             atomic_store_explicit(&t->thief, THIEF_EMPTY, memory_order_relaxed);      \
@@ -5428,7 +5439,7 @@ void NAME##_SPAWN(WorkerP *w, Task *__dq_head , ATYPE_1 arg_1, ATYPE_2 arg_2, AT
      t->d.args.arg_1 = arg_1; t->d.args.arg_2 = arg_2; t->d.args.arg_3 = arg_3; t->d.args.arg_4 = arg_4; t->d.args.arg_5 = arg_5; t->d.args.arg_6 = arg_6; t->d.args.arg_7 = arg_7; t->d.args.arg_8 = arg_8; t->d.args.arg_9 = arg_9; t->d.args.arg_10 = arg_10; t->d.args.arg_11 = arg_11; t->d.args.arg_12 = arg_12; t->d.args.arg_13 = arg_13;\
     atomic_thread_fence(memory_order_release);                                        \
                                                                                       \
-    Worker *wt = w->_public;                                                          \
+    Worker *wt = lace_worker_public_of(w);                                            \
     if (LACE_UNLIKELY(w->allstolen)) {                                                \
         if (wt->movesplit) wt->movesplit = 0;                                         \
         head = (uint32_t)(__dq_head - w->dq);                                         \
@@ -5517,7 +5528,7 @@ RTYPE NAME##_SYNC(WorkerP *w, Task *__dq_head)                                  
 {                                                                                     \
     /* assert (__dq_head > 0); */  /* Commented out because we assume contract */     \
                                                                                       \
-    if (LACE_LIKELY(0 == w->_public->movesplit)) {                                    \
+    if (LACE_LIKELY(0 == lace_worker_public_of(w)->movesplit)) {                      \
         if (LACE_LIKELY(w->split <= __dq_head)) {                                     \
             TD_##NAME *t = (TD_##NAME *)__dq_head;                                    \
             atomic_store_explicit(&t->thief, THIEF_EMPTY, memory_order_relaxed);      \
@@ -5586,7 +5597,7 @@ void NAME##_SPAWN(WorkerP *w, Task *__dq_head , ATYPE_1 arg_1, ATYPE_2 arg_2, AT
      t->d.args.arg_1 = arg_1; t->d.args.arg_2 = arg_2; t->d.args.arg_3 = arg_3; t->d.args.arg_4 = arg_4; t->d.args.arg_5 = arg_5; t->d.args.arg_6 = arg_6; t->d.args.arg_7 = arg_7; t->d.args.arg_8 = arg_8; t->d.args.arg_9 = arg_9; t->d.args.arg_10 = arg_10; t->d.args.arg_11 = arg_11; t->d.args.arg_12 = arg_12; t->d.args.arg_13 = arg_13;\
     atomic_thread_fence(memory_order_release);                                        \
                                                                                       \
-    Worker *wt = w->_public;                                                          \
+    Worker *wt = lace_worker_public_of(w);                                            \
     if (LACE_UNLIKELY(w->allstolen)) {                                                \
         if (wt->movesplit) wt->movesplit = 0;                                         \
         head = (uint32_t)(__dq_head - w->dq);                                         \
@@ -5675,7 +5686,7 @@ void NAME##_SYNC(WorkerP *w, Task *__dq_head)                                   
 {                                                                                     \
     /* assert (__dq_head > 0); */  /* Commented out because we assume contract */     \
                                                                                       \
-    if (LACE_LIKELY(0 == w->_public->movesplit)) {                                    \
+    if (LACE_LIKELY(0 == lace_worker_public_of(w)->movesplit)) {                      \
         if (LACE_LIKELY(w->split <= __dq_head)) {                                     \
             TD_##NAME *t = (TD_##NAME *)__dq_head;                                    \
             atomic_store_explicit(&t->thief, THIEF_EMPTY, memory_order_relaxed);      \
@@ -5747,7 +5758,7 @@ void NAME##_SPAWN(WorkerP *w, Task *__dq_head , ATYPE_1 arg_1, ATYPE_2 arg_2, AT
      t->d.args.arg_1 = arg_1; t->d.args.arg_2 = arg_2; t->d.args.arg_3 = arg_3; t->d.args.arg_4 = arg_4; t->d.args.arg_5 = arg_5; t->d.args.arg_6 = arg_6; t->d.args.arg_7 = arg_7; t->d.args.arg_8 = arg_8; t->d.args.arg_9 = arg_9; t->d.args.arg_10 = arg_10; t->d.args.arg_11 = arg_11; t->d.args.arg_12 = arg_12; t->d.args.arg_13 = arg_13; t->d.args.arg_14 = arg_14;\
     atomic_thread_fence(memory_order_release);                                        \
                                                                                       \
-    Worker *wt = w->_public;                                                          \
+    Worker *wt = lace_worker_public_of(w);                                            \
     if (LACE_UNLIKELY(w->allstolen)) {                                                \
         if (wt->movesplit) wt->movesplit = 0;                                         \
         head = (uint32_t)(__dq_head - w->dq);                                         \
@@ -5836,7 +5847,7 @@ RTYPE NAME##_SYNC(WorkerP *w, Task *__dq_head)                                  
 {                                                                                     \
     /* assert (__dq_head > 0); */  /* Commented out because we assume contract */     \
                                                                                       \
-    if (LACE_LIKELY(0 == w->_public->movesplit)) {                                    \
+    if (LACE_LIKELY(0 == lace_worker_public_of(w)->movesplit)) {                      \
         if (LACE_LIKELY(w->split <= __dq_head)) {                                     \
             TD_##NAME *t = (TD_##NAME *)__dq_head;                                    \
             atomic_store_explicit(&t->thief, THIEF_EMPTY, memory_order_relaxed);      \
@@ -5905,7 +5916,7 @@ void NAME##_SPAWN(WorkerP *w, Task *__dq_head , ATYPE_1 arg_1, ATYPE_2 arg_2, AT
      t->d.args.arg_1 = arg_1; t->d.args.arg_2 = arg_2; t->d.args.arg_3 = arg_3; t->d.args.arg_4 = arg_4; t->d.args.arg_5 = arg_5; t->d.args.arg_6 = arg_6; t->d.args.arg_7 = arg_7; t->d.args.arg_8 = arg_8; t->d.args.arg_9 = arg_9; t->d.args.arg_10 = arg_10; t->d.args.arg_11 = arg_11; t->d.args.arg_12 = arg_12; t->d.args.arg_13 = arg_13; t->d.args.arg_14 = arg_14;\
     atomic_thread_fence(memory_order_release);                                        \
                                                                                       \
-    Worker *wt = w->_public;                                                          \
+    Worker *wt = lace_worker_public_of(w);                                            \
     if (LACE_UNLIKELY(w->allstolen)) {                                                \
         if (wt->movesplit) wt->movesplit = 0;                                         \
         head = (uint32_t)(__dq_head - w->dq);                                         \
@@ -5994,7 +6005,7 @@ void NAME##_SYNC(WorkerP *w, Task *__dq_head)                                   
 {                                                                                     \
     /* assert (__dq_head > 0); */  /* Commented out because we assume contract */     \
                                                                                       \
-    if (LACE_LIKELY(0 == w->_public->movesplit)) {                                    \
+    if (LACE_LIKELY(0 == lace_worker_public_of(w)->movesplit)) {                      \
         if (LACE_LIKELY(w->split <= __dq_head)) {                                     \
             TD_##NAME *t = (TD_##NAME *)__dq_head;                                    \
             atomic_store_explicit(&t->thief, THIEF_EMPTY, memory_order_relaxed);      \
