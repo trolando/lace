@@ -108,6 +108,7 @@ runtests(int n_workers)
 
     // Spawn and start all worker pthreads; suspends current thread until done.
     printf("Testing mixed newframe/together...\n");
+    free(worker_counter);
     worker_counter = (int*)calloc(lace_workers(), sizeof(int));
     RUN(test_newframe, 5);
     RUN(test_together, 5);
