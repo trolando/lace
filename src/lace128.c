@@ -479,7 +479,7 @@ static worker_data **workers_memory = NULL;
 /* lace_set_pinning (-1: LACE_PIN or the default) and lace_set_pin_cpus */
 static int pin_api_mode = -1;
 static int *pin_api_cpus = NULL;
-static unsigned int pin_api_ncpus = 0;
+static unsigned int LACE_UNUSED pin_api_ncpus = 0; // read only by the Linux pinning
 
 void
 lace_set_pinning(lace_pin_mode mode)
@@ -977,7 +977,7 @@ lace_worker_count(void)
 /**
  * If we are collecting PIE times, then we need some helper functions.
  */
-static uint64_t count_at_start;
+static uint64_t LACE_UNUSED count_at_start; // read only with LACE_PIE_TIMES
 static uint64_t us_elapsed_timer;
 
 static inline uint64_t lace_now_us(void)

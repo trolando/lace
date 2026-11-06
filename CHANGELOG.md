@@ -64,6 +64,7 @@ All notable changes to Lace will be documented in this file.
 - With hwloc, every worker printed errors where the system cannot pin
   threads or bind memory (macOS); Lace now says once that it cannot pin,
   and CMake warns about it on macOS.
+- Newer Clang failed to build Lace (`-Wunused-but-set-global` with `-Werror`).
 - Parallel regions started while the workers slept ran almost serially.
 - Lace no longer consumes the program's `rand()` sequence (`test_rand`).
 - `lace_start` exited the program under an address-space limit
