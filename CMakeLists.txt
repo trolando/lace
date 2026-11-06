@@ -34,7 +34,12 @@ option(LACE_COUNT_TASKS  "Let Lace record the number of tasks"                  
 option(LACE_COUNT_STEALS "Let Lace count #steals and #leaps"                         OFF)
 option(LACE_COUNT_SPLITS "Let Lace count #splits"                                    OFF)
 option(LACE_HARDENING    "Keep the compiler's stack protector/clash checks in Lace" OFF)
-option(LACE_PIN_WORKERS  "Pin workers by default (LACE_PIN_AUTO, Linux; lace_set_pinning() or LACE_PIN choose another mode)" ON)
+set(LACE_DEFAULT_PIN "AUTO" CACHE STRING "Pinning mode when neither lace_set_pinning() nor LACE_PIN chooses one: AUTO, OFF, CPU, CORE, L2, L3, NUMA or ALL")
+set_property(CACHE LACE_DEFAULT_PIN PROPERTY STRINGS AUTO OFF CPU CORE L2 L3 NUMA ALL)
+string(TOUPPER "${LACE_DEFAULT_PIN}" LACE_DEFAULT_PIN)
+if(NOT LACE_DEFAULT_PIN MATCHES "^(AUTO|OFF|CPU|CORE|L2|L3|NUMA|ALL)$")
+    message(FATAL_ERROR "LACE_DEFAULT_PIN must be AUTO, OFF, CPU, CORE, L2, L3, NUMA or ALL, not ${LACE_DEFAULT_PIN}")
+endif()
 option(LACE_DONT_OVERCOMMIT "Default to 16-64 MB worker stacks instead of reserving 1 GB each" OFF)
 
 if(lace_IS_TOP_LEVEL)
@@ -316,7 +321,7 @@ if(NOT lace_IS_TOP_LEVEL)
         LACE_COUNT_TASKS
         LACE_COUNT_STEALS
         LACE_COUNT_SPLITS
-        LACE_PIN_WORKERS
+        LACE_DEFAULT_PIN
         LACE_DONT_OVERCOMMIT
     )
 endif()
@@ -415,7 +420,7 @@ message(STATUS "  Use HWLOC         : ${LACE_USE_HWLOC}")
 message(STATUS "  Use -march=native : ${LACE_NATIVE_OPT}")
 message(STATUS "  Use -fPIC         : ${LACE_ENABLE_PIC}")
 message(STATUS "  Backoff when idle : ${LACE_BACKOFF}")
-message(STATUS "  Pin workers       : ${LACE_PIN_WORKERS}")
+message(STATUS "  Default pinning   : ${LACE_DEFAULT_PIN}")
 message(STATUS "  Don't overcommit  : ${LACE_DONT_OVERCOMMIT}")
 message(STATUS "  Count tasks       : ${LACE_COUNT_TASKS}")
 message(STATUS "  Count steals      : ${LACE_COUNT_STEALS}")

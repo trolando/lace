@@ -92,11 +92,12 @@ CMake options
    * - Option
      - Description
      - Default
-   * - ``LACE_PIN_WORKERS``
-     - Pin worker threads by default (Linux), within the affinity mask the
-       program is given; see `Worker pinning`_. ``lace_set_pinning()`` or the
-       ``LACE_PIN`` environment variable choose the mode at run time.
-     - ON
+   * - ``LACE_DEFAULT_PIN``
+     - The pinning mode (Linux) when neither ``lace_set_pinning()`` nor the
+       ``LACE_PIN`` environment variable chooses one: ``AUTO``, ``OFF``,
+       ``CPU``, ``CORE``, ``L2``, ``L3``, ``NUMA`` or ``ALL``, within the
+       affinity mask the program is given; see `Worker pinning`_.
+     - AUTO
    * - ``LACE_USE_HWLOC``
      - Use the ``hwloc`` library to pin worker threads to CPU cores, instead
        of the built-in pinning (macOS does not let programs pin threads).
@@ -186,7 +187,7 @@ throughput, but it prevents idle workers from consuming 100% CPU when there
 is no work. There is no reason to turn this off unless you are doing very
 precise micro-benchmarking of steal overhead.
 
-**Keep LACE_PIN_WORKERS on.** Pinned workers stay on their core and keep
+**Keep LACE_DEFAULT_PIN at AUTO.** Pinned workers stay on their core and keep
 their caches warm; in benchmarks on Intel and AMD machines with one, two and
 four sockets, unpinned workers were 2-13% slower. The default mode leaves cores
 to other programs when Lace does not use all of them (see `Worker pinning`_).
@@ -268,8 +269,8 @@ A program chooses the mode with ``lace_set_pinning()``, or pins worker *i* to
 If the program does not choose, the environment variable ``LACE_PIN`` does:
 ``off``, ``auto``, ``cpu``, ``core``, ``l2``, ``l3``, ``numa``, ``all``, or a
 CPU list such as ``list:0,2,4-7``. ``LACE_PIN_PRINT=1`` prints the CPUs of every
-worker. On other systems, and with ``LACE_USE_HWLOC``, these calls have no
-effect.
+worker. On other systems these calls have no effect; with ``LACE_USE_HWLOC``,
+hwloc pins every worker to a core unless the mode is ``off``.
 
 
 Installing

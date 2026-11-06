@@ -6,10 +6,11 @@ All notable changes to Lace will be documented in this file.
 
 ### Added
 
-- Workers are pinned by default on Linux (`LACE_PIN_WORKERS`): each to its
-  own CPU if the workers fill the available cores, otherwise to all of them.
+- Workers are pinned by default on Linux: each to its own CPU if the
+  workers fill the available cores, otherwise to all of them.
   `lace_set_pinning()`, `lace_set_pin_cpus()` and the `LACE_PIN` environment
-  variable choose other modes (`test_pin`).
+  variable choose other modes, and the CMake option `LACE_DEFAULT_PIN` sets
+  the default (`test_pin`). With hwloc, the mode `off` turns pinning off.
 - A ParlayLib scheduler plugin (`contrib/parlaylib`), to run ParlayLib
   programs such as the PBBS benchmarks on Lace.
 - `lace_release_memory()` gives the memory that idle workers hold back to
