@@ -374,7 +374,10 @@ size_t lace_get_stacksize(void);
 /**
  * Set the per-worker scratch arena reservation size in bytes.
  * Call before lace_start(). The default is 1 GiB on 64-bit systems
- * and 16 MiB on 32-bit systems. Pass 0 to disable the scratch arena.
+ * and 16 MiB on 32-bit systems. If the 64-bit default cannot be
+ * reserved (for example under ulimit -v), Lace falls back to 16 MiB.
+ * A size set here is used as given: if it cannot be reserved,
+ * lace_start() exits with an error. Pass 0 to disable the scratch arena.
  */
 void lace_set_scratch_size(size_t size);
 
