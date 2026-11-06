@@ -78,6 +78,7 @@
 #if LACE_MSVC
     #define LACE_UNUSED
     #define LACE_NOINLINE __declspec(noinline)
+    #define LACE_COLD
     #define LACE_NORETURN __declspec(noreturn)
     #define LACE_ALIGN(N) __declspec(align(N))
     #define LACE_LIKELY(x)   (x)
@@ -86,6 +87,7 @@
 #elif defined(__GNUC__) || defined(__clang__)
     #define LACE_UNUSED __attribute__((unused))
     #define LACE_NOINLINE __attribute__((noinline))
+    #define LACE_COLD __attribute__((cold))
     #if defined(__STDC_VERSION__) && (__STDC_VERSION__ >= 201112L)
         #define LACE_NORETURN _Noreturn
         #define LACE_ALIGN(N) _Alignas(N)
@@ -99,6 +101,7 @@
 #elif defined(__STDC_VERSION__) && (__STDC_VERSION__ >= 201112L)
     #define LACE_UNUSED
     #define LACE_NOINLINE
+    #define LACE_COLD
     #define LACE_NORETURN _Noreturn
     #define LACE_ALIGN(N) _Alignas(N)
     #define LACE_LIKELY(x)   (x)
@@ -107,6 +110,7 @@
 #else
     #define LACE_UNUSED
     #define LACE_NOINLINE
+    #define LACE_COLD
     #define LACE_NORETURN
     #define LACE_ALIGN(N)
     #define LACE_LIKELY(x)   (x)
@@ -673,8 +677,12 @@ void lace_run_together(Task *task);
 
 /**
  * Check if current tasks must be interrupted, and if so, interrupt.
+ *
+ * lace_yield is out of line and cold: YIELD_NEWFRAME checks lace_newframe
+ * inline and only calls it when there is an interruption, so its task copy
+ * and barrier stay out of the stack frames of its callers.
  */
-void lace_yield(WorkerP *__lace_worker, Task *__lace_dq_head);
+LACE_NOINLINE LACE_COLD void lace_yield(WorkerP *__lace_worker, Task *__lace_dq_head);
 #define YIELD_NEWFRAME() { if (LACE_UNLIKELY(atomic_load_explicit(&lace_newframe.t, memory_order_relaxed) != NULL)) { atomic_thread_fence(memory_order_acquire); lace_yield(__lace_worker, __lace_dq_head); } }
 
 /**
@@ -1112,7 +1120,11 @@ Worker* lace_steal(WorkerP *self, Task *__dq_head, Worker *victim)
             TailSplitNA ts_new;
             ts_new.v = ts.v;
             ts_new.ts.tail++;
-            if (atomic_compare_exchange_weak(&victim->ts.v, &ts.v, ts_new.v)) {
+            /* A scalar expected value, not &ts.v: the union would have to live
+             * on the stack, and with -fstack-protector-strong that adds a
+             * canary check to every steal attempt. */
+            uint64_t expected = ts.v;
+            if (atomic_compare_exchange_weak(&victim->ts.v, &expected, ts_new.v)) {
                 // Stolen
                 Task *t = &victim->dq[ts.ts.tail];
                 atomic_store_explicit(&t->thief, self->_public, memory_order_relaxed);
