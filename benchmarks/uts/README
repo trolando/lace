@@ -106,7 +106,7 @@ LACE'S ADDITIONS
 ==============
 
 Lace builds a second program from these sources, utsb (compiled with UTSB),
-which adds two kinds of trees; uts itself is the original code:
+which adds two kinds of trees; uts itself has the original trees:
 
   -t 0 ... -d D        Binomial trees with a maximum depth: nodes at depth D
                        have no children.  With q * m > 1 the tree grows wide
@@ -121,6 +121,10 @@ T3L is a stress test for work stealing: the expected work below a node is the
 same wherever the node is, and its longest path has 17844 nodes.  T6L and T7L
 are just as irregular, but their work shrinks with depth, as in divide and
 conquer.
+
+Both programs take the sample trees by name: -p T3L sets the parameters of T3L
+in sample_trees.sh, and parameters after it override them (-p T3L -g 4).  Only
+utsb knows T6, T6L, T7 and T7L.
 
 
 THE OUTPUT

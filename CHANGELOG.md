@@ -21,8 +21,9 @@ All notable changes to Lace will be documented in this file.
 - A test that Lace starts under an address-space limit, `test_stack_limit`.
 - A utsb benchmark: uts with budget trees (`-t 4`: exactly `-n` nodes, split
   among `-m` children per node by random weights, `-s` sets how unevenly) and
-  a maximum depth for binomial trees (`-d`); uts itself is unchanged. Sample
+  a maximum depth for binomial trees (`-d`); uts keeps its trees. Sample
   trees T6/T6L and T7/T7L; `bench.py` runs them with utsb.
+- uts and utsb take a sample tree by name: `-p T3L`.
 
 ### Changed
 

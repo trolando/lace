@@ -430,6 +430,54 @@ void uts_printParams(void) {
   }
 }
 
+/* The sample trees of sample_trees.sh, by name (-p) */
+static const char *uts_presets[][2] = {
+  { "T1",    "-t 1 -a 3 -d 10 -b 4 -r 19" },
+  { "T2",    "-t 1 -a 2 -d 16 -b 6 -r 502" },
+  { "T3",    "-t 0 -b 2000 -q 0.124875 -m 8 -r 42" },
+  { "T4",    "-t 2 -a 0 -d 16 -b 6 -r 1 -q 0.234375 -m 4 -r 1" },
+  { "T5",    "-t 1 -a 0 -d 20 -b 4 -r 34" },
+  { "T1L",   "-t 1 -a 3 -d 13 -b 4 -r 29" },
+  { "T2L",   "-t 1 -a 2 -d 23 -b 7 -r 220" },
+  { "T3L",   "-t 0 -b 2000 -q 0.200014 -m 5 -r 7" },
+  { "T1XL",  "-t 1 -a 3 -d 15 -b 4 -r 29" },
+  { "T1XXL", "-t 1 -a 3 -d 15 -b 4 -r 19" },
+  { "T2XXL", "-t 0 -b 2000 -q 0.499999995 -m 2 -r 0" },
+  { "T3XXL", "-t 0 -b 2000 -q 0.499995 -m 2 -r 316" },
+  { "T1WL",  "-t 1 -a 3 -d 18 -b 4 -r 19" },
+  { "T2WL",  "-t 0 -b 2000 -q 0.4999999995 -m 2 -r 559" },
+  { "T3WL",  "-t 0 -b 2000 -q 0.4999995 -m 2 -r 559" },
+#ifdef UTSB
+  { "T6",    "-t 4 -n 4000000 -m 4 -s 8 -r 7" },
+  { "T7",    "-t 0 -b 2000 -q 0.25 -m 8 -d 11 -r 2" },
+  { "T6L",   "-t 4 -n 100000000 -m 4 -s 8 -r 7" },
+  { "T7L",   "-t 0 -b 2000 -q 0.25 -m 8 -d 16 -r 2" },
+#endif
+};
+#define UTS_NPRESETS ((int) (sizeof(uts_presets) / sizeof(uts_presets[0])))
+
+/* Parse the parameters of the sample tree @name as if given on the command
+ * line; returns 0 if there is no such tree */
+static int uts_usePreset(char *prog, const char *name) {
+  int k;
+  for (k = 0; k < UTS_NPRESETS; k++) {
+    if (strcmp(uts_presets[k][0], name) == 0) {
+      char buf[128], *args[32], *c = buf;
+      int n = 0;
+      snprintf(buf, sizeof(buf), "%s", uts_presets[k][1]);
+      args[n++] = prog;
+      while (*c != '\0' && n < 32) {
+        while (*c == ' ') *c++ = '\0';
+        if (*c != '\0') args[n++] = c;
+        while (*c != '\0' && *c != ' ') c++;
+      }
+      uts_parseParams(n, args);
+      return 1;
+    }
+  }
+  return 0;
+}
+
 void uts_parseParams(int argc, char *argv[]){
   int i = 1; 
   int err = -1;
@@ -485,6 +533,9 @@ void uts_parseParams(int argc, char *argv[]){
         shiftDepth = atof(argv[i+1]); break;
       case 'g':
         computeGranularity = max(1,atoi(argv[i+1])); break;
+      case 'p':
+        if (!uts_usePreset(argv[0], argv[i+1])) err = i;
+        break;
 #ifdef UTSB
       case 'n':
         treeSize = strtoull(argv[i+1], NULL, 10); break;
@@ -522,6 +573,9 @@ void uts_helpMessage(void) {
   printf("  parm type  description\n");    
   printf("  ==== ====  =========================================\n");
   printf("\n  Benchmark Parameters:\n");
+  printf("   -p  name  sample tree, as in sample_trees.sh (later parameters override it):\n            ");
+  for (int k = 0; k < UTS_NPRESETS; k++) printf(" %s", uts_presets[k][0]);
+  printf("\n");
   printf("   -t  int   tree type (0: BIN, 1: GEO, 2: HYBRID, 3: BALANCED)\n");
   printf("   -b  dble  root branching factor\n");
   printf("   -r  int   root seed 0 <= r < 2^31 \n");

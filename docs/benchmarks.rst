@@ -23,7 +23,8 @@ parallelism patterns:
    nodes, split unevenly among ``-m`` children per node, ``-s`` sets how
    unevenly) and a maximum depth for binomial trees (``-d``): just as
    irregular, but the work shrinks with depth, as in divide and conquer
-   (T6L and T7L in ``benchmarks/uts/sample_trees.sh``).
+   (T6L and T7L in ``benchmarks/uts/sample_trees.sh``). Both take a sample tree
+   by name, e.g. ``uts-lace -p T3L``.
 
 ``nqueens``
    N-Queens solver. Spawns one task per candidate position at each row,
