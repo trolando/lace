@@ -102,6 +102,27 @@ size of 20:
  $ ./uts-pthread -T 4 -c 20 $T3
 
 
+LACE'S ADDITIONS
+==============
+
+Lace builds a second program from these sources, utsb (compiled with UTSB),
+which adds two kinds of trees; uts itself is the original code:
+
+  -t 0 ... -d D        Binomial trees with a maximum depth: nodes at depth D
+                       have no children.  With q * m > 1 the tree grows wide
+                       rather than deep (T7, T7L).
+  -t 4 -n N -m M -s S  Budget trees: exactly N nodes.  Each node splits the
+                       nodes below it among M children by weights 2^U, U
+                       uniform on 0..S.  The expected size of a subtree falls
+                       by a factor M per level, while S sets how unevenly a
+                       node splits its work (T6, T6L).
+
+T3L is a stress test for work stealing: the expected work below a node is the
+same wherever the node is, and its longest path has 17844 nodes.  T6L and T7L
+are just as irregular, but their work shrinks with depth, as in divide and
+conquer.
+
+
 THE OUTPUT
 ==============
 

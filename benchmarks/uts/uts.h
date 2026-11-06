@@ -30,6 +30,9 @@ extern "C" {
 
 #define MAXNUMCHILDREN    100  // cap on children (BIN root is exempt)
 
+/* For stats generation and tree sizes: */
+typedef unsigned long long counter_t;
+
 struct node_t {
   int type;          // distribution governing number of children
   int height;        // depth of this node in the tree
@@ -37,6 +40,12 @@ struct node_t {
   
   /* for RNG state associated with this node */
   struct state_t state;
+
+#ifdef UTSB
+  /* BUDGET trees (utsb) */
+  counter_t budget;  // nodes in this subtree, this node included
+  counter_t wsum;    // sum of the weights of the children
+#endif
 };
 
 typedef struct node_t Node;
@@ -50,8 +59,10 @@ typedef struct node_t Node;
  *   or a geometric distribution.  Hybrid tree are
  *   generated with geometric distributions near the
  *   root and binomial distributions towards the leaves.
+ *   Budget trees (utsb) instead split a fixed number of
+ *   nodes among the children of each node.
  */
-enum   uts_trees_e    { UTS_BIN = 0, UTS_GEO, UTS_HYBRID, UTS_BALANCED };
+enum   uts_trees_e    { UTS_BIN = 0, UTS_GEO, UTS_HYBRID, UTS_BALANCED, UTS_BUDGET };
 enum   uts_geoshape_e { UTS_LINEAR = 0, UTS_EXPDEC, UTS_CYCLIC, UTS_FIXED };
 
 typedef enum uts_trees_e    tree_t;
@@ -71,14 +82,16 @@ extern double     nonLeafProb;
 extern int        gen_mx;
 extern geoshape_t shape_fn;
 extern double     shiftDepth;         
+#ifdef UTSB
+extern int        bin_mx;
+extern counter_t  treeSize;
+extern int        splitSpread;
+#endif
 
 /* Benchmark parameters */
 extern int    computeGranularity;
 extern int    debug;
 extern int    verbose;
-
-/* For stats generation: */
-typedef unsigned long long counter_t;
 
 /* Utility Functions */
 #define max(a,b) (((a) > (b)) ? (a) : (b))
@@ -101,6 +114,10 @@ int    uts_numChildren(Node *parent);
 int    uts_numChildren_bin(Node * parent);
 int    uts_numChildren_geo(Node * parent);
 int    uts_childType(Node *parent);
+#ifdef UTSB
+int    uts_numChildren_budget(Node * parent);
+counter_t uts_childBudget(Node *parent, int i);
+#endif
 
 /* Implementation Specific Functions */
 char * impl_getName(void);

@@ -17,6 +17,7 @@
 #include <string.h>
 #include <stdio.h>
 #include <math.h>
+#include <stdint.h>
 
 #include <common.h>
 
@@ -30,7 +31,7 @@
  *  and their default values are given below.              *
  ***********************************************************/
 
-char * uts_trees_str[]     = { "Binomial", "Geometric", "Hybrid", "Balanced" };
+char * uts_trees_str[]     = { "Binomial", "Geometric", "Hybrid", "Balanced", "Budget" };
 char * uts_geoshapes_str[] = { "Linear decrease", "Exponential decrease", "Cyclic", 
                               "Fixed branching factor" };
 
@@ -43,6 +44,8 @@ char * uts_geoshapes_str[] = { "Linear decrease", "Exponential decrease", "Cycli
  *   or a geometric distribution.  Hybrid tree are
  *   generated with geometric distributions near the
  *   root and binomial distributions towards the leaves.
+ *   Budget trees (utsb) instead split a fixed number of
+ *   nodes among the children of each node.
  */
 tree_t type  = UTS_GEO; // Default tree type
 double b_0   = 4.0; // default branching factor at the root
@@ -54,11 +57,17 @@ int   rootId = 0;   // default seed for RNG state at root
  *     identical binomial distribution at all nodes.
  *  A node has m children with prob q, or no children with 
  *     prob (1-q).  The expected branching factor is q * m.
+ *  In utsb, a maximum depth bin_mx can be given (-d): nodes
+ *     at that depth have no children, and with q * m > 1 the
+ *     tree grows wide rather than deep.
  *
  *  Default parameter values 
  */
 int    nonLeafBF   = 4;            // m
 double nonLeafProb = 15.0 / 64.0;  // q
+#ifdef UTSB
+int    bin_mx      = 0;            // maximum depth, 0: unbounded
+#endif
 
 /*  Tree type GEO (GEOMETRIC)
  *  The branching factor follows a geometric distribution with
@@ -82,6 +91,23 @@ geoshape_t shape_fn = UTS_LINEAR; // default shape function (b_i decr linearly)
  *  at a fixed depth, expressed as a fraction of gen_mx
  */
 double shiftDepth = 0.5;         
+
+/*  Tree type BUDGET (utsb only)
+ *  Each node has a budget: the number of nodes in its subtree,
+ *     itself included.  The budget of the root is the tree size n.
+ *  A node with budget b has m children, which share the other
+ *     b-1-m nodes in proportion to weights 2^U with U uniform on
+ *     0..s, or b-1 children (leaves) if b-1 < m.  The tree has
+ *     exactly n nodes, the expected size of a subtree falls by a
+ *     factor m per level, and s sets how unevenly a node splits
+ *     its work (s = 0: equal shares).  m is nonLeafBF, as for BIN.
+ *
+ *  Default parameter values
+ */
+#ifdef UTSB
+counter_t treeSize    = 100000000; // n
+int       splitSpread = 8;         // s
+#endif
 
 /* compute granularity - number of rng evaluations per tree node */
 int computeGranularity = 1;
@@ -117,6 +143,9 @@ void uts_initRoot(Node * root, int type) {
   root->type = type;
   root->height = 0;
   root->numChildren = -1;      // means not yet determined
+#ifdef UTSB
+  root->budget = (type == UTS_BUDGET) ? treeSize : 0;
+#endif
   rng_init(root->state.state, rootId);
 
   if (debug & 1)
@@ -187,6 +216,63 @@ int uts_numChildren_geo(Node * parent) {
 }
 
 
+#ifdef UTSB
+// weight of child i of a BUDGET node: 2^U with U uniform on
+// 0..splitSpread, from an integer hash (splitmix64) of the
+// node state and i: the same tree on every platform
+static counter_t uts_childWeight(Node *parent, int i) {
+  uint64_t x = 0;
+  int j;
+
+  for (j = 0; j < 8; j++)
+    x = (x << 8) | parent->state.state[j];
+  x += (uint64_t) (i + 1) * 0x9E3779B97F4A7C15ULL;
+  x = (x ^ (x >> 30)) * 0xBF58476D1CE4E5B9ULL;
+  x = (x ^ (x >> 27)) * 0x94D049BB133111EBULL;
+  x ^= x >> 31;
+
+  return (counter_t) 1 << (x % (uint64_t) (splitSpread + 1));
+}
+
+
+int uts_numChildren_budget(Node * parent) {
+  counter_t b = parent->budget;
+  int i;
+
+  // too few nodes left: they are all leaves
+  if (b - 1 < (counter_t) nonLeafBF)
+    return (int) (b - 1);
+
+  parent->wsum = 0;
+  for (i = 0; i < nonLeafBF; i++)
+    parent->wsum += uts_childWeight(parent, i);
+
+  return nonLeafBF;
+}
+
+
+// budget of child i of a BUDGET node, once the driver has recorded
+// its number of children: 1 plus its share of the other nodes,
+// rounded down; the last child also gets what the rounding leaves
+counter_t uts_childBudget(Node *parent, int i) {
+  int n = parent->numChildren;
+  counter_t rest, given = 0;
+  int j;
+
+  if (n < nonLeafBF)
+    return 1;
+
+  rest = parent->budget - 1 - (counter_t) n;
+  if (i < n - 1)
+    return 1 + rest * uts_childWeight(parent, i) / parent->wsum;
+
+  for (j = 0; j < n - 1; j++)
+    given += 1 + rest * uts_childWeight(parent, j) / parent->wsum;
+  return parent->budget - 1 - given;
+}
+#endif
+
+
 int uts_numChildren(Node *parent) {
   int numChildren = 0;
 
@@ -195,6 +281,10 @@ int uts_numChildren(Node *parent) {
     case UTS_BIN:
       if (parent->height == 0)
         numChildren = (int) floor(b_0);
+#ifdef UTSB
+      else if (bin_mx > 0 && parent->height >= bin_mx)
+        numChildren = 0;
+#endif
       else 
         numChildren = uts_numChildren_bin(parent);
       break;
@@ -213,6 +303,11 @@ int uts_numChildren(Node *parent) {
       if (parent->height < gen_mx)
         numChildren = (int) b_0;
       break;
+#ifdef UTSB
+    case UTS_BUDGET:
+      numChildren = uts_numChildren_budget(parent);
+      break;
+#endif
     default:
       uts_error("parTreeSearch(): Unknown tree type");
   }
@@ -252,6 +347,10 @@ int uts_childType(Node *parent) {
         return UTS_BIN;
     case UTS_BALANCED:
       return UTS_BALANCED;
+#ifdef UTSB
+    case UTS_BUDGET:
+      return UTS_BUDGET;
+#endif
     default:
       uts_error("uts_get_childtype(): Unknown tree type");
       return -1;
@@ -280,9 +379,24 @@ int uts_paramsToStr(char *strBuf, int ind) {
     double q = nonLeafProb;
     int    m = nonLeafBF;
     double es  = (1.0 / (1.0 - q * m));
+#ifdef UTSB
+    if (type == UTS_BIN && bin_mx > 0)  // geometric series to depth bin_mx
+      es = (q * m == 1.0) ? bin_mx : (pow(q * m, bin_mx) - 1.0) / (q * m - 1.0);
+#endif
     ind += sprintf(strBuf+ind, "  BIN parameters:  q = %f, m = %d, E(n) = %f, E(s) = %.2f\n",
             q, m, q * m, es);
+#ifdef UTSB
+    if (type == UTS_BIN && bin_mx > 0)
+      ind += sprintf(strBuf+ind, "  BIN maximum depth = %d\n", bin_mx);
+#endif
   }
+
+#ifdef UTSB
+  if (type == UTS_BUDGET) {
+    ind += sprintf(strBuf+ind, "  BUDGET parameters: n = %llu, m = %d, s = %d\n",
+            treeSize, nonLeafBF, splitSpread);
+  }
+#endif
 
   if (type == UTS_HYBRID) {
     ind += sprintf(strBuf+ind, "  HYBRID:  GEO from root to depth %d, then BIN\n", 
@@ -348,7 +462,11 @@ void uts_parseParams(int argc, char *argv[]){
         verbose = atoi(argv[i+1]); break;
       case 't':
         type = (tree_t) atoi(argv[i+1]); 
-        if (type != UTS_BIN && type != UTS_GEO && type!= UTS_HYBRID && type != UTS_BALANCED)
+        if (type != UTS_BIN && type != UTS_GEO && type!= UTS_HYBRID && type != UTS_BALANCED
+#ifdef UTSB
+            && type != UTS_BUDGET
+#endif
+            )
 	  err = i;
         break;
       case 'a':
@@ -358,11 +476,21 @@ void uts_parseParams(int argc, char *argv[]){
       case 'b':
         b_0 = atof(argv[i+1]); break;
       case 'd':
+#ifdef UTSB
+        gen_mx = bin_mx = atoi(argv[i+1]); break;
+#else
         gen_mx = atoi(argv[i+1]); break;
+#endif
       case 'f':
         shiftDepth = atof(argv[i+1]); break;
       case 'g':
         computeGranularity = max(1,atoi(argv[i+1])); break;
+#ifdef UTSB
+      case 'n':
+        treeSize = strtoull(argv[i+1], NULL, 10); break;
+      case 's':
+        splitSpread = atoi(argv[i+1]); break;
+#endif
       default:
         err = i;
     }
@@ -377,6 +505,15 @@ void uts_parseParams(int argc, char *argv[]){
     printf("Try -h for help.\n");
     impl_abort(4);
   }
+
+#ifdef UTSB
+  // the shares (rest * 2^s at most) must fit in 64 bits
+  if (type == UTS_BUDGET && (nonLeafBF < 2 || nonLeafBF > MAXNUMCHILDREN ||
+        splitSpread < 0 || splitSpread > 30 || treeSize < 1 || treeSize >= (1ULL << 34))) {
+    printf("BUDGET trees need 2 <= m <= %d, 0 <= s <= 30 and 1 <= n < 2^34\n", MAXNUMCHILDREN);
+    impl_abort(4);
+  }
+#endif
 }
 
 void uts_helpMessage(void) {
@@ -393,6 +530,13 @@ void uts_helpMessage(void) {
   printf("   -q  dble  BIN: probability of non-leaf node\n");
   printf("   -m  int   BIN: number of children for non-leaf node\n");
   printf("   -f  dble  HYBRID: fraction of depth for GEO -> BIN transition\n");
+#ifdef UTSB
+  printf("   -t  4     BUDGET tree\n");
+  printf("   -d  int   BIN: maximum depth\n");
+  printf("   -m  int   BUDGET: number of children per node\n");
+  printf("   -n  int   BUDGET: number of nodes in the tree\n");
+  printf("   -s  int   BUDGET: child weights 2^U, U uniform on 0..s\n");
+#endif
   printf("   -g  int   compute granularity: number of rng_spawns per node\n");
   printf("   -v  int   nonzero to set verbose output\n");
   printf("   -x  int   debug level\n");

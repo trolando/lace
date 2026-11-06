@@ -238,6 +238,11 @@ T3="-t 0 -b 2000 -q 0.124875 -m 8 -r 42"
 # (T4) Hybrid ------------------ Tree size = 4132453, tree depth = 134, num leaves = 3108986 (75.23%)
 T4="-t 2 -a 0 -d 16 -b 6 -r 1 -q 0.234375 -m 4 -r 1"
 
+# (T6) Budget [utsb] ----------- Tree size = 4000000, tree depth = 34, num leaves = 2549631 (63.74%)
+T6="-t 4 -n 4000000 -m 4 -s 8 -r 7"
+# (T7) Binomial [utsb, -d] ----- Tree size = 4202321, tree depth = 11, num leaves = 3677280 (87.51%)
+T7="-t 0 -b 2000 -q 0.25 -m 8 -d 11 -r 2"
+
 # ====================================
 # Large Workloads (~100 million nodes):
 # ====================================
@@ -248,6 +253,11 @@ T1L="-t 1 -a 3 -d 13 -b 4 -r 29"
 T2L="-t 1 -a 2 -d 23 -b 7 -r 220"
 # (T3L) Binomial --------------- Tree size = 111345631, tree depth = 17844, num leaves = 89076904 (80.00%)
 T3L="-t 0 -b 2000 -q 0.200014 -m 5 -r 7"
+
+# (T6L) Budget [utsb] ---------- Tree size = 100000000, tree depth = 43, num leaves = 63744672 (63.74%)
+T6L="-t 4 -n 100000000 -m 4 -s 8 -r 7"
+# (T7L) Binomial [utsb, -d] ---- Tree size = 134072681, tree depth = 16, num leaves = 117313845 (87.50%)
+T7L="-t 0 -b 2000 -q 0.25 -m 8 -d 16 -r 2"
 
 # ====================================
 # Extra Large (XL) Workloads (~1.6 billion nodes):
@@ -317,6 +327,8 @@ def discover_experiments(W):
         lace("fib", "fib-lace", "46")
         lace("uts-t2l", "uts-lace", *globals().get("T2L", "").split())
         lace("uts-t3l", "uts-lace", *globals().get("T3L", "").split())
+        lace("uts-t6l", "utsb-lace", *globals().get("T6L", "").split())
+        lace("uts-t7l", "utsb-lace", *globals().get("T7L", "").split())
         lace("nqueens", "nqueens-lace", "14")
         lace("matmul", "matmul-lace", "2048")
         lace("cholesky", "cholesky-lace", "4000", "40000")
@@ -340,6 +352,8 @@ def discover_experiments(W):
     seq("fib", "fib-seq", "46")
     seq("uts-t2l", "uts-seq", *globals().get("T2L", "").split())
     seq("uts-t3l", "uts-seq", *globals().get("T3L", "").split())
+    seq("uts-t6l", "utsb-seq", *globals().get("T6L", "").split())
+    seq("uts-t7l", "utsb-seq", *globals().get("T7L", "").split())
     seq("nqueens", "nqueens-seq", "14")
     seq("matmul", "matmul-seq", "2048")
     seq("cholesky", "cholesky-seq", "4000", "40000")

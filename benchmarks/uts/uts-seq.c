@@ -88,6 +88,9 @@ Result parTreeSearch(int depth, Node *parent) {
       child.type = childType;
       child.height = parentHeight + 1;
       child.numChildren = -1;    // not yet determined
+#ifdef UTSB
+      child.budget = (type == UTS_BUDGET) ? uts_childBudget(parent, i) : 0;
+#endif
       for (j = 0; j < computeGranularity; j++) {
         rng_spawn(parent->state.state, child.state.state, i);
       }

@@ -17,7 +17,13 @@ parallelism patterns:
 
 ``uts``
    Unbalanced Tree Search. Highly irregular, unpredictable workload;
-   a standard stress-test for work-stealing schedulers.
+   a standard stress-test for work-stealing schedulers. In T3L the expected
+   work below a node is the same wherever the node is, and the longest path
+   has 17,844 nodes. A second program, ``utsb``, adds budget trees (``-t 4``: exactly ``-n``
+   nodes, split unevenly among ``-m`` children per node, ``-s`` sets how
+   unevenly) and a maximum depth for binomial trees (``-d``): just as
+   irregular, but the work shrinks with depth, as in divide and conquer
+   (T6L and T7L in ``benchmarks/uts/sample_trees.sh``).
 
 ``nqueens``
    N-Queens solver. Spawns one task per candidate position at each row,
