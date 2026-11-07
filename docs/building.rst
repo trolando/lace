@@ -10,7 +10,8 @@ Requirements
 
 Optional dependencies:
 
-* `hwloc <https://www.open-mpi.org/projects/hwloc/>`_ — for NUMA-aware thread pinning
+* `hwloc <https://www.open-mpi.org/projects/hwloc/>`_ — deprecated (``LACE_USE_HWLOC``);
+  Lace pins its workers itself
 
 
 Building from source
@@ -99,8 +100,9 @@ CMake options
        affinity mask the program is given; see `Worker pinning`_.
      - AUTO
    * - ``LACE_USE_HWLOC``
-     - Use the ``hwloc`` library to pin worker threads to CPU cores, instead
-       of the built-in pinning (macOS does not let programs pin threads).
+     - Deprecated, to be removed. Use the ``hwloc`` library to pin worker
+       threads to CPU cores, instead of the built-in pinning (macOS does
+       not let programs pin threads).
      - OFF
    * - ``LACE_BACKOFF``
      - Workers sleep with exponential backoff when no work is available,

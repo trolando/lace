@@ -339,8 +339,9 @@ committed lazily by the kernel on first access. This means:
 On NUMA systems, first-touch policy places pages on the node where
 the accessing thread runs. Since each worker is pinned before
 executing any tasks, its stack and deque pages are allocated locally.
-When hwloc is available, stacks are allocated with
-``hwloc_alloc_membind`` for explicit NUMA binding.
+With the deprecated ``LACE_USE_HWLOC``, stacks are allocated with
+``hwloc_alloc_membind`` for explicit NUMA binding, which was not
+faster than first touch.
 
 Each stack has a guard page (``PROT_NONE`` / ``PAGE_NOACCESS``) at
 the low end. The guard page is excluded from the region passed to

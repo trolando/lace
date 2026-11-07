@@ -30,6 +30,13 @@ All notable changes to Lace will be documented in this file.
 - Lace creates its worker threads as a tree: each worker creates two more, so
   n workers take about log2(n) thread creations instead of n in a row.
 
+### Deprecated
+
+- `LACE_USE_HWLOC`: Lace pins its workers itself on Linux, FreeBSD and
+  Windows, and `lace_start` takes about 50 ms less without hwloc. Binding the
+  memory of the workers to their NUMA node, as hwloc does, was not faster
+  than first touch by the pinned worker.
+
 ### Fixed
 
 - A worker set up its data and deque before Lace pinned it, so first touch

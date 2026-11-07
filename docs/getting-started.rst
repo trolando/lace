@@ -12,7 +12,7 @@ Lace requires:
 
 Optional:
 
-* `hwloc <https://www.open-mpi.org/projects/hwloc/>`_ for NUMA-aware thread pinning
+* `hwloc <https://www.open-mpi.org/projects/hwloc/>`_, deprecated: Lace pins its workers itself
 
 Quick example
 -------------
