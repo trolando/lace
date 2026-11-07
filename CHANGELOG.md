@@ -17,6 +17,16 @@ All notable changes to Lace will be documented in this file.
   release store when the split point moves up. On ARM this removes a full
   barrier from every spawn (fib and nqueens 3-5% faster at 8 workers on an
   M1 Pro); on x86 the code is unchanged.
+- `LACE_NATIVE_OPT` (`-march=native`) is ON by default only when Lace is the
+  top-level project, so programs that include Lace stay portable.
+
+### Fixed
+
+- On MSVC, Lace read the clock with `rdtscp`, which some (virtual) CPUs
+  lack; it now uses `rdtsc`.
+- CMake failed when the build directory was the source directory.
+- The configuration summary was also printed when Lace is a subproject, and
+  its last lines (tests, benchmarks, sanitizers) were never printed.
 
 ## [2.5.0] - 2026-11-05
 
