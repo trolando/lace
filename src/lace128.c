@@ -2221,6 +2221,12 @@ lace_worker_enter(unsigned int worker)
     // A worker counts as busy until it idles in the steal loop, so a thread
     // that runs tasks itself keeps the sentinels awake while it works
     lace_set_idle(lace_thread_worker, 0);
+
+    // Start together: after the barrier, every worker sees all others set up
+    // (lace_init_worker publishes each one in workers[]), without ordering on
+    // every steal. The barrier backs off rather than spin, as on a busy machine
+    // the threads may outnumber the CPUs.
+    lace_barrier();
 }
 
 /**

@@ -15,8 +15,9 @@ Start Lace once, with the number of threads that will join. The threads may
 already run, but each enters only after ``lace_start_external`` has returned,
 for example after a barrier of the program's runtime, or by creating the
 threads afterwards. Each thread enters with its own worker id, from 0 to
-``n - 1``. A thread that only works steals until Lace stops; one thread can
-instead generate the tasks itself:
+``n - 1``, and ``lace_worker_enter`` returns once all ``n`` threads have
+entered: the workers start together. A thread that only works steals until
+Lace stops; one thread can instead generate the tasks itself:
 
 .. code-block:: c
 
@@ -54,8 +55,8 @@ Rules
 -----
 
 * Each worker id is entered by one thread per run, and a thread is at most one
-  worker at a time. ``lace_stop`` waits for all ``n`` workers, so every id must
-  be entered.
+  worker at a time. Every id must be entered: ``lace_worker_enter`` waits for
+  all ``n`` threads, and so does ``lace_stop``.
 * ``lace_worker_leave`` and ``lace_stop`` are never called from inside a task.
   ``lace_stop`` is called by a thread that is not a worker, or that has left.
 * A worker that does not steal, such as worker 0 above, still takes part in

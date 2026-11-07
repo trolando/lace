@@ -401,7 +401,8 @@ void lace_start_external(unsigned int n_workers, size_t dqsize);
 /**
  * Make the calling thread Lace worker @p worker, after lace_start_external
  * has returned (the calling thread must be synchronised with that call, for
- * example by a barrier, or created after it).
+ * example by a barrier, or created after it). Returns once all n_workers
+ * threads have entered: the workers start together.
  *
  * Each worker id from 0 to n_workers-1 is entered by one thread per run. A
  * worker that does not call lace_worker_loop runs tasks directly, for example
