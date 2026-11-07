@@ -2,6 +2,14 @@
 
 All notable changes to Lace will be documented in this file.
 
+## [1.8.1] - 2026-11-07
+
+### Changed
+
+- SPAWN no longer executes a memory fence: the tasks are published by a
+  release store when the split point moves up. On ARM this removes a full
+  barrier from every spawn; on x86 the code is unchanged.
+
 ## [1.8.0] - 2026-11-06
 
 This release backports the scheduling changes of Lace 2.5.0.
