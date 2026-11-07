@@ -3197,7 +3197,7 @@ void lace_stop(void)
 #endif
     idle_flags = NULL;
 
-    free(worker_entered);
+    free((void*)worker_entered); // MSVC: no implicit loss of _Atomic (C4090)
     worker_entered = NULL;
     external_mode = 0;
 
