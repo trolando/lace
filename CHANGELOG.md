@@ -10,6 +10,8 @@ All notable changes to Lace will be documented in this file.
   `lace_worker_leave()` run Lace on the program's own threads, for example
   those of a runtime that creates its threads itself (`test_own_threads`,
   docs: "Your own threads").
+- Lace pins its workers on FreeBSD (13.1 or later) as on Linux, with the CPU
+  topology from the sysctl `kern.sched.topology_spec`.
 
 ### Changed
 

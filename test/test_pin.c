@@ -17,12 +17,15 @@
  * LACE_PIN_CPU, the whole mask for LACE_PIN_OFF, the same set of distinct
  * cores for all workers with LACE_PIN_ALL, a non-empty part of the mask for
  * the group modes, the listed CPU for a pin list. With LACE_USE_HWLOC any
- * mode but off pins to cores, so only the mask and off are checked. Linux only; elsewhere
- * this checks that every mode starts and runs.
+ * mode but off pins to cores, so only the mask and off are checked. Linux and
+ * FreeBSD; elsewhere this checks that every mode starts and runs.
  */
 
-#if defined(__linux__)
+#if defined(__linux__) || defined(__FreeBSD__)
 #include <sched.h>
+#if !defined(CPU_EQUAL) && defined(CPU_CMP)
+#define CPU_EQUAL(a, b) (!CPU_CMP(a, b)) /* FreeBSD before glibc's name */
+#endif
 
 static cpu_set_t process_mask;
 static cpu_set_t *worker_masks;
@@ -33,7 +36,7 @@ TASK(void, record_affinity)
 void record_affinity_CALL(lace_worker* lw)
 {
     (void)lw;
-#if defined(__linux__)
+#if defined(__linux__) || defined(__FreeBSD__)
     CPU_ZERO(&worker_masks[lace_worker_id()]);
     (void)sched_getaffinity(0, sizeof(cpu_set_t), &worker_masks[lace_worker_id()]);
 #endif
@@ -61,7 +64,7 @@ run_mode(const char *name, int mode, const int *list, unsigned int nlist, unsign
     if (list != NULL) lace_set_pin_cpus(list, nlist);
     else lace_set_pinning((lace_pin_mode)mode);
     lace_start(n, 0, 0);
-#if defined(__linux__)
+#if defined(__linux__) || defined(__FreeBSD__)
     worker_masks = calloc(n, sizeof(cpu_set_t));
     record_affinity_TOGETHER();
 #endif
@@ -69,7 +72,7 @@ run_mode(const char *name, int mode, const int *list, unsigned int nlist, unsign
     lace_stop();
     lace_set_pin_cpus(NULL, 0);
     CHECK(r == 6765, "fib(20) = %d", r);
-#if defined(__linux__)
+#if defined(__linux__) || defined(__FreeBSD__)
     cpu_set_t seen;
     CPU_ZERO(&seen);
     for (unsigned int w = 0; w < n; w++) {
@@ -106,7 +109,7 @@ main(void)
 
     unsigned int n = 2;
     int first_cpu = 0;
-#if defined(__linux__)
+#if defined(__linux__) || defined(__FreeBSD__)
     if (sched_getaffinity(0, sizeof(process_mask), &process_mask) != 0) {
         perror("sched_getaffinity");
         return 1;
