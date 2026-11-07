@@ -2,6 +2,14 @@
 
 All notable changes to Lace will be documented in this file.
 
+## [Unreleased]
+
+### Removed
+
+- `LACE_USE_HWLOC` and the hwloc code, deprecated in 2.6.0: Lace pins its
+  workers itself on Linux, FreeBSD and Windows. CMake warns when the option
+  is still set, and ignores it.
+
 ## [2.6.0] - 2026-11-07
 
 ### Added

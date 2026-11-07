@@ -337,11 +337,12 @@ committed lazily by the kernel on first access. This means:
   actual call depth, not the reserved size.
 
 On NUMA systems, first-touch policy places pages on the node where
-the accessing thread runs. Since each worker is pinned before
-executing any tasks, its stack and deque pages are allocated locally.
-With the deprecated ``LACE_USE_HWLOC``, stacks are allocated with
-``hwloc_alloc_membind`` for explicit NUMA binding, which was not
-faster than first touch.
+the accessing thread runs. Since each worker pins itself before it
+touches its memory, its data, deque and stack pages are allocated
+locally, except the top of its stack, where ``pthread_create`` writes
+the thread descriptor and the TLS from the creating thread
+(``test_numa`` checks this). Binding the memory to the node explicitly
+(``mbind``) was not faster than first touch.
 
 Each stack has a guard page (``PROT_NONE`` / ``PAGE_NOACCESS``) at
 the low end. The guard page is excluded from the region passed to
@@ -367,7 +368,7 @@ Pages that a deep computation touched stay resident until ``lace_stop``.
 worker, at its next idle moment, releases its stack below the idle loop,
 its deque past the first page, and its scratch arena past the first band
 (on Windows only the scratch arena). On Linux this is ``madvise`` with
-``MADV_DONTNEED``, which keeps the mapping and any hwloc binding; on other
+``MADV_DONTNEED``, which keeps the mapping; on other
 systems ``madvise`` only marks pages for lazy reclaim (macOS keeps them
 resident), so a fresh anonymous mapping replaces the range. Lace does not
 do this by itself when workers go to sleep (it does trim the scratch arena

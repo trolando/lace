@@ -122,18 +122,7 @@
 
 #include <stdatomic.h>
 
-#if LACE_USE_HWLOC
-    #include <hwloc.h>
-
-    /**
-     * HWLOC information
-     */
-    static hwloc_topology_t topo;
-    static hwloc_cpuset_t* cpusets;
-    static unsigned int n_nodes, n_cores, n_pus;
-#else
-    static unsigned int n_pus;
-#endif
+static unsigned int n_pus;
 
 #if !defined(_WIN32)
     #include <sys/mman.h>
@@ -427,7 +416,7 @@ static inline void lace_cpu_yield(void)
 /**
  * Worker thread program stacks
  */
-#if LACE_USE_HWLOC || (!defined(_WIN32) && !defined(__FreeBSD__))
+#if !defined(_WIN32) && !defined(__FreeBSD__)
     static void** worker_stacks = NULL;
     static size_t worker_stack_size = 0;
     static size_t worker_stack_page_size = 0;
@@ -513,23 +502,9 @@ lace_set_pin_cpus(const int *cpus, unsigned int n)
     pin_api_mode = 8; // LACE_PIN_LIST_
 }
 
-#if LACE_USE_HWLOC
-/* With hwloc, the mode (lace_set_pinning, else LACE_PIN, else LACE_DEFAULT_PIN)
- * only chooses whether to pin: off does not, any other mode pins to cores */
-static int hwloc_pin = 1;
 
-static int
-lace_hwloc_pins(void)
-{
-    if (pin_api_mode >= 0) return pin_api_mode != LACE_PIN_OFF;
-    const char *pe = getenv("LACE_PIN");
-    if (pe != NULL && *pe != '\0') return strcmp(pe, "off") != 0;
-    return !external_mode && LACE_DEFAULT_PIN != LACE_PIN_OFF;
-}
-#endif
-
-/* Lace's own pinning: Linux, FreeBSD and Windows (not with hwloc) */
-#if (defined(__linux__) || defined(__FreeBSD__) || defined(_WIN32)) && !LACE_USE_HWLOC
+/* Lace's own pinning: Linux, FreeBSD and Windows (macOS does not pin) */
+#if defined(__linux__) || defined(__FreeBSD__) || defined(_WIN32)
 #define LACE_PIN_BUILTIN 1
 #else
 #define LACE_PIN_BUILTIN 0
@@ -537,7 +512,7 @@ lace_hwloc_pins(void)
 
 #if LACE_PIN_BUILTIN
 /**
- * Pinning without hwloc (Linux, FreeBSD, Windows), within the affinity mask of
+ * Pinning (Linux, FreeBSD, Windows), within the affinity mask of
  * the thread that calls lace_start (taskset, cgroups, SLURM). The modes are
  * lace_pin_mode (lace128.h): what each worker may run on, from one hardware
  * thread to a NUMA node; lace_set_pinning() or else LACE_PIN in the
@@ -1481,97 +1456,6 @@ lace_barrier_destroy(void)
     }
 }
 
-/**
- * For debugging purposes, check if memory is allocated on the correct memory nodes.
- */
-static void LACE_UNUSED
-lace_check_memory(void)
-{
-#if LACE_USE_HWLOC
-    // get our current worker
-    lace_worker *w = lace_get_worker();
-    void* mem = workers_memory[w->worker];
-
-    // get pinned PUs
-    hwloc_cpuset_t cpuset = hwloc_bitmap_alloc();
-    hwloc_get_cpubind(topo, cpuset, HWLOC_CPUBIND_THREAD);
-
-    // get nodes of pinned PUs
-    hwloc_nodeset_t cpunodes = hwloc_bitmap_alloc();
-    hwloc_cpuset_to_nodeset(topo, cpuset, cpunodes);
-
-    // get location of memory
-    hwloc_nodeset_t memlocation = hwloc_bitmap_alloc();
-    hwloc_get_area_memlocation(topo, mem, sizeof(worker_data), memlocation, HWLOC_MEMBIND_BYNODESET);
-
-    // check if CPU and node are on the same place
-    if (!hwloc_bitmap_isincluded(memlocation, cpunodes)) {
-        fprintf(stdout, "Lace warning: Lace thread not on same memory domain as data!\n");
-
-        char *strp, *strp2, *strp3;
-        hwloc_bitmap_list_asprintf(&strp, cpuset);
-        hwloc_bitmap_list_asprintf(&strp2, cpunodes);
-        hwloc_bitmap_list_asprintf(&strp3, memlocation);
-        fprintf(stdout, "Worker %d is pinned on PUs %s, node %s; memory is pinned on node %s\n", w->worker, strp, strp2, strp3);
-        free(strp);
-        free(strp2);
-        free(strp3);
-    }
-
-    // free allocated memory
-    hwloc_bitmap_free(cpuset);
-    hwloc_bitmap_free(cpunodes);
-    hwloc_bitmap_free(memlocation);
-#endif
-}
-
-#if LACE_USE_HWLOC
-/* The binding of a program thread before it became a worker (lace_start_external) */
-static LACE_TLS hwloc_bitmap_t lace_saved_cpubind = NULL;
-#endif
-
-static void
-lace_pin_worker(void)
-{
-#if LACE_USE_HWLOC
-    if (!hwloc_pin) return;
-
-    // Get the worker id
-    unsigned int worker = lace_get_worker()->worker;
-
-    if (external_mode && lace_saved_cpubind == NULL) {
-        lace_saved_cpubind = hwloc_bitmap_alloc();
-        if (lace_saved_cpubind != NULL) (void)hwloc_get_cpubind(topo, lace_saved_cpubind, HWLOC_CPUBIND_THREAD);
-    }
-
-    // Pin the thread and bind its memory to its NUMA node, where the system
-    // supports it (macOS does neither); report a failure once
-    static atomic_int warned_cpubind = 0, warned_membind = 0;
-    const struct hwloc_topology_support *support = hwloc_topology_get_support(topo);
-
-    if (support->cpubind->set_thisthread_cpubind &&
-        hwloc_set_cpubind(topo, cpusets[worker], HWLOC_CPUBIND_THREAD) != 0 &&
-        atomic_exchange(&warned_cpubind, 1) == 0) {
-        fprintf(stderr, "Lace warning: hwloc could not pin worker %u (%s); workers may run unpinned\n",
-            worker, strerror(errno));
-    }
-
-    if (support->membind->set_area_membind && support->membind->migrate_membind) {
-        hwloc_bitmap_t nodeset = hwloc_bitmap_alloc();
-        hwloc_cpuset_to_nodeset(topo, cpusets[worker], nodeset);
-        if (hwloc_set_area_membind(topo, workers_memory[worker], workers_memory_size, nodeset, HWLOC_MEMBIND_BIND, HWLOC_MEMBIND_STRICT | HWLOC_MEMBIND_MIGRATE | HWLOC_MEMBIND_BYNODESET) != 0 &&
-            atomic_exchange(&warned_membind, 1) == 0) {
-            fprintf(stderr, "Lace warning: hwloc could not bind the memory of worker %u to its NUMA node (%s)\n",
-                worker, strerror(errno));
-        }
-        hwloc_bitmap_free(nodeset);
-    }
-
-    // Check if everything is on the correct node
-    lace_check_memory();
-#endif
-}
-
 static inline uint64_t lace_splitmix64(uint64_t* x)
 {
     uint64_t z = (*x += 0x9e3779b97f4a7c15ULL);
@@ -2105,10 +1989,10 @@ void lace_steal_random(lace_worker *_lace_worker)
 /**
  * Release the physical pages in [from, to), rounded inward to whole pages;
  * touching a page again faults in a fresh zero page. Linux frees at once
- * with MADV_DONTNEED and keeps the mapping, including an hwloc NUMA binding.
- * Elsewhere madvise only marks pages for lazy reclaim (macOS keeps them
- * resident), so a fresh anonymous mapping replaces the range; without the
- * binding, first touch by the pinned worker places pages on its node.
+ * with MADV_DONTNEED and keeps the mapping. Elsewhere madvise only marks
+ * pages for lazy reclaim (macOS keeps them resident), so a fresh anonymous
+ * mapping replaces the range; first touch by the pinned worker places the
+ * pages on its node.
  */
 static void
 lace_release_pages(uintptr_t from, uintptr_t to)
@@ -2139,7 +2023,7 @@ static LACE_NOINLINE void
 lace_release_worker_memory(lace_worker *lw)
 {
 #if !defined(_WIN32)
-#if LACE_USE_HWLOC || !defined(__FreeBSD__)
+#if !defined(__FreeBSD__)
     if (worker_stacks != NULL && worker_stacks[lw->worker] != NULL) {
         /* The frame address, not that of a local: AddressSanitizer may keep
          * locals on a fake stack of its own (detect_stack_use_after_return).
@@ -2542,9 +2426,6 @@ lace_worker_enter(unsigned int worker)
 
     // Initialize data structures
     lace_init_worker(worker);
-
-    // hwloc pins after the worker data exists, and moves that data to the node
-    lace_pin_worker();
 #if defined(__linux__)
     // A sentinel naps for microseconds; the default timer slack is 50 us
     if (external_mode) lace_saved_slack = prctl(PR_GET_TIMERSLACK, 0UL, 0UL, 0UL, 0UL);
@@ -2600,13 +2481,7 @@ lace_worker_leave(void)
     lace_set_idle(lw, 1);
 
     // Give a program thread its affinity and timer slack back
-#if LACE_USE_HWLOC
-    if (lace_saved_cpubind != NULL) {
-        (void)hwloc_set_cpubind(topo, lace_saved_cpubind, HWLOC_CPUBIND_THREAD);
-        hwloc_bitmap_free(lace_saved_cpubind);
-        lace_saved_cpubind = NULL;
-    }
-#elif LACE_PIN_BUILTIN
+#if LACE_PIN_BUILTIN
     if (lace_saved_mask_set) {
         lace_restore_affinity(&lace_saved_mask);
         lace_saved_mask_set = 0;
@@ -2644,7 +2519,7 @@ lace_spawn_worker(unsigned int i)
         fprintf(stderr, "Lace error: unable to initialize thread attributes!\n");
         exit(1);
     }
-#if LACE_USE_HWLOC || (!defined(_WIN32) && !defined(__FreeBSD__))
+#if !defined(_WIN32) && !defined(__FreeBSD__)
     if (pthread_attr_setstack(&attr, (char*)worker_stacks[i] + worker_stack_page_size,
                               worker_stack_size - worker_stack_page_size) != 0) {
         fprintf(stderr, "Lace error: unable to set stack for worker %u: %s\n", i, strerror(errno));
@@ -2784,7 +2659,7 @@ lace_default_stack_size(void)
 #endif
 }
 
-#if LACE_USE_HWLOC || (!defined(_WIN32) && !defined(__FreeBSD__))
+#if !defined(_WIN32) && !defined(__FreeBSD__)
 /**
  * Free the first @p count worker stacks.
  */
@@ -2792,11 +2667,7 @@ static void
 lace_free_stacks(unsigned int count)
 {
     for (unsigned int i = 0; i < count; i++) {
-#if LACE_USE_HWLOC
-        hwloc_free(topo, worker_stacks[i], worker_stack_size);
-#else
         munmap(worker_stacks[i], worker_stack_size);
-#endif
         worker_stacks[i] = NULL;
     }
 }
@@ -2816,8 +2687,8 @@ lace_alloc_stacks_failed(unsigned int count)
 
 /**
  * Reserve a stack of @p stacksize bytes (rounded up to the page size) plus a
- * guard page at the low end for every worker. With hwloc the pages are bound
- * to the worker's NUMA node; otherwise first-touch places them after pinning.
+ * guard page at the low end for every worker. First touch places the pages
+ * on the worker's NUMA node after pinning.
  * Nothing is committed until touched. Returns 0, or -1 with errno set and no
  * stacks left allocated.
  */
@@ -2831,17 +2702,9 @@ lace_alloc_stacks(size_t stacksize)
     worker_stack_page_size = page_size;
 
     for (unsigned int i = 0; i < n_workers; i++) {
-#if LACE_USE_HWLOC
-        hwloc_bitmap_t nodeset = hwloc_bitmap_alloc();
-        hwloc_cpuset_to_nodeset(topo, cpusets[i], nodeset);
-        void* stack = hwloc_alloc_membind(topo, worker_stack_size, nodeset,
-            HWLOC_MEMBIND_BIND, HWLOC_MEMBIND_BYNODESET);
-        hwloc_bitmap_free(nodeset);
-#else
         void* stack = mmap(NULL, worker_stack_size, PROT_READ | PROT_WRITE,
             MAP_PRIVATE | MAP_ANONYMOUS | MAP_NORESERVE, -1, 0);
         if (stack == MAP_FAILED) stack = NULL;
-#endif
         if (stack == NULL) return lace_alloc_stacks_failed(i);
         worker_stacks[i] = stack;
 
@@ -2876,30 +2739,7 @@ lace_setup(unsigned int _n_workers, size_t dequesize, int external)
     /* Cache the OS page size for scratch-arena commit/decommit. */
     lace_scratch_init_page_size();
 
-#if LACE_USE_HWLOC
-    // Initialize topology and information about cpus, restricted to the CPUs
-    // the process may run on (taskset, cgroups, SLURM)
-    hwloc_topology_init(&topo);
-    hwloc_topology_load(topo);
-    hwloc_cpuset_t allowed = hwloc_bitmap_alloc();
-    if (allowed && hwloc_get_cpubind(topo, allowed, HWLOC_CPUBIND_PROCESS) == 0
-        && hwloc_topology_restrict(topo, allowed, 0) != 0 && errno == ENOMEM) {
-        hwloc_topology_load(topo); // the failed restrict reset the topology
-    }
-    if (allowed) hwloc_bitmap_free(allowed);
-
-    n_nodes = (unsigned int)hwloc_get_nbobjs_by_type(topo, HWLOC_OBJ_NODE);
-    n_cores = (unsigned int)hwloc_get_nbobjs_by_type(topo, HWLOC_OBJ_CORE);
-    n_pus = (unsigned int)hwloc_get_nbobjs_by_type(topo, HWLOC_OBJ_PU);
-
-    hwloc_pin = lace_hwloc_pins();
-    static int told_no_pinning = 0;
-    if (hwloc_pin && !hwloc_topology_get_support(topo)->cpubind->set_thisthread_cpubind && !told_no_pinning) {
-        told_no_pinning = 1;
-        fprintf(stderr, "Lace warning: hwloc cannot pin threads on this system; the workers are not pinned\n");
-    }
-
-#elif defined(_WIN32)
+#if defined(_WIN32)
     DWORD_PTR processMask = 0, systemMask = 0;
     if (GetProcessAffinityMask(GetCurrentProcess(), &processMask, &systemMask) && processMask) {
         unsigned count = 0;
@@ -2955,50 +2795,6 @@ lace_setup(unsigned int _n_workers, size_t dequesize, int external)
     atomic_store_explicit(&release_gen, 0, memory_order_relaxed);
     atomic_store_explicit(&release_done, 0, memory_order_relaxed);
 
-#if LACE_USE_HWLOC
-    // Distribute workers over cores.
-    // It tries to first use all cores, before using multiple PUs per core, avoiding hyperthreading.
-    cpusets = malloc(n_workers * sizeof(*cpusets));
-    // one way of doing this is just with hwloc_distrib, but this is suboptimal
-    // for (int i=0; i<n_workers; i++) cpusets[i] = hwloc_bitmap_alloc();
-    // hwloc_obj_t root = hwloc_get_root_obj(topo);
-    // hwloc_distrib(topo, &root, 1, cpusets, n_workers, INT_MAX, 0);
-
-    {
-        unsigned int i=0;
-        hwloc_obj_t cores[n_cores];
-        {
-            hwloc_obj_t core = NULL;
-            while ((core = hwloc_get_next_obj_by_type(topo, HWLOC_OBJ_CORE, core)) != NULL) cores[i++] = core;
-        }
-
-        i = 0;
-        unsigned int j=0, k=0;
-        // i is index of worker, j is index of cpu, k is how many PUs per core we have used
-        while (i < n_workers) {
-            if (j < n_cores && k < (unsigned)hwloc_bitmap_weight(cores[j]->cpuset)) {
-                cpusets[i] = cores[j]->cpuset;
-                // grab the kth in cpuset
-                // turns out this is slightly slower than just pinning to all threads
-                // int idx = hwloc_bitmap_first(cores[j]->cpuset);
-                // for (int kk=1; kk<k; kk++) idx = hwloc_bitmap_next(cores[j]->cpuset, idx);
-                // hwloc_obj_t pu = hwloc_get_pu_obj_by_os_index(topo, idx);
-                // cpusets[i] = pu->cpuset;
-                i++;
-                j++;
-            } else {
-                k++;
-                for (j=0; j<n_cores; j++) {
-                    if (k < (unsigned)hwloc_bitmap_weight(cores[j]->cpuset)) break;
-                }
-                if (j == n_cores) {
-                    j = 0;
-                    k = 0;
-                }
-            }
-        }
-    }
-#endif
 
     // Initialize Lace barrier
     lace_barrier_init();
@@ -3081,27 +2877,7 @@ lace_setup(unsigned int _n_workers, size_t dequesize, int external)
     }
 
     if (verbosity) {
-#if LACE_USE_HWLOC
-        fprintf(stdout, "Lace startup: %u nodes, %u cores, %u logical processors, %d workers.\n", n_nodes, n_cores, n_pus, n_workers);
-        // Print resulting CPU sets
-        if (verbosity != 0) {
-            for (unsigned int m = 0; m < n_workers; ++m) {
-                int id;
-                hwloc_bitmap_foreach_begin(id, cpusets[m]);
-                hwloc_obj_t pu = hwloc_get_pu_obj_by_os_index(topo, (unsigned int)id);
-                // find the core
-                if (pu != 0) {
-                    hwloc_obj_t core = hwloc_get_ancestor_obj_by_type(topo, HWLOC_OBJ_CORE, pu);
-                    if (core != 0) {
-                        printf("Lace startup: will pin worker thread %u to pu %u (on core %u)\n", m, pu->logical_index, core->logical_index);
-                    }
-                }
-                hwloc_bitmap_foreach_end();
-            }
-        }
-#else
         fprintf(stdout, "Lace startup: %u available cores, %u workers.\n", n_pus, n_workers);
-#endif
     }
 
     // Prepare lace_init structure
@@ -3137,18 +2913,17 @@ lace_setup(unsigned int _n_workers, size_t dequesize, int external)
  *
  * **Stack allocation.** Worker thread stacks are allocated explicitly
  * rather than by pthreads, with a guard page at the low end to catch
- * stack overflow. On Unix without hwloc, stacks are allocated with
+ * stack overflow. On Unix (not FreeBSD), stacks are allocated with
  * mmap and MAP_NORESERVE; the kernel's first-touch policy places
- * physical pages on the NUMA node where the worker thread runs. When
- * LACE_USE_HWLOC is enabled, stacks are allocated with
- * hwloc_alloc_membind, which binds pages to the correct NUMA node at
- * allocation time. On Windows without hwloc, the OS manages stacks.
- * The @p stacksize parameter is rounded up to the system page size.
+ * physical pages on the NUMA node where the worker thread runs, except
+ * the top page or two, where pthread_create puts the thread descriptor
+ * and the TLS from the thread that creates the worker. On Windows and
+ * FreeBSD, the system allocates the stacks. The @p stacksize parameter
+ * is rounded up to the system page size.
  *
- * **Thread pinning.** When LACE_USE_HWLOC is enabled, each worker
- * thread is pinned to a CPU core. Workers are distributed across
- * physical cores first (avoiding hyperthreading) before assigning
- * multiple workers to the same core.
+ * **Thread pinning.** Each worker pins itself before it touches its
+ * memory, as lace_set_pinning() or LACE_PIN choose (by default
+ * LACE_PIN_AUTO, see lace_set_pinning).
  *
  * @param n_workers  Number of worker threads. Pass 0 to auto-detect
  *                   available cores (respects process affinity masks).
@@ -3182,10 +2957,9 @@ lace_start(unsigned int _n_workers, size_t dequesize, size_t stacksize)
     if (stacksize > ((size_t)1 << 31)) stacksize = (size_t)1 << 31;
 #else
 
-#if LACE_USE_HWLOC || (!defined(_WIN32) && !defined(__FreeBSD__))
-    // Allocate the stacks ourselves: with hwloc bound to the worker's NUMA
-    // node, otherwise with mmap so first-touch places pages on the right node
-    // after pinning.
+#if !defined(_WIN32) && !defined(__FreeBSD__)
+    // Allocate the stacks ourselves, with mmap, so that first touch places
+    // the pages on the worker's node after pinning.
     worker_stacks = malloc(n_workers * sizeof(void*));
     if (worker_stacks == NULL) {
         fprintf(stderr, "Lace error: unable to allocate stack pointer array!\n");
@@ -3252,7 +3026,7 @@ int lace_is_running(void)
 static uint64_t ctr_all[CTR_MAX];
 #endif
 
-#if LACE_COUNT_EVENTS && !defined(_WIN32) && (LACE_USE_HWLOC || !defined(__FreeBSD__))
+#if LACE_COUNT_EVENTS && !defined(_WIN32) && !defined(__FreeBSD__)
 #define LACE_STACK_HIGH_WATER 1
 /**
  * How much of worker @p i's stack has been touched since lace_start: from the
@@ -3486,7 +3260,7 @@ void lace_stop(void)
     lace_count_report_file(stdout);
 #endif
 
-#if LACE_USE_HWLOC || (!defined(_WIN32) && !defined(__FreeBSD__))
+#if !defined(_WIN32) && !defined(__FreeBSD__)
     if (worker_stacks != NULL) {
         lace_free_stacks(n_workers);
         free(worker_stacks);

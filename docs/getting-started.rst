@@ -10,10 +10,6 @@ Lace requires:
 * CMake 3.15 or newer
 * POSIX threads (pthreads) on Linux/macOS, or Windows threads on Windows
 
-Optional:
-
-* `hwloc <https://www.open-mpi.org/projects/hwloc/>`_, deprecated: Lace pins its workers itself
-
 Quick example
 -------------
 

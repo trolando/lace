@@ -8,11 +8,6 @@ Requirements
 * CMake 3.15 or newer
 * POSIX threads (pthreads) on Linux/macOS, or Windows threads on Windows
 
-Optional dependencies:
-
-* `hwloc <https://www.open-mpi.org/projects/hwloc/>`_ — deprecated (``LACE_USE_HWLOC``);
-  Lace pins its workers itself
-
 
 Building from source
 --------------------
@@ -99,11 +94,6 @@ CMake options
        ``CPU``, ``CORE``, ``L2``, ``L3``, ``NUMA`` or ``ALL``, within the
        affinity mask the program is given; see `Worker pinning`_.
      - AUTO
-   * - ``LACE_USE_HWLOC``
-     - Deprecated, to be removed. Use the ``hwloc`` library to pin worker
-       threads to CPU cores, instead of the built-in pinning (macOS does
-       not let programs pin threads).
-     - OFF
    * - ``LACE_BACKOFF``
      - Workers sleep with exponential backoff when no work is available,
        reducing CPU usage without affecting throughput.
@@ -272,8 +262,7 @@ A program chooses the mode with ``lace_set_pinning()``, or pins worker *i* to
 If the program does not choose, the environment variable ``LACE_PIN`` does:
 ``off``, ``auto``, ``cpu``, ``core``, ``l2``, ``l3``, ``numa``, ``all``, or a
 CPU list such as ``list:0,2,4-7``. ``LACE_PIN_PRINT=1`` prints the CPUs of every
-worker. On other systems these calls have no effect; with ``LACE_USE_HWLOC``,
-hwloc pins every worker to a core unless the mode is ``off``.
+worker. On other systems (macOS) these calls have no effect.
 
 With ``lace_start_external`` (:doc:`threads`), Lace pins the program's threads
 only when the program chooses a mode or ``LACE_PIN`` is set; the default mode

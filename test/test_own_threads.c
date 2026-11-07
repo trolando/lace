@@ -133,11 +133,9 @@ host_thread(int k)
         cpu_set_t both;
         CPU_AND(&both, &during, &before);
         CHECK(CPU_EQUAL(&both, &during), "worker %d was pinned outside its mask", id);
-#if !LACE_USE_HWLOC
         if (CPU_COUNT(&before) >= N) {
             CHECK(CPU_COUNT(&during) == 1, "worker %d may run on %d CPUs, expected 1", id, CPU_COUNT(&during));
         }
-#endif
     }
 #endif
 }
