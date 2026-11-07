@@ -4,6 +4,12 @@ All notable changes to Lace will be documented in this file.
 
 ## [Unreleased]
 
+### Changed
+
+- `lace_start` reads the CPU topology for pinning once per process, and fewer
+  files (one per core and one per package instead of two per CPU): on Linux
+  machines with many CPUs a start took 1-3 ms, mostly reading sysfs.
+
 ### Fixed
 
 - A worker set up its data and deque before Lace pinned it, so first touch

@@ -91,6 +91,7 @@
 #else
 #include <sched.h>
 #include <unistd.h>
+#include <fcntl.h>
 #include <pthread.h>
 
 #if defined(_WIN32)
@@ -545,26 +546,32 @@ static int pin_mode = 0;
 static cpu_set_t *pin_sets = NULL; // per worker: the CPUs it may run on
 
 /* The first number in a sysfs file, or dflt if unknown */
+/* A small sysfs file into buf, NUL-terminated, without trailing whitespace:
+ * its length, or -1 (also if it does not fit). A plain open and read: fopen
+ * also allocates a buffer and calls fstat. */
+static int
+lace_sysfs_read(const char *path, char *buf, int size)
+{
+    int fd = open(path, O_RDONLY | O_CLOEXEC);
+    if (fd < 0) return -1;
+    ssize_t r = read(fd, buf, (size_t)size - 1);
+    close(fd);
+    if (r < 0 || r >= size - 1) return -1;
+    while (r > 0 && (buf[r - 1] == '\n' || buf[r - 1] == ' ')) r--;
+    buf[r] = '\0';
+    return (int)r;
+}
+
+/* The first number in a sysfs file, or dflt if unknown */
 static int
 lace_sysfs_int(const char *path, int dflt)
 {
-    FILE *f = fopen(path, "r");
-    int v = dflt;
-    if (f != NULL) {
-        if (fscanf(f, "%d", &v) != 1) v = dflt;
-        fclose(f);
-    }
-    return v;
+    char buf[64], *end;
+    if (lace_sysfs_read(path, buf, (int)sizeof(buf)) <= 0) return dflt;
+    long v = strtol(buf, &end, 10);
+    return end == buf ? dflt : (int)v;
 }
 
-/* The first number in the sysfs topology file of cpu, or dflt if unknown */
-static int
-lace_topology(int cpu, const char *file, int dflt)
-{
-    char path[128];
-    snprintf(path, sizeof(path), "/sys/devices/system/cpu/cpu%d/topology/%s", cpu, file);
-    return lace_sysfs_int(path, dflt);
-}
 
 /* The lowest CPU that shares the unified cache of this level with cpu, or dflt if unknown */
 static int
@@ -576,12 +583,8 @@ lace_cache_of(int cpu, int level, int dflt)
         if (lace_sysfs_int(path, -1) == level) {
             /* not the instruction cache of that level */
             snprintf(path, sizeof(path), "/sys/devices/system/cpu/cpu%d/cache/index%d/type", cpu, i);
-            FILE *f = fopen(path, "r");
-            char type[16] = "";
-            if (f != NULL) {
-                if (fscanf(f, "%15s", type) != 1) type[0] = '\0';
-                fclose(f);
-            }
+            char type[16];
+            if (lace_sysfs_read(path, type, (int)sizeof(type)) < 0) type[0] = '\0';
             if (strcmp(type, "Instruction") == 0) continue;
             snprintf(path, sizeof(path), "/sys/devices/system/cpu/cpu%d/cache/index%d/shared_cpu_list", cpu, i);
             return lace_sysfs_int(path, dflt);
@@ -623,6 +626,37 @@ lace_parse_cpulist(const char *s, int *cpus, int max)
         else if (*s != '\0') return -1;
     }
     return n;
+}
+
+/*
+ * The core and the package of every CPU, as keys: the lowest CPU of its
+ * hardware threads, and of its package. Read from sysfs at most once per
+ * process, as the topology does not change while a program runs; reading two
+ * files per CPU at every lace_start took most of its time. One sibling list
+ * covers all CPUs in it. 0 means not read yet, else the key + 1.
+ */
+static int lace_cpu_core[CPU_SETSIZE];
+static int lace_cpu_pkg[CPU_SETSIZE];
+
+/* Read the CPU list file of cpu (the first of files that exists) and set
+ * key[c] for each CPU c in it; dflt for cpu if no file is readable */
+static void
+lace_read_cpu_group(int cpu, const char *file, const char *file2, int dflt, int *key)
+{
+    char path[128], buf[4096];
+    int cpus[CPU_SETSIZE], n = -1;
+    for (int k = 0; k < 2 && n <= 0; k++) {
+        snprintf(path, sizeof(path), "/sys/devices/system/cpu/cpu%d/topology/%s", cpu, k == 0 ? file : file2);
+        if (lace_sysfs_read(path, buf, (int)sizeof(buf)) > 0) n = lace_parse_cpulist(buf, cpus, CPU_SETSIZE);
+    }
+    int low = dflt;
+    if (n > 0) {
+        low = cpus[0];
+        for (int i = 1; i < n; i++) if (cpus[i] < low) low = cpus[i];
+        if (low < 0 || low > cpu) low = cpu;
+        for (int i = 0; i < n; i++) if (cpus[i] >= 0 && cpus[i] < CPU_SETSIZE) key[cpus[i]] = low + 1;
+    }
+    if (key[cpu] == 0) key[cpu] = low + 1;
 }
 
 #define LACE_PIN_LIST_ 8 /* internal mode: worker i on the i-th CPU of a list */
@@ -678,12 +712,23 @@ lace_pin_setup(void)
     for (unsigned c = 0; c < (unsigned)CPU_SETSIZE && m < n; c++) {
         if (CPU_ISSET(c, &mask)) {
             in[m] = (int)c;
-            core[m] = lace_topology((int)c, "thread_siblings_list", (int)c);
-            pkg[m] = lace_topology((int)c, "physical_package_id", 0);
-            if (pkg[m] < 0 || pkg[m] > 4095) pkg[m] = 0;
-            if (pkg[m] > maxpkg) maxpkg = pkg[m];
+            if (lace_cpu_core[c] == 0) lace_read_cpu_group((int)c, "thread_siblings_list", "core_cpus_list", (int)c, lace_cpu_core);
+            if (lace_cpu_pkg[c] == 0) lace_read_cpu_group((int)c, "package_cpus_list", "core_siblings_list", 0, lace_cpu_pkg);
+            core[m] = lace_cpu_core[c] - 1;
+            pkg[m] = lace_cpu_pkg[c] - 1;
             m++;
         }
+    }
+    // Number the packages 0, 1, ... in the order of their keys
+    {
+        int *rank = calloc(CPU_SETSIZE, sizeof(int));
+        if (rank == NULL) { free(cpus); goto done; }
+        for (int i = 0; i < m; i++) rank[pkg[i]] = 1;
+        int np = 0;
+        for (int k = 0; k < CPU_SETSIZE; k++) if (rank[k]) rank[k] = ++np;
+        for (int i = 0; i < m; i++) pkg[i] = rank[pkg[i]] - 1;
+        maxpkg = np - 1;
+        free(rank);
     }
     // First the first CPU of every core, then the others; both by package, then in mask order
     int ncpus = 0;
@@ -720,14 +765,14 @@ lace_pin_setup(void)
         } else if (pin_mode == LACE_PIN_CORE) {
             // Worker w: the hardware threads (in the mask) of the w-th core
             for (unsigned w = 0; w < n_workers; w++) {
-                const int key = lace_topology(cpus[w], "thread_siblings_list", cpus[w]);
+                const int key = lace_cpu_core[cpus[w]] - 1;
                 for (int i = 0; i < m; i++) if (core[i] == key) CPU_SET((size_t)in[i], &pin_sets[w]);
             }
         } else {
             /* Groups of cores (in pin order): the L2, the L3 or the NUMA node of each */
             int *grp = in; // reuse: the group key of cpus[c]
             for (int c = 0; c < ncores; c++) {
-                const int pk = lace_topology(cpus[c], "physical_package_id", 0);
+                const int pk = lace_cpu_pkg[cpus[c]] - 1;
                 grp[c] = pin_mode == LACE_PIN_L3 ? lace_cache_of(cpus[c], 3, pk)
                        : pin_mode == LACE_PIN_L2 ? lace_cache_of(cpus[c], 2, cpus[c])
                        : lace_node_of(cpus[c], 0);
