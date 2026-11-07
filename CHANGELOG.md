@@ -4,6 +4,14 @@ All notable changes to Lace will be documented in this file.
 
 ## [Unreleased]
 
+### Added
+
+- Lace pins its workers on FreeBSD (13.1 or later) as on Linux, with the CPU
+  topology from the sysctl `kern.sched.topology_spec`.
+- Lace pins its workers on Windows, within the processor group of the thread
+  that calls `lace_start`, with the topology from
+  `GetLogicalProcessorInformationEx`.
+
 ### Changed
 
 - `lace_start` reads the CPU topology for pinning once per process, and fewer

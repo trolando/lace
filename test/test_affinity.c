@@ -14,10 +14,10 @@
  * affinity mask of two CPUs (as taskset, cgroups and SLURM set), at most two
  * workers. Without hwloc, this needs sched_getaffinity; the CMake check for
  * it failed on glibc (no _GNU_SOURCE), and Lace counted every online CPU.
- * Linux only; elsewhere this only checks that Lace starts.
+ * Linux and FreeBSD; elsewhere this only checks that Lace starts.
  */
 
-#if defined(__linux__)
+#if defined(__linux__) || defined(__FreeBSD__)
 #include <sched.h>
 #include <unistd.h>
 #endif
@@ -38,7 +38,7 @@ main(void)
     crash_handler_install();
 
     unsigned int allowed = 0;
-#if defined(__linux__)
+#if defined(__linux__) || defined(__FreeBSD__)
     cpu_set_t cs;
     CPU_ZERO(&cs);
     if (sched_getaffinity(0, sizeof(cs), &cs) != 0) {
