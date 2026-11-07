@@ -41,7 +41,7 @@ All notable changes to Lace will be documented in this file.
 
 - A worker set up its data and deque before Lace pinned it, so first touch
   could place them on another NUMA node than the worker's (half of the
-  workers on a two-socket machine); Lace now pins first.
+  workers on a two-socket machine); Lace now pins first (`test_numa`).
 - On MSVC, Lace read the clock with `rdtscp`, which some (virtual) CPUs
   lack; it now uses `rdtsc`.
 - CMake failed when the build directory was the source directory.
