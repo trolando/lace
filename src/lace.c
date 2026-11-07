@@ -2335,14 +2335,68 @@ lace_worker_leave(void)
     atomic_fetch_add_explicit(&n_left, 1, memory_order_release);
 }
 
+static void* lace_worker_thread(void* arg);
+#if LACE_MSVC
+static unsigned __stdcall lace_worker_thread_win(void* arg);
+#endif
+
+/* The stack size of Lace's own threads, where the system reserves the stacks */
+static size_t spawn_stacksize = 0;
+
 /**
- * Lace's own worker threads: enter as worker <worker>, steal until lace_stop,
- * and leave.
+ * Create the thread of worker <i>, one of Lace's own workers. Each creating
+ * thread uses its own attributes, as threads are created by several at once.
+ */
+static void
+lace_spawn_worker(unsigned int i)
+{
+#if !LACE_MSVC
+    pthread_attr_t attr;
+    if (pthread_attr_init(&attr) != 0) {
+        fprintf(stderr, "Lace error: unable to initialize thread attributes!\n");
+        exit(1);
+    }
+#if LACE_USE_HWLOC || (!defined(_WIN32) && !defined(__FreeBSD__))
+    if (pthread_attr_setstack(&attr, (char*)worker_stacks[i] + worker_stack_page_size,
+                              worker_stack_size - worker_stack_page_size) != 0) {
+        fprintf(stderr, "Lace error: unable to set stack for worker %u: %s\n", i, strerror(errno));
+        exit(1);
+    }
+#else
+    if (pthread_attr_setstacksize(&attr, spawn_stacksize) != 0) {
+        fprintf(stderr, "Lace error: unable to set stack size to %zu bytes!\n", spawn_stacksize);
+        exit(1);
+    }
+#endif
+    int rc = pthread_create(&handles[i], &attr, lace_worker_thread, (void*)(size_t)i);
+    if (rc != 0) {
+        fprintf(stderr, "Lace error: unable to create worker thread %u: %s\n", i, strerror(rc));
+        exit(1);
+    }
+    pthread_attr_destroy(&attr);
+#else
+    unsigned thread_id;
+    handles[i] = (HANDLE)_beginthreadex(NULL, (unsigned)spawn_stacksize, lace_worker_thread_win,
+        (void*)(size_t)i, STACK_SIZE_PARAM_IS_A_RESERVATION, &thread_id);
+    if (handles[i] == 0) {
+        fprintf(stderr, "Lace error: failed to create worker thread %u\n", i);
+        exit(1);
+    }
+#endif
+}
+
+/**
+ * Lace's own worker threads: create workers 2i+1 and 2i+2 (the threads grow
+ * as a tree, so n threads take about log2(n) creation steps instead of n),
+ * then enter as worker i, steal until lace_stop, and leave.
  */
 static void*
 lace_worker_thread(void* arg)
 {
-    lace_worker_enter((unsigned int)(size_t)arg);
+    const unsigned int worker = (unsigned int)(size_t)arg;
+    if (2 * worker + 1 < n_workers) lace_spawn_worker(2 * worker + 1);
+    if (2 * worker + 2 < n_workers) lace_spawn_worker(2 * worker + 2);
+    lace_worker_enter(worker);
     lace_worker_loop();
     lace_worker_leave();
     return NULL;
@@ -2839,12 +2893,6 @@ lace_start(unsigned int _n_workers, size_t dequesize, size_t stacksize)
     // a reservation (see _beginthreadex below); it must fit in an unsigned.
     if (stacksize > ((size_t)1 << 31)) stacksize = (size_t)1 << 31;
 #else
-    // Prepare structures for thread creation
-    pthread_attr_t worker_attr;
-    if (pthread_attr_init(&worker_attr) != 0) {
-        fprintf(stderr, "Lace error: unable to initialize thread attributes!\n");
-        exit(1);
-    }
 
 #if LACE_USE_HWLOC || (!defined(_WIN32) && !defined(__FreeBSD__))
     // Allocate the stacks ourselves: with hwloc bound to the worker's NUMA
@@ -2871,14 +2919,9 @@ lace_start(unsigned int _n_workers, size_t dequesize, size_t stacksize)
         }
     }
     stacksize = worker_stack_size - worker_stack_page_size;
-#else
-    // _WIN32 or FreeBSD without HWLOC: just set stack size, let the OS handle it
-    if (pthread_attr_setstacksize(&worker_attr, stacksize) != 0) {
-        fprintf(stderr, "Lace error: unable to set stack size to %zu bytes!\n", stacksize);
-        exit(1);
-    }
 #endif
 #endif /* !LACE_MSVC */
+    spawn_stacksize = stacksize; // where the system reserves the stacks (lace_spawn_worker)
 
     /* Report startup if verbose */
     if (verbosity) {
@@ -2893,38 +2936,8 @@ lace_start(unsigned int _n_workers, size_t dequesize, size_t stacksize)
 
     is_running = 1; // before the threads start, as they enter
 
-    /* Spawn all workers */
-    for (unsigned int i = 0; i < n_workers; i++) {
-#if !LACE_MSVC
-#if LACE_USE_HWLOC || (!defined(_WIN32) && !defined(__FreeBSD__))
-        if (pthread_attr_setstack(&worker_attr,
-                                  (char*)worker_stacks[i] + worker_stack_page_size,
-                                  worker_stack_size - worker_stack_page_size) != 0) {
-            fprintf(stderr, "Lace error: unable to set stack for worker %u: %s\n",
-                i, strerror(errno));
-            exit(1);
-        }
-#endif
-        int rc = pthread_create(&handles[i], &worker_attr, lace_worker_thread, (void*)(size_t)i);
-        if (rc != 0) {
-            fprintf(stderr, "Lace error: unable to create worker thread %u: %s\n", i, strerror(rc));
-            exit(1);
-        }
-#else
-        unsigned thread_id;
-        handles[i] = (HANDLE)_beginthreadex(
-            NULL, (unsigned)stacksize, lace_worker_thread_win,
-            (void*)(size_t)i, STACK_SIZE_PARAM_IS_A_RESERVATION, &thread_id);
-        if (handles[i] == 0) {
-            fprintf(stderr, "Lace error: failed to create worker thread %u\n", i);
-            exit(1);
-        }
-#endif
-    }
-
-#if !LACE_MSVC
-    pthread_attr_destroy(&worker_attr);
-#endif
+    /* Create worker 0; each worker creates the next two (lace_worker_thread) */
+    lace_spawn_worker(0);
 
 }
 
@@ -3161,6 +3174,12 @@ void lace_stop(void)
     atomic_fetch_add_explicit(&wake_futex, 1, memory_order_release);
     lace_futex_wake_all(&wake_futex);
 
+    /* Every worker has left: Lace's own threads before they end, the
+     * program's threads with lace_worker_leave once their loops returned */
+    while (atomic_load_explicit(&n_left, memory_order_acquire) < n_workers) lace_sleep_us(50);
+
+    /* Lace's own threads: the workers created them (lace_worker_thread), and
+     * have all left, so every handle is set */
     if (!external_mode) {
         for (unsigned int i = 0; i < n_workers; i++) {
 #if !LACE_MSVC
@@ -3173,10 +3192,6 @@ void lace_stop(void)
         free(handles);
         handles = NULL;
     }
-
-    /* Every worker has left: Lace's own threads before they ended, the
-     * program's threads with lace_worker_leave once their loops returned */
-    while (atomic_load_explicit(&n_left, memory_order_acquire) < n_workers) lace_sleep_us(50);
 
 #if LACE_COUNT_EVENTS
     // before the stacks are freed: the report includes their high-water marks

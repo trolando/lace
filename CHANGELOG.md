@@ -22,6 +22,8 @@ All notable changes to Lace will be documented in this file.
 - `lace_start` reads the CPU topology for pinning once per process, and fewer
   files (one per core and one per package instead of two per CPU): on Linux
   machines with many CPUs a start took 1-3 ms, mostly reading sysfs.
+- Lace creates its worker threads as a tree: each worker creates two more, so
+  n workers take about log2(n) thread creations instead of n in a row.
 
 ### Fixed
 
