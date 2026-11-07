@@ -110,7 +110,7 @@ CMake options
      - Optimise for the host CPU architecture (``-march=native``). Improves
        performance on the build machine but produces binaries that may not
        run on other CPUs.
-     - ON
+     - ON as the top-level project, OFF as a subproject
    * - ``LACE_ENABLE_PIC``
      - Compile with position-independent code (``-fPIC``). Required when
        embedding Lace inside a shared library.
