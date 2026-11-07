@@ -8,22 +8,22 @@ project(lace
 )
 
 # ── Build defaults ───────────────────────────────────────────────────────────
- 
+
 if(lace_IS_TOP_LEVEL AND NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
     set(CMAKE_BUILD_TYPE Release CACHE STRING "Build type" FORCE)
     set_property(CACHE CMAKE_BUILD_TYPE PROPERTY STRINGS Debug Release RelWithDebInfo MinSizeRel)
 endif()
- 
+
 if(lace_IS_TOP_LEVEL)
     set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 endif()
- 
+
 list(PREPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_LIST_DIR}/cmake")
 
 set(lace_VERSION "${PROJECT_VERSION}" CACHE INTERNAL "Lace version")
 
 # ── Options ──────────────────────────────────────────────────────────────────
- 
+
 option(BUILD_SHARED_LIBS "Build shared libraries instead of static"                  OFF)
 option(LACE_ENABLE_PIC   "Build Lace with -fPIC (e.g. for linking into shared libs)" OFF)
 option(LACE_NATIVE_OPT   "Enable -march=native for compiler optimizations"           ON)
@@ -61,7 +61,7 @@ if(BUILD_SHARED_LIBS)
 endif()
 
 # ── Platform feature detection ───────────────────────────────────────────────
- 
+
 include(CheckSymbolExists)
 include(CMakePushCheckState)
 # glibc declares sched_getaffinity and CPU_COUNT only with _GNU_SOURCE (lace.c
@@ -72,17 +72,17 @@ list(APPEND CMAKE_REQUIRED_DEFINITIONS -D_GNU_SOURCE)
 check_symbol_exists(sched_getaffinity "sched.h" HAVE_SCHED_GETAFFINITY)
 cmake_pop_check_state()
 check_symbol_exists(mmap "sys/mman.h" HAVE_MMAP)
- 
+
 if(NOT WIN32 AND NOT HAVE_MMAP)
     message(FATAL_ERROR "mmap not found (required on non-Windows platforms)")
 endif()
 
 # ── Dependencies ─────────────────────────────────────────────────────────────
- 
+
 if(NOT MSVC)
     find_package(Threads REQUIRED)
 endif()
- 
+
 if(LACE_USE_HWLOC)
     find_package(HWLOC REQUIRED)
     if(APPLE)
@@ -99,13 +99,13 @@ if(lace_IS_TOP_LEVEL)
 
     set(_san "")
     if(LACE_SANITIZE_ADDRESS)
-        list(APPEND _san "address")   
+        list(APPEND _san "address")
     endif()
-    if(LACE_SANITIZE_THREAD)   
-        list(APPEND _san "thread")    
+    if(LACE_SANITIZE_THREAD)
+        list(APPEND _san "thread")
     endif()
-    if(LACE_SANITIZE_UB)       
-        list(APPEND _san "undefined") 
+    if(LACE_SANITIZE_UB)
+        list(APPEND _san "undefined")
     endif()
 
     if(_san)
@@ -189,17 +189,17 @@ int main(void) { return 0; }" LACE_COMPILER_STACK_PROTECTOR)
 endif()
 
 # ── Generated header (before targets, so FILE_SET can reference it) ──────────
- 
+
 configure_file(src/lace_config.h.in ${CMAKE_CURRENT_BINARY_DIR}/lace_config.h @ONLY)
 
 # ── Library targets ──────────────────────────────────────────────────────────
 
 foreach(_target lace lace32 lace128)
- 
+
     # ── Sources and public headers ───────────────────────────────────────
     add_library(${_target})
     add_library(lace::${_target} ALIAS ${_target})
- 
+
     if(_target STREQUAL "lace")
         target_sources(${_target}
           PRIVATE src/lace.c
@@ -231,18 +231,18 @@ foreach(_target lace lace32 lace128)
                   FILES ${CMAKE_CURRENT_BINARY_DIR}/lace_config.h
         )
     endif()
- 
+
     # ── Compile features ─────────────────────────────────────────────────
     target_compile_features(${_target} PUBLIC c_std_11)
- 
+
     # ── PIC ──────────────────────────────────────────────────────────────
     if(BUILD_SHARED_LIBS OR LACE_ENABLE_PIC)
         set_target_properties(${_target} PROPERTIES POSITION_INDEPENDENT_CODE ON)
     endif()
- 
+
     # ── Compiler flags ───────────────────────────────────────────────────
 
-    # we're adding quite a few extra warnings, to ensure Lace as a library is compliant with the 
+    # we're adding quite a few extra warnings, to ensure Lace as a library is compliant with the
     # C standard and won't trigger warnings or errors when included in a stricter project
 
     if(CMAKE_C_COMPILER_ID MATCHES "GNU")
@@ -287,22 +287,22 @@ foreach(_target lace lace32 lace128)
             /wd4200 # Stop MSVC from complaining about standard C99/C11 code
         )
     endif()
- 
+
     target_compile_options(${_target} PRIVATE ${LACE_NO_HARDENING_FLAGS})
 
     # ── Link dependencies ────────────────────────────────────────────────
     if(NOT MSVC)
         target_link_libraries(${_target} PUBLIC Threads::Threads)
     endif()
- 
+
     if(WIN32)
         target_link_libraries(${_target} PUBLIC synchronization)
     endif()
- 
+
     if(LACE_USE_HWLOC)
         target_link_libraries(${_target} PUBLIC HWLOC::hwloc)
     endif()
- 
+
     # ── Shared library versioning ────────────────────────────────────────
     if(BUILD_SHARED_LIBS)
         set_target_properties(${_target} PROPERTIES
@@ -311,18 +311,18 @@ foreach(_target lace lace32 lace128)
             WINDOWS_EXPORT_ALL_SYMBOLS ON
         )
     endif()
- 
+
 endforeach()
 
 # ── Tests and benchmarks (top-level only) ────────────────────────────────────
- 
+
 if(lace_IS_TOP_LEVEL)
     enable_language(CXX)
- 
+
     if(LACE_BUILD_BENCHMARKS)
         add_subdirectory(benchmarks)
     endif()
- 
+
     if(LACE_BUILD_TESTS)
         include(CTest)
         enable_testing()
@@ -335,7 +335,7 @@ if(lace_IS_TOP_LEVEL)
 endif()
 
 # ── Hide options when consumed as a subproject ───────────────────────────────
- 
+
 if(NOT lace_IS_TOP_LEVEL)
     mark_as_advanced(
         BUILD_SHARED_LIBS
@@ -353,9 +353,9 @@ if(NOT lace_IS_TOP_LEVEL)
 endif()
 
 # ── Installation ─────────────────────────────────────────────────────────────
- 
+
 include(GNUInstallDirs)
- 
+
 install(TARGETS lace lace32 lace128
     EXPORT lace-targets
     ARCHIVE          DESTINATION ${CMAKE_INSTALL_LIBDIR}
@@ -364,29 +364,29 @@ install(TARGETS lace lace32 lace128
     FILE_SET HEADERS DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
     FILE_SET generated_headers DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
 )
- 
+
 install(EXPORT lace-targets
     FILE      lace-targets.cmake
     NAMESPACE lace::
     DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/lace
 )
- 
+
 # ── CMake package config ─────────────────────────────────────────────────────
- 
+
 include(CMakePackageConfigHelpers)
- 
+
 configure_package_config_file(
     ${CMAKE_CURRENT_SOURCE_DIR}/cmake/lace-config.cmake.in
     ${CMAKE_CURRENT_BINARY_DIR}/cmake/lace-config.cmake
     INSTALL_DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/lace
 )
- 
+
 write_basic_package_version_file(
     ${CMAKE_CURRENT_BINARY_DIR}/cmake/lace-config-version.cmake
     VERSION ${PROJECT_VERSION}
     COMPATIBILITY SameMinorVersion
 )
- 
+
 install(
     FILES
         ${CMAKE_CURRENT_BINARY_DIR}/cmake/lace-config.cmake
@@ -396,10 +396,10 @@ install(
 )
 
 # ── pkg-config ───────────────────────────────────────────────────────────────
- 
+
 set(_PC_EXTRA_CFLAGS "")
 set(_PC_EXTRA_LIBS "")
- 
+
 if(LACE_USE_HWLOC)
     foreach(inc ${HWLOC_INCLUDE_DIRS})
         list(APPEND _PC_EXTRA_CFLAGS "-I${inc}")
@@ -411,14 +411,14 @@ if(LACE_USE_HWLOC)
         list(APPEND _PC_EXTRA_LIBS "-L${libdir}" "-l${libname}")
     endforeach()
 endif()
- 
+
 if(MINGW)
     list(APPEND _PC_EXTRA_LIBS "-lsynchronization")
 endif()
- 
+
 string(JOIN " " PC_EXTRA_CFLAGS ${_PC_EXTRA_CFLAGS})
 string(JOIN " " PC_EXTRA_LIBS ${_PC_EXTRA_LIBS})
- 
+
 if(NOT MSVC)
     configure_file("${CMAKE_CURRENT_SOURCE_DIR}/src/lace.pc.in"
                    "${CMAKE_CURRENT_BINARY_DIR}/lace.pc" @ONLY)
@@ -434,7 +434,7 @@ if(NOT MSVC)
         DESTINATION ${CMAKE_INSTALL_LIBDIR}/pkgconfig
     )
 endif()
- 
+
 # ── Summary ──────────────────────────────────────────────────────────────────
 
 # Summary, when Lace is the top-level project
