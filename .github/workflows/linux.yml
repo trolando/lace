@@ -96,14 +96,13 @@ jobs:
     - name: Install dependencies
       run: |
         sudo apt update
-        sudo apt install -y cmake ninja-build gcc g++ libhwloc-dev
+        sudo apt install -y cmake ninja-build gcc g++
     - name: Configure
       run: |
         cmake -S . -B build -G Ninja \
           -DCMAKE_BUILD_TYPE=RelWithDebInfo \
           -DLACE_BUILD_TESTS=ON \
           -DLACE_BUILD_BENCHMARKS=ON \
-          -DLACE_USE_HWLOC=ON \
           -DLACE_COUNT_TASKS=ON \
           -DLACE_COUNT_STEALS=ON \
           -DLACE_COUNT_SPLITS=ON \
