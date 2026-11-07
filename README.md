@@ -34,7 +34,7 @@ int main(int argc, char** argv)
 
 - ⚡ Low-overhead, lock-free work-stealing
 - 💤 Quiet when idle, quick to wake up
-- 📌 Thread pinning per CPU, core, cache or NUMA node (Linux, FreeBSD)
+- 📌 Thread pinning per CPU, core, cache or NUMA node (Linux, FreeBSD, Windows)
 - 🧵 Workers on Lace's threads or on the program's own
 - 📈 Low-overhead statistics per worker
 - ⛔ Interrupt support for coordinating all workers to a safe point (e.g. stop-the-world GC)

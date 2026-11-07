@@ -93,7 +93,7 @@ CMake options
      - Description
      - Default
    * - ``LACE_DEFAULT_PIN``
-     - The pinning mode (Linux, FreeBSD) when neither ``lace_set_pinning()`` nor the
+     - The pinning mode (Linux, FreeBSD, Windows) when neither ``lace_set_pinning()`` nor the
        ``LACE_PIN`` environment variable chooses one: ``AUTO``, ``OFF``,
        ``CPU``, ``CORE``, ``L2``, ``L3``, ``NUMA`` or ``ALL``, within the
        affinity mask the program is given; see `Worker pinning`_.
@@ -224,9 +224,10 @@ ThreadSanitizer cannot be combined. Use them individually during development.
 Worker pinning
 --------------
 
-On Linux and FreeBSD, Lace pins its workers within the affinity mask of the
-thread that calls ``lace_start()``, as ``taskset``, cgroups or a job scheduler
-such as SLURM set it. Lace never pins to CPUs outside that mask. The mode says what
+On Linux, FreeBSD and Windows, Lace pins its workers within the affinity mask
+of the thread that calls ``lace_start()``, as ``taskset``, cgroups or a job
+scheduler such as SLURM set it; on Windows, within the processor group of that
+thread. Lace never pins to CPUs outside that mask. The mode says what
 each worker may run on:
 
 .. list-table::
