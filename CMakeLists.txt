@@ -26,7 +26,7 @@ set(lace_VERSION "${PROJECT_VERSION}" CACHE INTERNAL "Lace version")
 
 option(BUILD_SHARED_LIBS "Build shared libraries instead of static"                  OFF)
 option(LACE_ENABLE_PIC   "Build Lace with -fPIC (e.g. for linking into shared libs)" OFF)
-option(LACE_NATIVE_OPT   "Enable -march=native for compiler optimizations"           ON)
+option(LACE_NATIVE_OPT   "Enable -march=native for compiler optimizations"           ${lace_IS_TOP_LEVEL})
 option(LACE_BACKOFF      "Let idle threads sleep if there is no work"                ON)
 option(LACE_USE_HWLOC    "Let Lace pin threads/memory using libhwloc"                OFF)
 option(LACE_PIE_TIMES    "Let Lace record Pie times"                                 OFF)

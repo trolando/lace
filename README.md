@@ -86,7 +86,7 @@ Setting | Description | Default
 `LACE_DEFAULT_PIN` | The pinning mode (Linux) when neither `lace_set_pinning()` nor the `LACE_PIN` environment variable chooses one: `AUTO`, `OFF`, `CPU`, `CORE`, `L2`, `L3`, `NUMA` or `ALL`, within the affinity mask the program is given; with `LACE_USE_HWLOC`, any mode but `OFF` pins to cores | AUTO
 `LACE_USE_HWLOC` | Use the `hwloc` library to pin threads to CPUs and allocate memory on the correct NUMA node, instead of the built-in pinning (macOS does not let programs pin threads) | OFF
 `LACE_BACKOFF` | Workers sleep with exponential backoff when no work is available, reducing CPU usage without affecting throughput | ON
-`LACE_NATIVE_OPT` | Optimise for the host CPU architecture (`-march=native`) | ON
+`LACE_NATIVE_OPT` | Optimise for the host CPU architecture (`-march=native`) | ON as the top-level project, OFF as a subproject
 `LACE_ENABLE_PIC` | Compile with position-independent code (`-fPIC`) | OFF
 `BUILD_SHARED_LIBS` | Build shared libraries instead of static | OFF
 `LACE_COUNT_TASKS` | Let Lace record the number of executed tasks | OFF
