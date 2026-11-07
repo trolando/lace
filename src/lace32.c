@@ -3452,7 +3452,7 @@ lace_sync(lace_worker *w, lace_task *head)
         diff = (diff + 1) / 2;
         lace_task *newsplit = t + diff;
         w->split = newsplit;
-        atomic_store_explicit(&wt->ts.ts.split, (uint32_t)(newsplit-w->dq), memory_order_relaxed);
+        atomic_store_explicit(&wt->ts.ts.split, (uint32_t)(newsplit-w->dq), memory_order_release);
         wt->movesplit = 0;
         PR_COUNTSPLITS(w, CTR_split_grow);
     }

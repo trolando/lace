@@ -2,6 +2,15 @@
 
 All notable changes to Lace will be documented in this file.
 
+## [Unreleased]
+
+### Changed
+
+- SPAWN no longer executes a memory fence: the tasks are published by a
+  release store when the split point moves up. On ARM this removes a full
+  barrier from every spawn (fib and nqueens 3-5% faster at 8 workers on an
+  M1 Pro); on x86 the code is unchanged.
+
 ## [2.5.0] - 2026-11-05
 
 ### Added

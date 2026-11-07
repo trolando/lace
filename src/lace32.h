@@ -1269,7 +1269,7 @@ static inline void lace_make_all_shared(void)
     lace_worker* w = lace_get_worker();
     if (w->split != w->head) {
         w->split = w->head;
-        atomic_store_explicit(&w->_public->ts.ts.split, (uint32_t)(w->head - w->dq), memory_order_relaxed);
+        atomic_store_explicit(&w->_public->ts.ts.split, (uint32_t)(w->head - w->dq), memory_order_release);
     }
 }
 
@@ -1459,8 +1459,10 @@ lace_task* NAME##_SPAWN(lace_worker* _lace_worker)                              
     t->f = &NAME##_WRAP;                                                              \
     atomic_store_explicit(&t->thief, THIEF_TASK, memory_order_relaxed);               \
                                                                                       \
-    atomic_thread_fence(memory_order_release);                                        \
-    /* do not allow later stores to float above */                                    \
+    /* The task is in the private part of the deque, where thieves cannot take        \
+     * it. It becomes stealable only when the split moves above it: those             \
+     * stores (here, in lace_make_all_shared and in lace_sync) are release            \
+     * stores, so a thief that steals it sees it written. No fence here. */           \
                                                                                       \
     lace_worker_public *wt = lace_worker_public_of(_lace_worker);                     \
     if (LACE_UNLIKELY(_lace_worker->allstolen)) {                                     \
@@ -1468,7 +1470,7 @@ lace_task* NAME##_SPAWN(lace_worker* _lace_worker)                              
         head = (uint32_t)(lace_head - _lace_worker->dq);                              \
         ts.ts.tail = head;                                                            \
         ts.ts.split = head+1;                                                         \
-        atomic_store_explicit(&wt->ts.v, ts.v, memory_order_relaxed);;                \
+        atomic_store_explicit(&wt->ts.v, ts.v, memory_order_release);                 \
         wt->allstolen = 0;                                                            \
         _lace_worker->split = lace_head+1;                                            \
         _lace_worker->allstolen = 0;                                                  \
@@ -1476,7 +1478,7 @@ lace_task* NAME##_SPAWN(lace_worker* _lace_worker)                              
         head = (uint32_t)(lace_head - _lace_worker->dq);                              \
         split = (uint32_t)(_lace_worker->split - _lace_worker->dq);                   \
         newsplit = (split + head + 2)/2;                                              \
-        atomic_store_explicit(&wt->ts.ts.split, newsplit, memory_order_relaxed);      \
+        atomic_store_explicit(&wt->ts.ts.split, newsplit, memory_order_release);      \
         _lace_worker->split = _lace_worker->dq + newsplit;                            \
         wt->movesplit = 0;                                                            \
         PR_COUNTSPLITS(_lace_worker, CTR_split_grow);                                 \
@@ -1605,8 +1607,10 @@ lace_task* NAME##_SPAWN(lace_worker* _lace_worker)                              
     t->f = &NAME##_WRAP;                                                              \
     atomic_store_explicit(&t->thief, THIEF_TASK, memory_order_relaxed);               \
                                                                                       \
-    atomic_thread_fence(memory_order_release);                                        \
-    /* do not allow later stores to float above */                                    \
+    /* The task is in the private part of the deque, where thieves cannot take        \
+     * it. It becomes stealable only when the split moves above it: those             \
+     * stores (here, in lace_make_all_shared and in lace_sync) are release            \
+     * stores, so a thief that steals it sees it written. No fence here. */           \
                                                                                       \
     lace_worker_public *wt = lace_worker_public_of(_lace_worker);                     \
     if (LACE_UNLIKELY(_lace_worker->allstolen)) {                                     \
@@ -1614,7 +1618,7 @@ lace_task* NAME##_SPAWN(lace_worker* _lace_worker)                              
         head = (uint32_t)(lace_head - _lace_worker->dq);                              \
         ts.ts.tail = head;                                                            \
         ts.ts.split = head+1;                                                         \
-        atomic_store_explicit(&wt->ts.v, ts.v, memory_order_relaxed);;                \
+        atomic_store_explicit(&wt->ts.v, ts.v, memory_order_release);                 \
         wt->allstolen = 0;                                                            \
         _lace_worker->split = lace_head+1;                                            \
         _lace_worker->allstolen = 0;                                                  \
@@ -1622,7 +1626,7 @@ lace_task* NAME##_SPAWN(lace_worker* _lace_worker)                              
         head = (uint32_t)(lace_head - _lace_worker->dq);                              \
         split = (uint32_t)(_lace_worker->split - _lace_worker->dq);                   \
         newsplit = (split + head + 2)/2;                                              \
-        atomic_store_explicit(&wt->ts.ts.split, newsplit, memory_order_relaxed);      \
+        atomic_store_explicit(&wt->ts.ts.split, newsplit, memory_order_release);      \
         _lace_worker->split = _lace_worker->dq + newsplit;                            \
         wt->movesplit = 0;                                                            \
         PR_COUNTSPLITS(_lace_worker, CTR_split_grow);                                 \
@@ -1754,8 +1758,10 @@ lace_task* NAME##_SPAWN(lace_worker* _lace_worker, ATYPE_1 arg_1)               
     t->f = &NAME##_WRAP;                                                              \
     atomic_store_explicit(&t->thief, THIEF_TASK, memory_order_relaxed);               \
      t->d.args.arg_1 = arg_1;                                                         \
-    atomic_thread_fence(memory_order_release);                                        \
-    /* do not allow later stores to float above */                                    \
+    /* The task is in the private part of the deque, where thieves cannot take        \
+     * it. It becomes stealable only when the split moves above it: those             \
+     * stores (here, in lace_make_all_shared and in lace_sync) are release            \
+     * stores, so a thief that steals it sees it written. No fence here. */           \
                                                                                       \
     lace_worker_public *wt = lace_worker_public_of(_lace_worker);                     \
     if (LACE_UNLIKELY(_lace_worker->allstolen)) {                                     \
@@ -1763,7 +1769,7 @@ lace_task* NAME##_SPAWN(lace_worker* _lace_worker, ATYPE_1 arg_1)               
         head = (uint32_t)(lace_head - _lace_worker->dq);                              \
         ts.ts.tail = head;                                                            \
         ts.ts.split = head+1;                                                         \
-        atomic_store_explicit(&wt->ts.v, ts.v, memory_order_relaxed);;                \
+        atomic_store_explicit(&wt->ts.v, ts.v, memory_order_release);                 \
         wt->allstolen = 0;                                                            \
         _lace_worker->split = lace_head+1;                                            \
         _lace_worker->allstolen = 0;                                                  \
@@ -1771,7 +1777,7 @@ lace_task* NAME##_SPAWN(lace_worker* _lace_worker, ATYPE_1 arg_1)               
         head = (uint32_t)(lace_head - _lace_worker->dq);                              \
         split = (uint32_t)(_lace_worker->split - _lace_worker->dq);                   \
         newsplit = (split + head + 2)/2;                                              \
-        atomic_store_explicit(&wt->ts.ts.split, newsplit, memory_order_relaxed);      \
+        atomic_store_explicit(&wt->ts.ts.split, newsplit, memory_order_release);      \
         _lace_worker->split = _lace_worker->dq + newsplit;                            \
         wt->movesplit = 0;                                                            \
         PR_COUNTSPLITS(_lace_worker, CTR_split_grow);                                 \
@@ -1900,8 +1906,10 @@ lace_task* NAME##_SPAWN(lace_worker* _lace_worker, ATYPE_1 arg_1)               
     t->f = &NAME##_WRAP;                                                              \
     atomic_store_explicit(&t->thief, THIEF_TASK, memory_order_relaxed);               \
      t->d.args.arg_1 = arg_1;                                                         \
-    atomic_thread_fence(memory_order_release);                                        \
-    /* do not allow later stores to float above */                                    \
+    /* The task is in the private part of the deque, where thieves cannot take        \
+     * it. It becomes stealable only when the split moves above it: those             \
+     * stores (here, in lace_make_all_shared and in lace_sync) are release            \
+     * stores, so a thief that steals it sees it written. No fence here. */           \
                                                                                       \
     lace_worker_public *wt = lace_worker_public_of(_lace_worker);                     \
     if (LACE_UNLIKELY(_lace_worker->allstolen)) {                                     \
@@ -1909,7 +1917,7 @@ lace_task* NAME##_SPAWN(lace_worker* _lace_worker, ATYPE_1 arg_1)               
         head = (uint32_t)(lace_head - _lace_worker->dq);                              \
         ts.ts.tail = head;                                                            \
         ts.ts.split = head+1;                                                         \
-        atomic_store_explicit(&wt->ts.v, ts.v, memory_order_relaxed);;                \
+        atomic_store_explicit(&wt->ts.v, ts.v, memory_order_release);                 \
         wt->allstolen = 0;                                                            \
         _lace_worker->split = lace_head+1;                                            \
         _lace_worker->allstolen = 0;                                                  \
@@ -1917,7 +1925,7 @@ lace_task* NAME##_SPAWN(lace_worker* _lace_worker, ATYPE_1 arg_1)               
         head = (uint32_t)(lace_head - _lace_worker->dq);                              \
         split = (uint32_t)(_lace_worker->split - _lace_worker->dq);                   \
         newsplit = (split + head + 2)/2;                                              \
-        atomic_store_explicit(&wt->ts.ts.split, newsplit, memory_order_relaxed);      \
+        atomic_store_explicit(&wt->ts.ts.split, newsplit, memory_order_release);      \
         _lace_worker->split = _lace_worker->dq + newsplit;                            \
         wt->movesplit = 0;                                                            \
         PR_COUNTSPLITS(_lace_worker, CTR_split_grow);                                 \
@@ -2049,8 +2057,10 @@ lace_task* NAME##_SPAWN(lace_worker* _lace_worker, ATYPE_1 arg_1, ATYPE_2 arg_2)
     t->f = &NAME##_WRAP;                                                              \
     atomic_store_explicit(&t->thief, THIEF_TASK, memory_order_relaxed);               \
      t->d.args.arg_1 = arg_1; t->d.args.arg_2 = arg_2;                                \
-    atomic_thread_fence(memory_order_release);                                        \
-    /* do not allow later stores to float above */                                    \
+    /* The task is in the private part of the deque, where thieves cannot take        \
+     * it. It becomes stealable only when the split moves above it: those             \
+     * stores (here, in lace_make_all_shared and in lace_sync) are release            \
+     * stores, so a thief that steals it sees it written. No fence here. */           \
                                                                                       \
     lace_worker_public *wt = lace_worker_public_of(_lace_worker);                     \
     if (LACE_UNLIKELY(_lace_worker->allstolen)) {                                     \
@@ -2058,7 +2068,7 @@ lace_task* NAME##_SPAWN(lace_worker* _lace_worker, ATYPE_1 arg_1, ATYPE_2 arg_2)
         head = (uint32_t)(lace_head - _lace_worker->dq);                              \
         ts.ts.tail = head;                                                            \
         ts.ts.split = head+1;                                                         \
-        atomic_store_explicit(&wt->ts.v, ts.v, memory_order_relaxed);;                \
+        atomic_store_explicit(&wt->ts.v, ts.v, memory_order_release);                 \
         wt->allstolen = 0;                                                            \
         _lace_worker->split = lace_head+1;                                            \
         _lace_worker->allstolen = 0;                                                  \
@@ -2066,7 +2076,7 @@ lace_task* NAME##_SPAWN(lace_worker* _lace_worker, ATYPE_1 arg_1, ATYPE_2 arg_2)
         head = (uint32_t)(lace_head - _lace_worker->dq);                              \
         split = (uint32_t)(_lace_worker->split - _lace_worker->dq);                   \
         newsplit = (split + head + 2)/2;                                              \
-        atomic_store_explicit(&wt->ts.ts.split, newsplit, memory_order_relaxed);      \
+        atomic_store_explicit(&wt->ts.ts.split, newsplit, memory_order_release);      \
         _lace_worker->split = _lace_worker->dq + newsplit;                            \
         wt->movesplit = 0;                                                            \
         PR_COUNTSPLITS(_lace_worker, CTR_split_grow);                                 \
@@ -2195,8 +2205,10 @@ lace_task* NAME##_SPAWN(lace_worker* _lace_worker, ATYPE_1 arg_1, ATYPE_2 arg_2)
     t->f = &NAME##_WRAP;                                                              \
     atomic_store_explicit(&t->thief, THIEF_TASK, memory_order_relaxed);               \
      t->d.args.arg_1 = arg_1; t->d.args.arg_2 = arg_2;                                \
-    atomic_thread_fence(memory_order_release);                                        \
-    /* do not allow later stores to float above */                                    \
+    /* The task is in the private part of the deque, where thieves cannot take        \
+     * it. It becomes stealable only when the split moves above it: those             \
+     * stores (here, in lace_make_all_shared and in lace_sync) are release            \
+     * stores, so a thief that steals it sees it written. No fence here. */           \
                                                                                       \
     lace_worker_public *wt = lace_worker_public_of(_lace_worker);                     \
     if (LACE_UNLIKELY(_lace_worker->allstolen)) {                                     \
@@ -2204,7 +2216,7 @@ lace_task* NAME##_SPAWN(lace_worker* _lace_worker, ATYPE_1 arg_1, ATYPE_2 arg_2)
         head = (uint32_t)(lace_head - _lace_worker->dq);                              \
         ts.ts.tail = head;                                                            \
         ts.ts.split = head+1;                                                         \
-        atomic_store_explicit(&wt->ts.v, ts.v, memory_order_relaxed);;                \
+        atomic_store_explicit(&wt->ts.v, ts.v, memory_order_release);                 \
         wt->allstolen = 0;                                                            \
         _lace_worker->split = lace_head+1;                                            \
         _lace_worker->allstolen = 0;                                                  \
@@ -2212,7 +2224,7 @@ lace_task* NAME##_SPAWN(lace_worker* _lace_worker, ATYPE_1 arg_1, ATYPE_2 arg_2)
         head = (uint32_t)(lace_head - _lace_worker->dq);                              \
         split = (uint32_t)(_lace_worker->split - _lace_worker->dq);                   \
         newsplit = (split + head + 2)/2;                                              \
-        atomic_store_explicit(&wt->ts.ts.split, newsplit, memory_order_relaxed);      \
+        atomic_store_explicit(&wt->ts.ts.split, newsplit, memory_order_release);      \
         _lace_worker->split = _lace_worker->dq + newsplit;                            \
         wt->movesplit = 0;                                                            \
         PR_COUNTSPLITS(_lace_worker, CTR_split_grow);                                 \
@@ -2344,8 +2356,10 @@ lace_task* NAME##_SPAWN(lace_worker* _lace_worker, ATYPE_1 arg_1, ATYPE_2 arg_2,
     t->f = &NAME##_WRAP;                                                              \
     atomic_store_explicit(&t->thief, THIEF_TASK, memory_order_relaxed);               \
      t->d.args.arg_1 = arg_1; t->d.args.arg_2 = arg_2; t->d.args.arg_3 = arg_3;       \
-    atomic_thread_fence(memory_order_release);                                        \
-    /* do not allow later stores to float above */                                    \
+    /* The task is in the private part of the deque, where thieves cannot take        \
+     * it. It becomes stealable only when the split moves above it: those             \
+     * stores (here, in lace_make_all_shared and in lace_sync) are release            \
+     * stores, so a thief that steals it sees it written. No fence here. */           \
                                                                                       \
     lace_worker_public *wt = lace_worker_public_of(_lace_worker);                     \
     if (LACE_UNLIKELY(_lace_worker->allstolen)) {                                     \
@@ -2353,7 +2367,7 @@ lace_task* NAME##_SPAWN(lace_worker* _lace_worker, ATYPE_1 arg_1, ATYPE_2 arg_2,
         head = (uint32_t)(lace_head - _lace_worker->dq);                              \
         ts.ts.tail = head;                                                            \
         ts.ts.split = head+1;                                                         \
-        atomic_store_explicit(&wt->ts.v, ts.v, memory_order_relaxed);;                \
+        atomic_store_explicit(&wt->ts.v, ts.v, memory_order_release);                 \
         wt->allstolen = 0;                                                            \
         _lace_worker->split = lace_head+1;                                            \
         _lace_worker->allstolen = 0;                                                  \
@@ -2361,7 +2375,7 @@ lace_task* NAME##_SPAWN(lace_worker* _lace_worker, ATYPE_1 arg_1, ATYPE_2 arg_2,
         head = (uint32_t)(lace_head - _lace_worker->dq);                              \
         split = (uint32_t)(_lace_worker->split - _lace_worker->dq);                   \
         newsplit = (split + head + 2)/2;                                              \
-        atomic_store_explicit(&wt->ts.ts.split, newsplit, memory_order_relaxed);      \
+        atomic_store_explicit(&wt->ts.ts.split, newsplit, memory_order_release);      \
         _lace_worker->split = _lace_worker->dq + newsplit;                            \
         wt->movesplit = 0;                                                            \
         PR_COUNTSPLITS(_lace_worker, CTR_split_grow);                                 \
@@ -2490,8 +2504,10 @@ lace_task* NAME##_SPAWN(lace_worker* _lace_worker, ATYPE_1 arg_1, ATYPE_2 arg_2,
     t->f = &NAME##_WRAP;                                                              \
     atomic_store_explicit(&t->thief, THIEF_TASK, memory_order_relaxed);               \
      t->d.args.arg_1 = arg_1; t->d.args.arg_2 = arg_2; t->d.args.arg_3 = arg_3;       \
-    atomic_thread_fence(memory_order_release);                                        \
-    /* do not allow later stores to float above */                                    \
+    /* The task is in the private part of the deque, where thieves cannot take        \
+     * it. It becomes stealable only when the split moves above it: those             \
+     * stores (here, in lace_make_all_shared and in lace_sync) are release            \
+     * stores, so a thief that steals it sees it written. No fence here. */           \
                                                                                       \
     lace_worker_public *wt = lace_worker_public_of(_lace_worker);                     \
     if (LACE_UNLIKELY(_lace_worker->allstolen)) {                                     \
@@ -2499,7 +2515,7 @@ lace_task* NAME##_SPAWN(lace_worker* _lace_worker, ATYPE_1 arg_1, ATYPE_2 arg_2,
         head = (uint32_t)(lace_head - _lace_worker->dq);                              \
         ts.ts.tail = head;                                                            \
         ts.ts.split = head+1;                                                         \
-        atomic_store_explicit(&wt->ts.v, ts.v, memory_order_relaxed);;                \
+        atomic_store_explicit(&wt->ts.v, ts.v, memory_order_release);                 \
         wt->allstolen = 0;                                                            \
         _lace_worker->split = lace_head+1;                                            \
         _lace_worker->allstolen = 0;                                                  \
@@ -2507,7 +2523,7 @@ lace_task* NAME##_SPAWN(lace_worker* _lace_worker, ATYPE_1 arg_1, ATYPE_2 arg_2,
         head = (uint32_t)(lace_head - _lace_worker->dq);                              \
         split = (uint32_t)(_lace_worker->split - _lace_worker->dq);                   \
         newsplit = (split + head + 2)/2;                                              \
-        atomic_store_explicit(&wt->ts.ts.split, newsplit, memory_order_relaxed);      \
+        atomic_store_explicit(&wt->ts.ts.split, newsplit, memory_order_release);      \
         _lace_worker->split = _lace_worker->dq + newsplit;                            \
         wt->movesplit = 0;                                                            \
         PR_COUNTSPLITS(_lace_worker, CTR_split_grow);                                 \
@@ -2639,8 +2655,10 @@ lace_task* NAME##_SPAWN(lace_worker* _lace_worker, ATYPE_1 arg_1, ATYPE_2 arg_2,
     t->f = &NAME##_WRAP;                                                              \
     atomic_store_explicit(&t->thief, THIEF_TASK, memory_order_relaxed);               \
      t->d.args.arg_1 = arg_1; t->d.args.arg_2 = arg_2; t->d.args.arg_3 = arg_3; t->d.args.arg_4 = arg_4;\
-    atomic_thread_fence(memory_order_release);                                        \
-    /* do not allow later stores to float above */                                    \
+    /* The task is in the private part of the deque, where thieves cannot take        \
+     * it. It becomes stealable only when the split moves above it: those             \
+     * stores (here, in lace_make_all_shared and in lace_sync) are release            \
+     * stores, so a thief that steals it sees it written. No fence here. */           \
                                                                                       \
     lace_worker_public *wt = lace_worker_public_of(_lace_worker);                     \
     if (LACE_UNLIKELY(_lace_worker->allstolen)) {                                     \
@@ -2648,7 +2666,7 @@ lace_task* NAME##_SPAWN(lace_worker* _lace_worker, ATYPE_1 arg_1, ATYPE_2 arg_2,
         head = (uint32_t)(lace_head - _lace_worker->dq);                              \
         ts.ts.tail = head;                                                            \
         ts.ts.split = head+1;                                                         \
-        atomic_store_explicit(&wt->ts.v, ts.v, memory_order_relaxed);;                \
+        atomic_store_explicit(&wt->ts.v, ts.v, memory_order_release);                 \
         wt->allstolen = 0;                                                            \
         _lace_worker->split = lace_head+1;                                            \
         _lace_worker->allstolen = 0;                                                  \
@@ -2656,7 +2674,7 @@ lace_task* NAME##_SPAWN(lace_worker* _lace_worker, ATYPE_1 arg_1, ATYPE_2 arg_2,
         head = (uint32_t)(lace_head - _lace_worker->dq);                              \
         split = (uint32_t)(_lace_worker->split - _lace_worker->dq);                   \
         newsplit = (split + head + 2)/2;                                              \
-        atomic_store_explicit(&wt->ts.ts.split, newsplit, memory_order_relaxed);      \
+        atomic_store_explicit(&wt->ts.ts.split, newsplit, memory_order_release);      \
         _lace_worker->split = _lace_worker->dq + newsplit;                            \
         wt->movesplit = 0;                                                            \
         PR_COUNTSPLITS(_lace_worker, CTR_split_grow);                                 \
@@ -2785,8 +2803,10 @@ lace_task* NAME##_SPAWN(lace_worker* _lace_worker, ATYPE_1 arg_1, ATYPE_2 arg_2,
     t->f = &NAME##_WRAP;                                                              \
     atomic_store_explicit(&t->thief, THIEF_TASK, memory_order_relaxed);               \
      t->d.args.arg_1 = arg_1; t->d.args.arg_2 = arg_2; t->d.args.arg_3 = arg_3; t->d.args.arg_4 = arg_4;\
-    atomic_thread_fence(memory_order_release);                                        \
-    /* do not allow later stores to float above */                                    \
+    /* The task is in the private part of the deque, where thieves cannot take        \
+     * it. It becomes stealable only when the split moves above it: those             \
+     * stores (here, in lace_make_all_shared and in lace_sync) are release            \
+     * stores, so a thief that steals it sees it written. No fence here. */           \
                                                                                       \
     lace_worker_public *wt = lace_worker_public_of(_lace_worker);                     \
     if (LACE_UNLIKELY(_lace_worker->allstolen)) {                                     \
@@ -2794,7 +2814,7 @@ lace_task* NAME##_SPAWN(lace_worker* _lace_worker, ATYPE_1 arg_1, ATYPE_2 arg_2,
         head = (uint32_t)(lace_head - _lace_worker->dq);                              \
         ts.ts.tail = head;                                                            \
         ts.ts.split = head+1;                                                         \
-        atomic_store_explicit(&wt->ts.v, ts.v, memory_order_relaxed);;                \
+        atomic_store_explicit(&wt->ts.v, ts.v, memory_order_release);                 \
         wt->allstolen = 0;                                                            \
         _lace_worker->split = lace_head+1;                                            \
         _lace_worker->allstolen = 0;                                                  \
@@ -2802,7 +2822,7 @@ lace_task* NAME##_SPAWN(lace_worker* _lace_worker, ATYPE_1 arg_1, ATYPE_2 arg_2,
         head = (uint32_t)(lace_head - _lace_worker->dq);                              \
         split = (uint32_t)(_lace_worker->split - _lace_worker->dq);                   \
         newsplit = (split + head + 2)/2;                                              \
-        atomic_store_explicit(&wt->ts.ts.split, newsplit, memory_order_relaxed);      \
+        atomic_store_explicit(&wt->ts.ts.split, newsplit, memory_order_release);      \
         _lace_worker->split = _lace_worker->dq + newsplit;                            \
         wt->movesplit = 0;                                                            \
         PR_COUNTSPLITS(_lace_worker, CTR_split_grow);                                 \
@@ -2934,8 +2954,10 @@ lace_task* NAME##_SPAWN(lace_worker* _lace_worker, ATYPE_1 arg_1, ATYPE_2 arg_2,
     t->f = &NAME##_WRAP;                                                              \
     atomic_store_explicit(&t->thief, THIEF_TASK, memory_order_relaxed);               \
      t->d.args.arg_1 = arg_1; t->d.args.arg_2 = arg_2; t->d.args.arg_3 = arg_3; t->d.args.arg_4 = arg_4; t->d.args.arg_5 = arg_5;\
-    atomic_thread_fence(memory_order_release);                                        \
-    /* do not allow later stores to float above */                                    \
+    /* The task is in the private part of the deque, where thieves cannot take        \
+     * it. It becomes stealable only when the split moves above it: those             \
+     * stores (here, in lace_make_all_shared and in lace_sync) are release            \
+     * stores, so a thief that steals it sees it written. No fence here. */           \
                                                                                       \
     lace_worker_public *wt = lace_worker_public_of(_lace_worker);                     \
     if (LACE_UNLIKELY(_lace_worker->allstolen)) {                                     \
@@ -2943,7 +2965,7 @@ lace_task* NAME##_SPAWN(lace_worker* _lace_worker, ATYPE_1 arg_1, ATYPE_2 arg_2,
         head = (uint32_t)(lace_head - _lace_worker->dq);                              \
         ts.ts.tail = head;                                                            \
         ts.ts.split = head+1;                                                         \
-        atomic_store_explicit(&wt->ts.v, ts.v, memory_order_relaxed);;                \
+        atomic_store_explicit(&wt->ts.v, ts.v, memory_order_release);                 \
         wt->allstolen = 0;                                                            \
         _lace_worker->split = lace_head+1;                                            \
         _lace_worker->allstolen = 0;                                                  \
@@ -2951,7 +2973,7 @@ lace_task* NAME##_SPAWN(lace_worker* _lace_worker, ATYPE_1 arg_1, ATYPE_2 arg_2,
         head = (uint32_t)(lace_head - _lace_worker->dq);                              \
         split = (uint32_t)(_lace_worker->split - _lace_worker->dq);                   \
         newsplit = (split + head + 2)/2;                                              \
-        atomic_store_explicit(&wt->ts.ts.split, newsplit, memory_order_relaxed);      \
+        atomic_store_explicit(&wt->ts.ts.split, newsplit, memory_order_release);      \
         _lace_worker->split = _lace_worker->dq + newsplit;                            \
         wt->movesplit = 0;                                                            \
         PR_COUNTSPLITS(_lace_worker, CTR_split_grow);                                 \
@@ -3080,8 +3102,10 @@ lace_task* NAME##_SPAWN(lace_worker* _lace_worker, ATYPE_1 arg_1, ATYPE_2 arg_2,
     t->f = &NAME##_WRAP;                                                              \
     atomic_store_explicit(&t->thief, THIEF_TASK, memory_order_relaxed);               \
      t->d.args.arg_1 = arg_1; t->d.args.arg_2 = arg_2; t->d.args.arg_3 = arg_3; t->d.args.arg_4 = arg_4; t->d.args.arg_5 = arg_5;\
-    atomic_thread_fence(memory_order_release);                                        \
-    /* do not allow later stores to float above */                                    \
+    /* The task is in the private part of the deque, where thieves cannot take        \
+     * it. It becomes stealable only when the split moves above it: those             \
+     * stores (here, in lace_make_all_shared and in lace_sync) are release            \
+     * stores, so a thief that steals it sees it written. No fence here. */           \
                                                                                       \
     lace_worker_public *wt = lace_worker_public_of(_lace_worker);                     \
     if (LACE_UNLIKELY(_lace_worker->allstolen)) {                                     \
@@ -3089,7 +3113,7 @@ lace_task* NAME##_SPAWN(lace_worker* _lace_worker, ATYPE_1 arg_1, ATYPE_2 arg_2,
         head = (uint32_t)(lace_head - _lace_worker->dq);                              \
         ts.ts.tail = head;                                                            \
         ts.ts.split = head+1;                                                         \
-        atomic_store_explicit(&wt->ts.v, ts.v, memory_order_relaxed);;                \
+        atomic_store_explicit(&wt->ts.v, ts.v, memory_order_release);                 \
         wt->allstolen = 0;                                                            \
         _lace_worker->split = lace_head+1;                                            \
         _lace_worker->allstolen = 0;                                                  \
@@ -3097,7 +3121,7 @@ lace_task* NAME##_SPAWN(lace_worker* _lace_worker, ATYPE_1 arg_1, ATYPE_2 arg_2,
         head = (uint32_t)(lace_head - _lace_worker->dq);                              \
         split = (uint32_t)(_lace_worker->split - _lace_worker->dq);                   \
         newsplit = (split + head + 2)/2;                                              \
-        atomic_store_explicit(&wt->ts.ts.split, newsplit, memory_order_relaxed);      \
+        atomic_store_explicit(&wt->ts.ts.split, newsplit, memory_order_release);      \
         _lace_worker->split = _lace_worker->dq + newsplit;                            \
         wt->movesplit = 0;                                                            \
         PR_COUNTSPLITS(_lace_worker, CTR_split_grow);                                 \
@@ -3229,8 +3253,10 @@ lace_task* NAME##_SPAWN(lace_worker* _lace_worker, ATYPE_1 arg_1, ATYPE_2 arg_2,
     t->f = &NAME##_WRAP;                                                              \
     atomic_store_explicit(&t->thief, THIEF_TASK, memory_order_relaxed);               \
      t->d.args.arg_1 = arg_1; t->d.args.arg_2 = arg_2; t->d.args.arg_3 = arg_3; t->d.args.arg_4 = arg_4; t->d.args.arg_5 = arg_5; t->d.args.arg_6 = arg_6;\
-    atomic_thread_fence(memory_order_release);                                        \
-    /* do not allow later stores to float above */                                    \
+    /* The task is in the private part of the deque, where thieves cannot take        \
+     * it. It becomes stealable only when the split moves above it: those             \
+     * stores (here, in lace_make_all_shared and in lace_sync) are release            \
+     * stores, so a thief that steals it sees it written. No fence here. */           \
                                                                                       \
     lace_worker_public *wt = lace_worker_public_of(_lace_worker);                     \
     if (LACE_UNLIKELY(_lace_worker->allstolen)) {                                     \
@@ -3238,7 +3264,7 @@ lace_task* NAME##_SPAWN(lace_worker* _lace_worker, ATYPE_1 arg_1, ATYPE_2 arg_2,
         head = (uint32_t)(lace_head - _lace_worker->dq);                              \
         ts.ts.tail = head;                                                            \
         ts.ts.split = head+1;                                                         \
-        atomic_store_explicit(&wt->ts.v, ts.v, memory_order_relaxed);;                \
+        atomic_store_explicit(&wt->ts.v, ts.v, memory_order_release);                 \
         wt->allstolen = 0;                                                            \
         _lace_worker->split = lace_head+1;                                            \
         _lace_worker->allstolen = 0;                                                  \
@@ -3246,7 +3272,7 @@ lace_task* NAME##_SPAWN(lace_worker* _lace_worker, ATYPE_1 arg_1, ATYPE_2 arg_2,
         head = (uint32_t)(lace_head - _lace_worker->dq);                              \
         split = (uint32_t)(_lace_worker->split - _lace_worker->dq);                   \
         newsplit = (split + head + 2)/2;                                              \
-        atomic_store_explicit(&wt->ts.ts.split, newsplit, memory_order_relaxed);      \
+        atomic_store_explicit(&wt->ts.ts.split, newsplit, memory_order_release);      \
         _lace_worker->split = _lace_worker->dq + newsplit;                            \
         wt->movesplit = 0;                                                            \
         PR_COUNTSPLITS(_lace_worker, CTR_split_grow);                                 \
@@ -3375,8 +3401,10 @@ lace_task* NAME##_SPAWN(lace_worker* _lace_worker, ATYPE_1 arg_1, ATYPE_2 arg_2,
     t->f = &NAME##_WRAP;                                                              \
     atomic_store_explicit(&t->thief, THIEF_TASK, memory_order_relaxed);               \
      t->d.args.arg_1 = arg_1; t->d.args.arg_2 = arg_2; t->d.args.arg_3 = arg_3; t->d.args.arg_4 = arg_4; t->d.args.arg_5 = arg_5; t->d.args.arg_6 = arg_6;\
-    atomic_thread_fence(memory_order_release);                                        \
-    /* do not allow later stores to float above */                                    \
+    /* The task is in the private part of the deque, where thieves cannot take        \
+     * it. It becomes stealable only when the split moves above it: those             \
+     * stores (here, in lace_make_all_shared and in lace_sync) are release            \
+     * stores, so a thief that steals it sees it written. No fence here. */           \
                                                                                       \
     lace_worker_public *wt = lace_worker_public_of(_lace_worker);                     \
     if (LACE_UNLIKELY(_lace_worker->allstolen)) {                                     \
@@ -3384,7 +3412,7 @@ lace_task* NAME##_SPAWN(lace_worker* _lace_worker, ATYPE_1 arg_1, ATYPE_2 arg_2,
         head = (uint32_t)(lace_head - _lace_worker->dq);                              \
         ts.ts.tail = head;                                                            \
         ts.ts.split = head+1;                                                         \
-        atomic_store_explicit(&wt->ts.v, ts.v, memory_order_relaxed);;                \
+        atomic_store_explicit(&wt->ts.v, ts.v, memory_order_release);                 \
         wt->allstolen = 0;                                                            \
         _lace_worker->split = lace_head+1;                                            \
         _lace_worker->allstolen = 0;                                                  \
@@ -3392,7 +3420,7 @@ lace_task* NAME##_SPAWN(lace_worker* _lace_worker, ATYPE_1 arg_1, ATYPE_2 arg_2,
         head = (uint32_t)(lace_head - _lace_worker->dq);                              \
         split = (uint32_t)(_lace_worker->split - _lace_worker->dq);                   \
         newsplit = (split + head + 2)/2;                                              \
-        atomic_store_explicit(&wt->ts.ts.split, newsplit, memory_order_relaxed);      \
+        atomic_store_explicit(&wt->ts.ts.split, newsplit, memory_order_release);      \
         _lace_worker->split = _lace_worker->dq + newsplit;                            \
         wt->movesplit = 0;                                                            \
         PR_COUNTSPLITS(_lace_worker, CTR_split_grow);                                 \
@@ -3524,8 +3552,10 @@ lace_task* NAME##_SPAWN(lace_worker* _lace_worker, ATYPE_1 arg_1, ATYPE_2 arg_2,
     t->f = &NAME##_WRAP;                                                              \
     atomic_store_explicit(&t->thief, THIEF_TASK, memory_order_relaxed);               \
      t->d.args.arg_1 = arg_1; t->d.args.arg_2 = arg_2; t->d.args.arg_3 = arg_3; t->d.args.arg_4 = arg_4; t->d.args.arg_5 = arg_5; t->d.args.arg_6 = arg_6; t->d.args.arg_7 = arg_7;\
-    atomic_thread_fence(memory_order_release);                                        \
-    /* do not allow later stores to float above */                                    \
+    /* The task is in the private part of the deque, where thieves cannot take        \
+     * it. It becomes stealable only when the split moves above it: those             \
+     * stores (here, in lace_make_all_shared and in lace_sync) are release            \
+     * stores, so a thief that steals it sees it written. No fence here. */           \
                                                                                       \
     lace_worker_public *wt = lace_worker_public_of(_lace_worker);                     \
     if (LACE_UNLIKELY(_lace_worker->allstolen)) {                                     \
@@ -3533,7 +3563,7 @@ lace_task* NAME##_SPAWN(lace_worker* _lace_worker, ATYPE_1 arg_1, ATYPE_2 arg_2,
         head = (uint32_t)(lace_head - _lace_worker->dq);                              \
         ts.ts.tail = head;                                                            \
         ts.ts.split = head+1;                                                         \
-        atomic_store_explicit(&wt->ts.v, ts.v, memory_order_relaxed);;                \
+        atomic_store_explicit(&wt->ts.v, ts.v, memory_order_release);                 \
         wt->allstolen = 0;                                                            \
         _lace_worker->split = lace_head+1;                                            \
         _lace_worker->allstolen = 0;                                                  \
@@ -3541,7 +3571,7 @@ lace_task* NAME##_SPAWN(lace_worker* _lace_worker, ATYPE_1 arg_1, ATYPE_2 arg_2,
         head = (uint32_t)(lace_head - _lace_worker->dq);                              \
         split = (uint32_t)(_lace_worker->split - _lace_worker->dq);                   \
         newsplit = (split + head + 2)/2;                                              \
-        atomic_store_explicit(&wt->ts.ts.split, newsplit, memory_order_relaxed);      \
+        atomic_store_explicit(&wt->ts.ts.split, newsplit, memory_order_release);      \
         _lace_worker->split = _lace_worker->dq + newsplit;                            \
         wt->movesplit = 0;                                                            \
         PR_COUNTSPLITS(_lace_worker, CTR_split_grow);                                 \
@@ -3670,8 +3700,10 @@ lace_task* NAME##_SPAWN(lace_worker* _lace_worker, ATYPE_1 arg_1, ATYPE_2 arg_2,
     t->f = &NAME##_WRAP;                                                              \
     atomic_store_explicit(&t->thief, THIEF_TASK, memory_order_relaxed);               \
      t->d.args.arg_1 = arg_1; t->d.args.arg_2 = arg_2; t->d.args.arg_3 = arg_3; t->d.args.arg_4 = arg_4; t->d.args.arg_5 = arg_5; t->d.args.arg_6 = arg_6; t->d.args.arg_7 = arg_7;\
-    atomic_thread_fence(memory_order_release);                                        \
-    /* do not allow later stores to float above */                                    \
+    /* The task is in the private part of the deque, where thieves cannot take        \
+     * it. It becomes stealable only when the split moves above it: those             \
+     * stores (here, in lace_make_all_shared and in lace_sync) are release            \
+     * stores, so a thief that steals it sees it written. No fence here. */           \
                                                                                       \
     lace_worker_public *wt = lace_worker_public_of(_lace_worker);                     \
     if (LACE_UNLIKELY(_lace_worker->allstolen)) {                                     \
@@ -3679,7 +3711,7 @@ lace_task* NAME##_SPAWN(lace_worker* _lace_worker, ATYPE_1 arg_1, ATYPE_2 arg_2,
         head = (uint32_t)(lace_head - _lace_worker->dq);                              \
         ts.ts.tail = head;                                                            \
         ts.ts.split = head+1;                                                         \
-        atomic_store_explicit(&wt->ts.v, ts.v, memory_order_relaxed);;                \
+        atomic_store_explicit(&wt->ts.v, ts.v, memory_order_release);                 \
         wt->allstolen = 0;                                                            \
         _lace_worker->split = lace_head+1;                                            \
         _lace_worker->allstolen = 0;                                                  \
@@ -3687,7 +3719,7 @@ lace_task* NAME##_SPAWN(lace_worker* _lace_worker, ATYPE_1 arg_1, ATYPE_2 arg_2,
         head = (uint32_t)(lace_head - _lace_worker->dq);                              \
         split = (uint32_t)(_lace_worker->split - _lace_worker->dq);                   \
         newsplit = (split + head + 2)/2;                                              \
-        atomic_store_explicit(&wt->ts.ts.split, newsplit, memory_order_relaxed);      \
+        atomic_store_explicit(&wt->ts.ts.split, newsplit, memory_order_release);      \
         _lace_worker->split = _lace_worker->dq + newsplit;                            \
         wt->movesplit = 0;                                                            \
         PR_COUNTSPLITS(_lace_worker, CTR_split_grow);                                 \
@@ -3819,8 +3851,10 @@ lace_task* NAME##_SPAWN(lace_worker* _lace_worker, ATYPE_1 arg_1, ATYPE_2 arg_2,
     t->f = &NAME##_WRAP;                                                              \
     atomic_store_explicit(&t->thief, THIEF_TASK, memory_order_relaxed);               \
      t->d.args.arg_1 = arg_1; t->d.args.arg_2 = arg_2; t->d.args.arg_3 = arg_3; t->d.args.arg_4 = arg_4; t->d.args.arg_5 = arg_5; t->d.args.arg_6 = arg_6; t->d.args.arg_7 = arg_7; t->d.args.arg_8 = arg_8;\
-    atomic_thread_fence(memory_order_release);                                        \
-    /* do not allow later stores to float above */                                    \
+    /* The task is in the private part of the deque, where thieves cannot take        \
+     * it. It becomes stealable only when the split moves above it: those             \
+     * stores (here, in lace_make_all_shared and in lace_sync) are release            \
+     * stores, so a thief that steals it sees it written. No fence here. */           \
                                                                                       \
     lace_worker_public *wt = lace_worker_public_of(_lace_worker);                     \
     if (LACE_UNLIKELY(_lace_worker->allstolen)) {                                     \
@@ -3828,7 +3862,7 @@ lace_task* NAME##_SPAWN(lace_worker* _lace_worker, ATYPE_1 arg_1, ATYPE_2 arg_2,
         head = (uint32_t)(lace_head - _lace_worker->dq);                              \
         ts.ts.tail = head;                                                            \
         ts.ts.split = head+1;                                                         \
-        atomic_store_explicit(&wt->ts.v, ts.v, memory_order_relaxed);;                \
+        atomic_store_explicit(&wt->ts.v, ts.v, memory_order_release);                 \
         wt->allstolen = 0;                                                            \
         _lace_worker->split = lace_head+1;                                            \
         _lace_worker->allstolen = 0;                                                  \
@@ -3836,7 +3870,7 @@ lace_task* NAME##_SPAWN(lace_worker* _lace_worker, ATYPE_1 arg_1, ATYPE_2 arg_2,
         head = (uint32_t)(lace_head - _lace_worker->dq);                              \
         split = (uint32_t)(_lace_worker->split - _lace_worker->dq);                   \
         newsplit = (split + head + 2)/2;                                              \
-        atomic_store_explicit(&wt->ts.ts.split, newsplit, memory_order_relaxed);      \
+        atomic_store_explicit(&wt->ts.ts.split, newsplit, memory_order_release);      \
         _lace_worker->split = _lace_worker->dq + newsplit;                            \
         wt->movesplit = 0;                                                            \
         PR_COUNTSPLITS(_lace_worker, CTR_split_grow);                                 \
@@ -3965,8 +3999,10 @@ lace_task* NAME##_SPAWN(lace_worker* _lace_worker, ATYPE_1 arg_1, ATYPE_2 arg_2,
     t->f = &NAME##_WRAP;                                                              \
     atomic_store_explicit(&t->thief, THIEF_TASK, memory_order_relaxed);               \
      t->d.args.arg_1 = arg_1; t->d.args.arg_2 = arg_2; t->d.args.arg_3 = arg_3; t->d.args.arg_4 = arg_4; t->d.args.arg_5 = arg_5; t->d.args.arg_6 = arg_6; t->d.args.arg_7 = arg_7; t->d.args.arg_8 = arg_8;\
-    atomic_thread_fence(memory_order_release);                                        \
-    /* do not allow later stores to float above */                                    \
+    /* The task is in the private part of the deque, where thieves cannot take        \
+     * it. It becomes stealable only when the split moves above it: those             \
+     * stores (here, in lace_make_all_shared and in lace_sync) are release            \
+     * stores, so a thief that steals it sees it written. No fence here. */           \
                                                                                       \
     lace_worker_public *wt = lace_worker_public_of(_lace_worker);                     \
     if (LACE_UNLIKELY(_lace_worker->allstolen)) {                                     \
@@ -3974,7 +4010,7 @@ lace_task* NAME##_SPAWN(lace_worker* _lace_worker, ATYPE_1 arg_1, ATYPE_2 arg_2,
         head = (uint32_t)(lace_head - _lace_worker->dq);                              \
         ts.ts.tail = head;                                                            \
         ts.ts.split = head+1;                                                         \
-        atomic_store_explicit(&wt->ts.v, ts.v, memory_order_relaxed);;                \
+        atomic_store_explicit(&wt->ts.v, ts.v, memory_order_release);                 \
         wt->allstolen = 0;                                                            \
         _lace_worker->split = lace_head+1;                                            \
         _lace_worker->allstolen = 0;                                                  \
@@ -3982,7 +4018,7 @@ lace_task* NAME##_SPAWN(lace_worker* _lace_worker, ATYPE_1 arg_1, ATYPE_2 arg_2,
         head = (uint32_t)(lace_head - _lace_worker->dq);                              \
         split = (uint32_t)(_lace_worker->split - _lace_worker->dq);                   \
         newsplit = (split + head + 2)/2;                                              \
-        atomic_store_explicit(&wt->ts.ts.split, newsplit, memory_order_relaxed);      \
+        atomic_store_explicit(&wt->ts.ts.split, newsplit, memory_order_release);      \
         _lace_worker->split = _lace_worker->dq + newsplit;                            \
         wt->movesplit = 0;                                                            \
         PR_COUNTSPLITS(_lace_worker, CTR_split_grow);                                 \
@@ -4114,8 +4150,10 @@ lace_task* NAME##_SPAWN(lace_worker* _lace_worker, ATYPE_1 arg_1, ATYPE_2 arg_2,
     t->f = &NAME##_WRAP;                                                              \
     atomic_store_explicit(&t->thief, THIEF_TASK, memory_order_relaxed);               \
      t->d.args.arg_1 = arg_1; t->d.args.arg_2 = arg_2; t->d.args.arg_3 = arg_3; t->d.args.arg_4 = arg_4; t->d.args.arg_5 = arg_5; t->d.args.arg_6 = arg_6; t->d.args.arg_7 = arg_7; t->d.args.arg_8 = arg_8; t->d.args.arg_9 = arg_9;\
-    atomic_thread_fence(memory_order_release);                                        \
-    /* do not allow later stores to float above */                                    \
+    /* The task is in the private part of the deque, where thieves cannot take        \
+     * it. It becomes stealable only when the split moves above it: those             \
+     * stores (here, in lace_make_all_shared and in lace_sync) are release            \
+     * stores, so a thief that steals it sees it written. No fence here. */           \
                                                                                       \
     lace_worker_public *wt = lace_worker_public_of(_lace_worker);                     \
     if (LACE_UNLIKELY(_lace_worker->allstolen)) {                                     \
@@ -4123,7 +4161,7 @@ lace_task* NAME##_SPAWN(lace_worker* _lace_worker, ATYPE_1 arg_1, ATYPE_2 arg_2,
         head = (uint32_t)(lace_head - _lace_worker->dq);                              \
         ts.ts.tail = head;                                                            \
         ts.ts.split = head+1;                                                         \
-        atomic_store_explicit(&wt->ts.v, ts.v, memory_order_relaxed);;                \
+        atomic_store_explicit(&wt->ts.v, ts.v, memory_order_release);                 \
         wt->allstolen = 0;                                                            \
         _lace_worker->split = lace_head+1;                                            \
         _lace_worker->allstolen = 0;                                                  \
@@ -4131,7 +4169,7 @@ lace_task* NAME##_SPAWN(lace_worker* _lace_worker, ATYPE_1 arg_1, ATYPE_2 arg_2,
         head = (uint32_t)(lace_head - _lace_worker->dq);                              \
         split = (uint32_t)(_lace_worker->split - _lace_worker->dq);                   \
         newsplit = (split + head + 2)/2;                                              \
-        atomic_store_explicit(&wt->ts.ts.split, newsplit, memory_order_relaxed);      \
+        atomic_store_explicit(&wt->ts.ts.split, newsplit, memory_order_release);      \
         _lace_worker->split = _lace_worker->dq + newsplit;                            \
         wt->movesplit = 0;                                                            \
         PR_COUNTSPLITS(_lace_worker, CTR_split_grow);                                 \
@@ -4260,8 +4298,10 @@ lace_task* NAME##_SPAWN(lace_worker* _lace_worker, ATYPE_1 arg_1, ATYPE_2 arg_2,
     t->f = &NAME##_WRAP;                                                              \
     atomic_store_explicit(&t->thief, THIEF_TASK, memory_order_relaxed);               \
      t->d.args.arg_1 = arg_1; t->d.args.arg_2 = arg_2; t->d.args.arg_3 = arg_3; t->d.args.arg_4 = arg_4; t->d.args.arg_5 = arg_5; t->d.args.arg_6 = arg_6; t->d.args.arg_7 = arg_7; t->d.args.arg_8 = arg_8; t->d.args.arg_9 = arg_9;\
-    atomic_thread_fence(memory_order_release);                                        \
-    /* do not allow later stores to float above */                                    \
+    /* The task is in the private part of the deque, where thieves cannot take        \
+     * it. It becomes stealable only when the split moves above it: those             \
+     * stores (here, in lace_make_all_shared and in lace_sync) are release            \
+     * stores, so a thief that steals it sees it written. No fence here. */           \
                                                                                       \
     lace_worker_public *wt = lace_worker_public_of(_lace_worker);                     \
     if (LACE_UNLIKELY(_lace_worker->allstolen)) {                                     \
@@ -4269,7 +4309,7 @@ lace_task* NAME##_SPAWN(lace_worker* _lace_worker, ATYPE_1 arg_1, ATYPE_2 arg_2,
         head = (uint32_t)(lace_head - _lace_worker->dq);                              \
         ts.ts.tail = head;                                                            \
         ts.ts.split = head+1;                                                         \
-        atomic_store_explicit(&wt->ts.v, ts.v, memory_order_relaxed);;                \
+        atomic_store_explicit(&wt->ts.v, ts.v, memory_order_release);                 \
         wt->allstolen = 0;                                                            \
         _lace_worker->split = lace_head+1;                                            \
         _lace_worker->allstolen = 0;                                                  \
@@ -4277,7 +4317,7 @@ lace_task* NAME##_SPAWN(lace_worker* _lace_worker, ATYPE_1 arg_1, ATYPE_2 arg_2,
         head = (uint32_t)(lace_head - _lace_worker->dq);                              \
         split = (uint32_t)(_lace_worker->split - _lace_worker->dq);                   \
         newsplit = (split + head + 2)/2;                                              \
-        atomic_store_explicit(&wt->ts.ts.split, newsplit, memory_order_relaxed);      \
+        atomic_store_explicit(&wt->ts.ts.split, newsplit, memory_order_release);      \
         _lace_worker->split = _lace_worker->dq + newsplit;                            \
         wt->movesplit = 0;                                                            \
         PR_COUNTSPLITS(_lace_worker, CTR_split_grow);                                 \
@@ -4409,8 +4449,10 @@ lace_task* NAME##_SPAWN(lace_worker* _lace_worker, ATYPE_1 arg_1, ATYPE_2 arg_2,
     t->f = &NAME##_WRAP;                                                              \
     atomic_store_explicit(&t->thief, THIEF_TASK, memory_order_relaxed);               \
      t->d.args.arg_1 = arg_1; t->d.args.arg_2 = arg_2; t->d.args.arg_3 = arg_3; t->d.args.arg_4 = arg_4; t->d.args.arg_5 = arg_5; t->d.args.arg_6 = arg_6; t->d.args.arg_7 = arg_7; t->d.args.arg_8 = arg_8; t->d.args.arg_9 = arg_9; t->d.args.arg_10 = arg_10;\
-    atomic_thread_fence(memory_order_release);                                        \
-    /* do not allow later stores to float above */                                    \
+    /* The task is in the private part of the deque, where thieves cannot take        \
+     * it. It becomes stealable only when the split moves above it: those             \
+     * stores (here, in lace_make_all_shared and in lace_sync) are release            \
+     * stores, so a thief that steals it sees it written. No fence here. */           \
                                                                                       \
     lace_worker_public *wt = lace_worker_public_of(_lace_worker);                     \
     if (LACE_UNLIKELY(_lace_worker->allstolen)) {                                     \
@@ -4418,7 +4460,7 @@ lace_task* NAME##_SPAWN(lace_worker* _lace_worker, ATYPE_1 arg_1, ATYPE_2 arg_2,
         head = (uint32_t)(lace_head - _lace_worker->dq);                              \
         ts.ts.tail = head;                                                            \
         ts.ts.split = head+1;                                                         \
-        atomic_store_explicit(&wt->ts.v, ts.v, memory_order_relaxed);;                \
+        atomic_store_explicit(&wt->ts.v, ts.v, memory_order_release);                 \
         wt->allstolen = 0;                                                            \
         _lace_worker->split = lace_head+1;                                            \
         _lace_worker->allstolen = 0;                                                  \
@@ -4426,7 +4468,7 @@ lace_task* NAME##_SPAWN(lace_worker* _lace_worker, ATYPE_1 arg_1, ATYPE_2 arg_2,
         head = (uint32_t)(lace_head - _lace_worker->dq);                              \
         split = (uint32_t)(_lace_worker->split - _lace_worker->dq);                   \
         newsplit = (split + head + 2)/2;                                              \
-        atomic_store_explicit(&wt->ts.ts.split, newsplit, memory_order_relaxed);      \
+        atomic_store_explicit(&wt->ts.ts.split, newsplit, memory_order_release);      \
         _lace_worker->split = _lace_worker->dq + newsplit;                            \
         wt->movesplit = 0;                                                            \
         PR_COUNTSPLITS(_lace_worker, CTR_split_grow);                                 \
@@ -4555,8 +4597,10 @@ lace_task* NAME##_SPAWN(lace_worker* _lace_worker, ATYPE_1 arg_1, ATYPE_2 arg_2,
     t->f = &NAME##_WRAP;                                                              \
     atomic_store_explicit(&t->thief, THIEF_TASK, memory_order_relaxed);               \
      t->d.args.arg_1 = arg_1; t->d.args.arg_2 = arg_2; t->d.args.arg_3 = arg_3; t->d.args.arg_4 = arg_4; t->d.args.arg_5 = arg_5; t->d.args.arg_6 = arg_6; t->d.args.arg_7 = arg_7; t->d.args.arg_8 = arg_8; t->d.args.arg_9 = arg_9; t->d.args.arg_10 = arg_10;\
-    atomic_thread_fence(memory_order_release);                                        \
-    /* do not allow later stores to float above */                                    \
+    /* The task is in the private part of the deque, where thieves cannot take        \
+     * it. It becomes stealable only when the split moves above it: those             \
+     * stores (here, in lace_make_all_shared and in lace_sync) are release            \
+     * stores, so a thief that steals it sees it written. No fence here. */           \
                                                                                       \
     lace_worker_public *wt = lace_worker_public_of(_lace_worker);                     \
     if (LACE_UNLIKELY(_lace_worker->allstolen)) {                                     \
@@ -4564,7 +4608,7 @@ lace_task* NAME##_SPAWN(lace_worker* _lace_worker, ATYPE_1 arg_1, ATYPE_2 arg_2,
         head = (uint32_t)(lace_head - _lace_worker->dq);                              \
         ts.ts.tail = head;                                                            \
         ts.ts.split = head+1;                                                         \
-        atomic_store_explicit(&wt->ts.v, ts.v, memory_order_relaxed);;                \
+        atomic_store_explicit(&wt->ts.v, ts.v, memory_order_release);                 \
         wt->allstolen = 0;                                                            \
         _lace_worker->split = lace_head+1;                                            \
         _lace_worker->allstolen = 0;                                                  \
@@ -4572,7 +4616,7 @@ lace_task* NAME##_SPAWN(lace_worker* _lace_worker, ATYPE_1 arg_1, ATYPE_2 arg_2,
         head = (uint32_t)(lace_head - _lace_worker->dq);                              \
         split = (uint32_t)(_lace_worker->split - _lace_worker->dq);                   \
         newsplit = (split + head + 2)/2;                                              \
-        atomic_store_explicit(&wt->ts.ts.split, newsplit, memory_order_relaxed);      \
+        atomic_store_explicit(&wt->ts.ts.split, newsplit, memory_order_release);      \
         _lace_worker->split = _lace_worker->dq + newsplit;                            \
         wt->movesplit = 0;                                                            \
         PR_COUNTSPLITS(_lace_worker, CTR_split_grow);                                 \
