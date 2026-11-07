@@ -1,0 +1,212 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" data-content_root="./">
+<head>
+  <meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Your own threads &mdash; Lace 2.5.0</title>
+      <link rel="stylesheet" type="text/css" href="_static/pygments.css?v=03e43079" />
+      <link rel="stylesheet" type="text/css" href="_static/css/theme.css?v=9edc463e" />
+      <link rel="stylesheet" type="text/css" href="_static/custom.css?v=c24bd327" />
+
+  
+      <script src="_static/jquery.js?v=5d32c60e"></script>
+      <script src="_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+      <script src="_static/documentation_options.js?v=3c4615cf"></script>
+      <script src="_static/doctools.js?v=fd6eb6e6"></script>
+      <script src="_static/sphinx_highlight.js?v=6ffebe34"></script>
+    <script src="_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="genindex.html" />
+    <link rel="search" title="Search" href="search.html" />
+    <link rel="next" title="Design Notes" href="design.html" />
+    <link rel="prev" title="Defining Tasks" href="tasks.html" /> 
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="index.html" class="icon icon-home">
+            Lace 2.5.0
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <p class="caption" role="heading"><span class="caption-text">User Guide</span></p>
+<ul class="current">
+<li class="toctree-l1"><a class="reference internal" href="getting-started.html">Getting Started</a></li>
+<li class="toctree-l1"><a class="reference internal" href="building.html">Building</a></li>
+<li class="toctree-l1"><a class="reference internal" href="variants.html">Choosing a Variant</a></li>
+<li class="toctree-l1"><a class="reference internal" href="tasks.html">Defining Tasks</a></li>
+<li class="toctree-l1 current"><a class="current reference internal" href="#">Your own threads</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="#starting-and-stopping">Starting and stopping</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#rules">Rules</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#stacks-and-pinning">Stacks and pinning</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="design.html">Design Notes</a></li>
+<li class="toctree-l1"><a class="reference internal" href="scheduling-experiments.html">Scheduling Experiments (2026)</a></li>
+<li class="toctree-l1"><a class="reference internal" href="benchmarks.html">Benchmarks</a></li>
+<li class="toctree-l1"><a class="reference internal" href="migrating.html">Migrating from Lace v1</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">API Reference</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="api/lifecycle.html">Lifecycle</a></li>
+<li class="toctree-l1"><a class="reference internal" href="api/workers.html">Worker Context</a></li>
+<li class="toctree-l1"><a class="reference internal" href="api/operations.html">Task Operations</a></li>
+<li class="toctree-l1"><a class="reference internal" href="api/scratch.html">Scratch Arena</a></li>
+<li class="toctree-l1"><a class="reference internal" href="api/stats.html">Statistics</a></li>
+<li class="toctree-l1"><a class="reference internal" href="api/misc.html">Miscellaneous</a></li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="index.html">Lace 2.5.0</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="index.html" class="icon icon-home" aria-label="Home"></a></li>
+      <li class="breadcrumb-item active">Your own threads</li>
+      <li class="wy-breadcrumbs-aside">
+            <a href="_sources/threads.rst.txt" rel="nofollow"> View page source</a>
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <section id="your-own-threads">
+<h1>Your own threads<a class="headerlink" href="#your-own-threads" title="Link to this heading"></a></h1>
+<p><code class="docutils literal notranslate"><span class="pre">lace_start</span></code> creates the worker threads. Some programs need their own
+threads as the workers instead: a runtime that creates its threads itself and
+runs the same code in all of them (such as the HRE runtime of LTSmin), threads
+that carry the program’s own thread-local state, or a program that places its
+threads itself. <code class="docutils literal notranslate"><span class="pre">lace_start_external</span></code> starts Lace without creating threads,
+and the program’s threads join as workers.</p>
+<section id="starting-and-stopping">
+<h2>Starting and stopping<a class="headerlink" href="#starting-and-stopping" title="Link to this heading"></a></h2>
+<p>Start Lace once, with the number of threads that will join. The threads may
+already run, but each enters only after <code class="docutils literal notranslate"><span class="pre">lace_start_external</span></code> has returned,
+for example after a barrier of the program’s runtime, or by creating the
+threads afterwards. Each thread enters with its own worker id, from 0 to
+<code class="docutils literal notranslate"><span class="pre">n</span> <span class="pre">-</span> <span class="pre">1</span></code>, and <code class="docutils literal notranslate"><span class="pre">lace_worker_enter</span></code> returns once all <code class="docutils literal notranslate"><span class="pre">n</span></code> threads have
+entered: the workers start together. A thread that only works steals until
+Lace stops; one thread can instead generate the tasks itself:</p>
+<div class="highlight-c notranslate"><div class="highlight"><pre><span></span><span class="n">lace_start_external</span><span class="p">(</span><span class="n">n</span><span class="p">,</span><span class="w"> </span><span class="mi">0</span><span class="p">);</span><span class="w">       </span><span class="c1">// before any thread enters</span>
+
+<span class="c1">// in each of the n threads, with its own id</span>
+<span class="kt">void</span><span class="w"> </span><span class="nf">thread_main</span><span class="p">(</span><span class="kt">unsigned</span><span class="w"> </span><span class="kt">int</span><span class="w"> </span><span class="n">id</span><span class="p">)</span>
+<span class="p">{</span>
+<span class="w">    </span><span class="n">lace_worker_enter</span><span class="p">(</span><span class="n">id</span><span class="p">);</span>
+<span class="w">    </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">id</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="mi">0</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+<span class="w">        </span><span class="n">root</span><span class="p">(...);</span><span class="w">               </span><span class="c1">// runs as worker 0; the others steal its tasks</span>
+<span class="w">        </span><span class="n">lace_worker_leave</span><span class="p">();</span>
+<span class="w">        </span><span class="n">lace_stop</span><span class="p">();</span><span class="w">             </span><span class="c1">// the others' loops return; waits until all have left</span>
+<span class="w">    </span><span class="p">}</span><span class="w"> </span><span class="k">else</span><span class="w"> </span><span class="p">{</span>
+<span class="w">        </span><span class="n">lace_worker_loop</span><span class="p">();</span><span class="w">      </span><span class="c1">// steal and run tasks until lace_stop</span>
+<span class="w">        </span><span class="n">lace_worker_leave</span><span class="p">();</span>
+<span class="w">    </span><span class="p">}</span>
+<span class="p">}</span>
+
+<span class="c1">// afterwards the program joins its threads</span>
+</pre></div>
+</div>
+<p>Worker 0 in this example is a worker like the others: other workers steal its
+tasks, and when it waits for a stolen task at a <code class="docutils literal notranslate"><span class="pre">SYNC</span></code>, it steals from the
+thief (leapfrogging), but it does not look for work elsewhere.</p>
+<p>All <code class="docutils literal notranslate"><span class="pre">n</span></code> threads can also just steal. Then another thread, which is not a
+worker, calls the tasks as usual (<code class="docutils literal notranslate"><span class="pre">fib(42)</span></code>) and finally <code class="docutils literal notranslate"><span class="pre">lace_stop()</span></code>.</p>
+<p><code class="docutils literal notranslate"><span class="pre">lace_stop</span></code> makes every <code class="docutils literal notranslate"><span class="pre">lace_worker_loop</span></code> return and waits until all
+<code class="docutils literal notranslate"><span class="pre">n</span></code> workers have left; then it frees what Lace allocated. After that, Lace
+can be started again, with <code class="docutils literal notranslate"><span class="pre">lace_start</span></code> or <code class="docutils literal notranslate"><span class="pre">lace_start_external</span></code>, and any
+thread can take any worker id.</p>
+</section>
+<section id="rules">
+<h2>Rules<a class="headerlink" href="#rules" title="Link to this heading"></a></h2>
+<ul class="simple">
+<li><p>Each worker id is entered by one thread per run, and a thread is at most one
+worker at a time. Every id must be entered: <code class="docutils literal notranslate"><span class="pre">lace_worker_enter</span></code> waits for
+all <code class="docutils literal notranslate"><span class="pre">n</span></code> threads, and so does <code class="docutils literal notranslate"><span class="pre">lace_stop</span></code>.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">lace_worker_leave</span></code> and <code class="docutils literal notranslate"><span class="pre">lace_stop</span></code> are never called from inside a task.
+<code class="docutils literal notranslate"><span class="pre">lace_stop</span></code> is called by a thread that is not a worker, or that has left.</p></li>
+<li><p>A worker that does not steal, such as worker 0 above, still takes part in
+<code class="docutils literal notranslate"><span class="pre">TOGETHER</span></code> and <code class="docutils literal notranslate"><span class="pre">NEWFRAME</span></code>, which wait for all workers: between tasks it
+should not do long work outside Lace. While it is a worker, the idle workers
+stay ready to steal its tasks, so it should leave when it is done.</p></li>
+</ul>
+<p>Lace reports a broken rule that it can detect, such as a second thread with
+the same id, a <code class="docutils literal notranslate"><span class="pre">lace_worker_leave</span></code> from inside a task or a <code class="docutils literal notranslate"><span class="pre">lace_stop</span></code> by a
+worker, and exits.</p>
+</section>
+<section id="stacks-and-pinning">
+<h2>Stacks and pinning<a class="headerlink" href="#stacks-and-pinning" title="Link to this heading"></a></h2>
+<p>The threads run on their own stacks. Lace’s own threads reserve 1 GB of stack
+each, because a waiting worker can hold several paths of a deep task tree on
+its stack (see <a class="reference internal" href="design.html"><span class="doc">Design Notes</span></a>); threads that join Lace need large stacks for
+deep task trees too.</p>
+<p>Lace pins the threads only when the program asks for it, with
+<code class="docutils literal notranslate"><span class="pre">lace_set_pinning</span></code>, <code class="docutils literal notranslate"><span class="pre">lace_set_pin_cpus</span></code> or the <code class="docutils literal notranslate"><span class="pre">LACE_PIN</span></code> environment
+variable, before <code class="docutils literal notranslate"><span class="pre">lace_start_external</span></code> (see <em>Worker pinning</em> in
+<a class="reference internal" href="building.html"><span class="doc">Building</span></a>). The CMake option <code class="docutils literal notranslate"><span class="pre">LACE_DEFAULT_PIN</span></code> does not apply: the
+program may place its threads itself. A thread that leaves gets its affinity
+back (on Linux also its timer slack, which Lace lowers for idle workers).</p>
+<div class="highlight-c notranslate"><div class="highlight"><pre><span></span><span class="n">lace_set_pinning</span><span class="p">(</span><span class="n">LACE_PIN_CORE</span><span class="p">);</span><span class="w"> </span><span class="c1">// optional: let Lace pin the threads</span>
+<span class="n">lace_start_external</span><span class="p">(</span><span class="n">n</span><span class="p">,</span><span class="w"> </span><span class="mi">0</span><span class="p">);</span>
+</pre></div>
+</div>
+<p>Each worker allocates its task deque when it enters, so the memory is local to
+where the thread runs.</p>
+</section>
+</section>
+
+
+           </div>
+          </div>
+          <footer><div class="rst-footer-buttons" role="navigation" aria-label="Footer">
+        <a href="tasks.html" class="btn btn-neutral float-left" title="Defining Tasks" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
+        <a href="design.html" class="btn btn-neutral float-right" title="Design Notes" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
+    </div>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright 2026, Tom van Dijk.</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>

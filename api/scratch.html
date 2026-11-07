@@ -1,0 +1,200 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" data-content_root="../">
+<head>
+  <meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Scratch Arena &mdash; Lace 2.5.0</title>
+      <link rel="stylesheet" type="text/css" href="../_static/pygments.css?v=03e43079" />
+      <link rel="stylesheet" type="text/css" href="../_static/css/theme.css?v=9edc463e" />
+      <link rel="stylesheet" type="text/css" href="../_static/custom.css?v=c24bd327" />
+
+  
+      <script src="../_static/jquery.js?v=5d32c60e"></script>
+      <script src="../_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+      <script src="../_static/documentation_options.js?v=3c4615cf"></script>
+      <script src="../_static/doctools.js?v=fd6eb6e6"></script>
+      <script src="../_static/sphinx_highlight.js?v=6ffebe34"></script>
+    <script src="../_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="../genindex.html" />
+    <link rel="search" title="Search" href="../search.html" />
+    <link rel="next" title="Statistics" href="stats.html" />
+    <link rel="prev" title="Task Operations" href="operations.html" /> 
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="../index.html" class="icon icon-home">
+            Lace 2.5.0
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="../search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <p class="caption" role="heading"><span class="caption-text">User Guide</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../getting-started.html">Getting Started</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../building.html">Building</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../variants.html">Choosing a Variant</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../tasks.html">Defining Tasks</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../threads.html">Your own threads</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../design.html">Design Notes</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../scheduling-experiments.html">Scheduling Experiments (2026)</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../benchmarks.html">Benchmarks</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../migrating.html">Migrating from Lace v1</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">API Reference</span></p>
+<ul class="current">
+<li class="toctree-l1"><a class="reference internal" href="lifecycle.html">Lifecycle</a></li>
+<li class="toctree-l1"><a class="reference internal" href="workers.html">Worker Context</a></li>
+<li class="toctree-l1"><a class="reference internal" href="operations.html">Task Operations</a></li>
+<li class="toctree-l1 current"><a class="current reference internal" href="#">Scratch Arena</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="#_CPPv418lace_scratch_allocP11lace_worker6size_t"><code class="docutils literal notranslate"><span class="pre">lace_scratch_alloc()</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="#_CPPv418lace_scratch_arrayP11lace_worker6size_t6size_t"><code class="docutils literal notranslate"><span class="pre">lace_scratch_array()</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="#_CPPv417lace_scratch_markP11lace_worker"><code class="docutils literal notranslate"><span class="pre">lace_scratch_mark()</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="#_CPPv418lace_scratch_resetP11lace_workerPv"><code class="docutils literal notranslate"><span class="pre">lace_scratch_reset()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="stats.html">Statistics</a></li>
+<li class="toctree-l1"><a class="reference internal" href="misc.html">Miscellaneous</a></li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="../index.html">Lace 2.5.0</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="../index.html" class="icon icon-home" aria-label="Home"></a></li>
+      <li class="breadcrumb-item active">Scratch Arena</li>
+      <li class="wy-breadcrumbs-aside">
+            <a href="../_sources/api/scratch.rst.txt" rel="nofollow"> View page source</a>
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <section id="scratch-arena">
+<h1>Scratch Arena<a class="headerlink" href="#scratch-arena" title="Link to this heading"></a></h1>
+<dl class="cpp function">
+<dt class="sig sig-object cpp" id="_CPPv418lace_scratch_allocP11lace_worker6size_t">
+<span id="_CPPv318lace_scratch_allocP11lace_worker6size_t"></span><span id="_CPPv218lace_scratch_allocP11lace_worker6size_t"></span><span id="lace_scratch_alloc__lace_workerP.s"></span><span class="target" id="group__lace__scratch_1ga021427fa4a4c0db759ce0f6b9013c210"></span><span class="k"><span class="pre">static</span></span><span class="w"> </span><span class="k"><span class="pre">inline</span></span><span class="w"> </span><span class="kt"><span class="pre">void</span></span><span class="w"> </span><span class="p"><span class="pre">*</span></span><span class="sig-name descname"><span class="n"><span class="pre">lace_scratch_alloc</span></span></span><span class="sig-paren">(</span><span class="n"><span class="pre">lace_worker</span></span><span class="w"> </span><span class="p"><span class="pre">*</span></span><span class="n sig-param"><span class="pre">lw</span></span>, <span class="n"><span class="pre">size_t</span></span><span class="w"> </span><span class="n sig-param"><span class="pre">size</span></span><span class="sig-paren">)</span><a class="headerlink" href="#_CPPv418lace_scratch_allocP11lace_worker6size_t" title="Link to this definition"></a><br /></dt>
+<dd><p>Allocate <code class="docutils literal notranslate"><span class="pre">size</span></code> bytes from the calling worker’s scratch arena. </p>
+<p>Allocations are aligned to 16 bytes (max_align_t). The returned pointer is valid until the caller releases it with <a class="reference internal" href="#group__lace__scratch_1ga13eb1f4ef0d645ff84474e39c8669ecd"><span class="std std-ref">lace_scratch_reset()</span></a>, or until the task that allocated it returns after a matching reset. If the reservation is exhausted, the program aborts.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>lw</strong> – Pointer to the current worker </p></li>
+<li><p><strong>size</strong> – Number of bytes to allocate </p></li>
+</ul>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>Pointer to allocated memory </p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="cpp function">
+<dt class="sig sig-object cpp" id="_CPPv418lace_scratch_arrayP11lace_worker6size_t6size_t">
+<span id="_CPPv318lace_scratch_arrayP11lace_worker6size_t6size_t"></span><span id="_CPPv218lace_scratch_arrayP11lace_worker6size_t6size_t"></span><span id="lace_scratch_array__lace_workerP.s.s"></span><span class="target" id="group__lace__scratch_1ga91215f3a5176fd29c3f2450d7fb23218"></span><span class="k"><span class="pre">static</span></span><span class="w"> </span><span class="k"><span class="pre">inline</span></span><span class="w"> </span><span class="kt"><span class="pre">void</span></span><span class="w"> </span><span class="p"><span class="pre">*</span></span><span class="sig-name descname"><span class="n"><span class="pre">lace_scratch_array</span></span></span><span class="sig-paren">(</span><span class="n"><span class="pre">lace_worker</span></span><span class="w"> </span><span class="p"><span class="pre">*</span></span><span class="n sig-param"><span class="pre">lw</span></span>, <span class="n"><span class="pre">size_t</span></span><span class="w"> </span><span class="n sig-param"><span class="pre">count</span></span>, <span class="n"><span class="pre">size_t</span></span><span class="w"> </span><span class="n sig-param"><span class="pre">elem_size</span></span><span class="sig-paren">)</span><a class="headerlink" href="#_CPPv418lace_scratch_arrayP11lace_worker6size_t6size_t" title="Link to this definition"></a><br /></dt>
+<dd><p>Allocate an array of <code class="docutils literal notranslate"><span class="pre">count</span></code> elements of size <code class="docutils literal notranslate"><span class="pre">elem_size</span></code> from the calling worker’s scratch arena. </p>
+<p>This is a convenience wrapper around <a class="reference internal" href="#group__lace__scratch_1ga021427fa4a4c0db759ce0f6b9013c210"><span class="std std-ref">lace_scratch_alloc()</span></a>. The allocation has the same lifetime and alignment guarantees as <a class="reference internal" href="#group__lace__scratch_1ga021427fa4a4c0db759ce0f6b9013c210"><span class="std std-ref">lace_scratch_alloc()</span></a>. The function checks for multiplication overflow and aborts if the requested array size cannot be represented as a size_t.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>lw</strong> – Pointer to the current worker </p></li>
+<li><p><strong>count</strong> – Number of elements to allocate </p></li>
+<li><p><strong>elem_size</strong> – Size of each element in bytes </p></li>
+</ul>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>Pointer to allocated memory </p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="cpp function">
+<dt class="sig sig-object cpp" id="_CPPv417lace_scratch_markP11lace_worker">
+<span id="_CPPv317lace_scratch_markP11lace_worker"></span><span id="_CPPv217lace_scratch_markP11lace_worker"></span><span id="lace_scratch_mark__lace_workerP"></span><span class="target" id="group__lace__scratch_1gad879cd1dba5f6f6ab62385c91ef8956a"></span><span class="k"><span class="pre">static</span></span><span class="w"> </span><span class="k"><span class="pre">inline</span></span><span class="w"> </span><span class="kt"><span class="pre">void</span></span><span class="w"> </span><span class="p"><span class="pre">*</span></span><span class="sig-name descname"><span class="n"><span class="pre">lace_scratch_mark</span></span></span><span class="sig-paren">(</span><span class="n"><span class="pre">lace_worker</span></span><span class="w"> </span><span class="p"><span class="pre">*</span></span><span class="n sig-param"><span class="pre">lw</span></span><span class="sig-paren">)</span><a class="headerlink" href="#_CPPv417lace_scratch_markP11lace_worker" title="Link to this definition"></a><br /></dt>
+<dd><p>Save the current scratch arena position. </p>
+<p>Pair every mark with a <a class="reference internal" href="#group__lace__scratch_1ga13eb1f4ef0d645ff84474e39c8669ecd"><span class="std std-ref">lace_scratch_reset()</span></a> before the enclosing function returns, on every return path.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>lw</strong> – Pointer to the current worker </p>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>Opaque mark representing the current top-of-arena position </p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="cpp function">
+<dt class="sig sig-object cpp" id="_CPPv418lace_scratch_resetP11lace_workerPv">
+<span id="_CPPv318lace_scratch_resetP11lace_workerPv"></span><span id="_CPPv218lace_scratch_resetP11lace_workerPv"></span><span id="lace_scratch_reset__lace_workerP.voidP"></span><span class="target" id="group__lace__scratch_1ga13eb1f4ef0d645ff84474e39c8669ecd"></span><span class="k"><span class="pre">static</span></span><span class="w"> </span><span class="k"><span class="pre">inline</span></span><span class="w"> </span><span class="kt"><span class="pre">void</span></span><span class="w"> </span><span class="sig-name descname"><span class="n"><span class="pre">lace_scratch_reset</span></span></span><span class="sig-paren">(</span><span class="n"><span class="pre">lace_worker</span></span><span class="w"> </span><span class="p"><span class="pre">*</span></span><span class="n sig-param"><span class="pre">lw</span></span>, <span class="kt"><span class="pre">void</span></span><span class="w"> </span><span class="p"><span class="pre">*</span></span><span class="n sig-param"><span class="pre">mark</span></span><span class="sig-paren">)</span><a class="headerlink" href="#_CPPv418lace_scratch_resetP11lace_workerPv" title="Link to this definition"></a><br /></dt>
+<dd><p>Reset the scratch arena to a previously saved mark. </p>
+<p>Frees all scratch allocations made after the corresponding <a class="reference internal" href="#group__lace__scratch_1gad879cd1dba5f6f6ab62385c91ef8956a"><span class="std std-ref">lace_scratch_mark()</span></a> call. The <code class="docutils literal notranslate"><span class="pre">mark</span></code> must have been obtained from the same worker.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>lw</strong> – Pointer to the current worker </p></li>
+<li><p><strong>mark</strong> – Mark previously returned by <a class="reference internal" href="#group__lace__scratch_1gad879cd1dba5f6f6ab62385c91ef8956a"><span class="std std-ref">lace_scratch_mark()</span></a></p></li>
+</ul>
+</dd>
+</dl>
+</dd></dl>
+
+</section>
+
+
+           </div>
+          </div>
+          <footer><div class="rst-footer-buttons" role="navigation" aria-label="Footer">
+        <a href="operations.html" class="btn btn-neutral float-left" title="Task Operations" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
+        <a href="stats.html" class="btn btn-neutral float-right" title="Statistics" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
+    </div>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright 2026, Tom van Dijk.</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>

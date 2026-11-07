@@ -1,0 +1,1063 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" data-content_root="./">
+<head>
+  <meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Scheduling Experiments (2026) &mdash; Lace 2.5.0</title>
+      <link rel="stylesheet" type="text/css" href="_static/pygments.css?v=03e43079" />
+      <link rel="stylesheet" type="text/css" href="_static/css/theme.css?v=9edc463e" />
+      <link rel="stylesheet" type="text/css" href="_static/custom.css?v=c24bd327" />
+
+  
+      <script src="_static/jquery.js?v=5d32c60e"></script>
+      <script src="_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+      <script src="_static/documentation_options.js?v=3c4615cf"></script>
+      <script src="_static/doctools.js?v=fd6eb6e6"></script>
+      <script src="_static/sphinx_highlight.js?v=6ffebe34"></script>
+    <script src="_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="genindex.html" />
+    <link rel="search" title="Search" href="search.html" />
+    <link rel="next" title="Benchmarks" href="benchmarks.html" />
+    <link rel="prev" title="Design Notes" href="design.html" /> 
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="index.html" class="icon icon-home">
+            Lace 2.5.0
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <p class="caption" role="heading"><span class="caption-text">User Guide</span></p>
+<ul class="current">
+<li class="toctree-l1"><a class="reference internal" href="getting-started.html">Getting Started</a></li>
+<li class="toctree-l1"><a class="reference internal" href="building.html">Building</a></li>
+<li class="toctree-l1"><a class="reference internal" href="variants.html">Choosing a Variant</a></li>
+<li class="toctree-l1"><a class="reference internal" href="tasks.html">Defining Tasks</a></li>
+<li class="toctree-l1"><a class="reference internal" href="threads.html">Your own threads</a></li>
+<li class="toctree-l1"><a class="reference internal" href="design.html">Design Notes</a></li>
+<li class="toctree-l1 current"><a class="current reference internal" href="#">Scheduling Experiments (2026)</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="#goals-and-constraints">Goals and constraints</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#method">Method</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="#platforms">Platforms</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#systems-and-benchmarks">Systems and benchmarks</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#ablation">Ablation</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="#leapfrogging">Leapfrogging</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#steal-storms">Steal storms</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#sleeping-and-waking">Sleeping and waking</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#calls-from-outside-lace">Calls from outside Lace</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#pinning">Pinning</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#do-no-harm-sylvan">Do no harm: Sylvan</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#comparison-with-opencilk-and-parlay">Comparison with OpenCilk and Parlay</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#scaling">Scaling</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#tried-and-dropped">Tried and dropped</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#open-issues">Open issues</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="benchmarks.html">Benchmarks</a></li>
+<li class="toctree-l1"><a class="reference internal" href="migrating.html">Migrating from Lace v1</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">API Reference</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="api/lifecycle.html">Lifecycle</a></li>
+<li class="toctree-l1"><a class="reference internal" href="api/workers.html">Worker Context</a></li>
+<li class="toctree-l1"><a class="reference internal" href="api/operations.html">Task Operations</a></li>
+<li class="toctree-l1"><a class="reference internal" href="api/scratch.html">Scratch Arena</a></li>
+<li class="toctree-l1"><a class="reference internal" href="api/stats.html">Statistics</a></li>
+<li class="toctree-l1"><a class="reference internal" href="api/misc.html">Miscellaneous</a></li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="index.html">Lace 2.5.0</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="index.html" class="icon icon-home" aria-label="Home"></a></li>
+      <li class="breadcrumb-item active">Scheduling Experiments (2026)</li>
+      <li class="wy-breadcrumbs-aside">
+            <a href="_sources/scheduling-experiments.rst.txt" rel="nofollow"> View page source</a>
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <section id="scheduling-experiments-2026">
+<h1>Scheduling Experiments (2026)<a class="headerlink" href="#scheduling-experiments-2026" title="Link to this heading"></a></h1>
+<p>This page reports the experiments behind the leapfrogging, idle and pinning
+policies of Lace, and the reasons for each choice. Lace was compared with
+OpenCilk 3.0 and with the scheduler of ParlayLib on several machines, and
+every mechanism had to show a measured benefit to stay in.</p>
+<section id="goals-and-constraints">
+<h2>Goals and constraints<a class="headerlink" href="#goals-and-constraints" title="Link to this heading"></a></h2>
+<ul class="simple">
+<li><p><strong>Fast:</strong> at least as fast as OpenCilk and Parlay on fork-join programs.</p></li>
+<li><p><strong>Quiet when idle:</strong> an idle Lace uses almost no CPU, so that a program
+that uses Lace now and then does not pay for it in between.</p></li>
+<li><p><strong>Responsive when needed:</strong> a parallel region that starts after an idle
+period starts quickly.</p></li>
+<li><p><strong>Do no harm:</strong> Lace is used from other programs and languages (Sylvan,
+bindings for Rust, Java and Python), and must not slow them down: no steal
+storms, no cores taken from other programs, nothing that breaks under
+interference.</p></li>
+<li><p><strong>The calling thread is not a worker.</strong> This is by design: it keeps the API
+simple and makes Lace easy to call from other languages. OpenCilk and
+Parlay make the calling thread a worker; Lace instead makes the handoff to a
+worker fast.</p></li>
+<li><p><strong>Keep it simple.</strong> A mechanism stays only if it shows a clear benefit on
+some platform and some measure (throughput, idle CPU, latency, storms,
+interference); a constant is preferred over an adaptive mechanism that
+gives nothing on the hardware tested.</p></li>
+</ul>
+</section>
+<section id="method">
+<h2>Method<a class="headerlink" href="#method" title="Link to this heading"></a></h2>
+<section id="platforms">
+<h3>Platforms<a class="headerlink" href="#platforms" title="Link to this heading"></a></h3>
+<p>All runs were on Linux, on shared nodes of a SLURM cluster (except on the
+desktop processor), with 36 hardware threads (18 cores) per job and 16
+workers unless stated otherwise.</p>
+<table class="docutils align-default">
+<colgroup>
+<col style="width: 30.0%" />
+<col style="width: 70.0%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"><p>Machine</p></th>
+<th class="head"><p>Processor</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p>Intel, 2 sockets</p></td>
+<td><p>2x Xeon Silver 4314 (Ice Lake, 16 cores each). CPUs are numbered
+alternately over the sockets.</p></td>
+</tr>
+<tr class="row-odd"><td><p>AMD, chiplets</p></td>
+<td><p>EPYC 9354P (Zen 4, 32 cores in 8 chiplets of 4 cores, each with its
+own L3).</p></td>
+</tr>
+<tr class="row-even"><td><p>Intel, 4 sockets</p></td>
+<td><p>4x Xeon E7-8890 v4 (Broadwell, 24 cores each). Allocations spread over
+up to all four sockets; the noisiest machine.</p></td>
+</tr>
+<tr class="row-odd"><td><p>AMD, chiplets (older)</p></td>
+<td><p>EPYC 7742 (Zen 2, 64 cores in 16 groups of 4 with their own L3); scaling
+to 64 cores and some PBBS runs.</p></td>
+</tr>
+<tr class="row-even"><td><p>AMD desktop</p></td>
+<td><p>Ryzen 9 7950X3D (16 cores in two chiplets, one with 96 MB of 3D
+V-Cache, up to 5.76 GHz, deepest idle state with a 350 µs exit
+latency), exclusive. Compiled with the system clang 14, since the
+OpenCilk 3.0 release needs a newer C library than this machine has.</p></td>
+</tr>
+</tbody>
+</table>
+</section>
+<section id="systems-and-benchmarks">
+<h3>Systems and benchmarks<a class="headerlink" href="#systems-and-benchmarks" title="Link to this heading"></a></h3>
+<p>Every system was compiled with the same compiler (the clang 19.1.7 of
+OpenCilk 3.0), so that only the scheduler differs. The references are
+OpenCilk 3.0, the Parlay scheduler, and Lace v2.4.0.</p>
+<ul class="simple">
+<li><p><strong>The Lace benchmark suite</strong> (18 programs: fib, uts T1L/T2L/T3L, nqueens,
+dfs, matmul, cholesky, integrate, heat, cilksort, fft, knapsack, lu, pi,
+quicksort, rectmul, strassen; uts T3XXL in some runs), and OpenCilk ports
+of the same programs. Nine of them print a checksum of their result, which
+agreed between all variants and worker counts. uts T3L is a stress test,
+not a target: its binomial tree gives every unexplored node the same
+expected work, so that stealing the oldest task gets no more than any
+other, as its authors intended (“It is indeed our goal to construct a
+benchmark that in its most challenging form challenges all load balancing
+strategies”, Prins, UNC 2003).</p></li>
+<li><p><strong>PBBS v2</strong> (up to 67 inputs of 21 benchmarks) through the Parlay
+scheduler plugin, against Parlay’s own scheduler and OpenCilk.</p></li>
+<li><p><strong>Sylvan</strong> (BDD and LDD operations on BEEM models), the main real user of
+Lace, as the do-no-harm test.</p></li>
+<li><p><strong>Micro benchmarks</strong> for the idle and external-call behaviour: short calls
+from outside Lace, a tiny region 200 µs and 2 ms after the previous one, a
+region of 1000 tasks of 1 µs after a 5 ms sleep, regions of 10000 and 100000
+tasks of 100 ns, steal storms (one or four chains of steps that fork two
+empty or 1 µs tasks, so that at most two or eight workers have work), and
+the CPU an idle Lace uses in 2 s after work.</p></li>
+<li><p><strong>Interference:</strong> busy-loop processes on 4 of the 16 cores of a run, and two
+copies of a benchmark at the same time on twice the cores.</p></li>
+</ul>
+</section>
+<section id="ablation">
+<h3>Ablation<a class="headerlink" href="#ablation" title="Link to this heading"></a></h3>
+<p>The candidate design was tested by leave-one-out (remove one mechanism) and
+add-one (add an alternative or change a value), in rounds, until no single
+change made it better.</p>
+<ul class="simple">
+<li><p><strong>One binary for all configurations.</strong> Code layout alone moves results by
+3-6% between builds, more than most single mechanisms. An ablation build
+(<code class="docutils literal notranslate"><span class="pre">LACE_TUNABLE</span></code>) compiles in every mechanism and reads its setting from
+the environment, so all configurations run the same code. Normal builds
+were checked to have the same machine code as without these switches, and
+the final code, from which the switches are removed, the same machine code
+as the experiment code with the final settings (bar one redundant check).</p></li>
+<li><p><strong>The same environment size for every configuration.</strong> The size of the
+environment moves the initial stack, which can change results by itself
+(Mytkowicz et al., ASPLOS 2009). Every run pads its environment to the
+same size, with a different size per round.</p></li>
+<li><p>Configurations run interleaved, in a shuffled or rotating order, 3-5 rounds;
+results are geomeans over benchmarks of the median time per configuration.</p></li>
+<li><p><strong>The statistics options cost nothing measurable.</strong> Builds with
+<code class="docutils literal notranslate"><span class="pre">LACE_PIE_TIMES</span></code>, <code class="docutils literal notranslate"><span class="pre">LACE_COUNT_TASKS</span></code>, <code class="docutils literal notranslate"><span class="pre">LACE_COUNT_STEALS</span></code> or
+<code class="docutils literal notranslate"><span class="pre">LACE_COUNT_SPLITS</span></code>, alone or all together, ran the suite within 0.6% of
+the plain build at 16 workers, and fib, knapsack and uts T2L within 0.6% at
+one worker (<code class="docutils literal notranslate"><span class="pre">LACE_COUNT_TASKS</span></code>: knapsack 1.4%), and seven PBBS benchmarks
+within 0.3%. Only nqueens moved more, 5-10%, also between builds that differ
+only in an unrelated counter: code layout. PIE times can therefore explain
+a gap without causing one.</p></li>
+</ul>
+<p>Pitfalls that cost time and are worth knowing:</p>
+<ul class="simple">
+<li><p>Runs under <code class="docutils literal notranslate"><span class="pre">perf</span> <span class="pre">stat</span></code> with many multiplexed events made Lace look 4-9%
+slower than OpenCilk; without perf the difference was 0-3%. Lace does tens
+of thousands of context switches, which perf makes expensive.</p></li>
+<li><p>Comparing separately compiled variants confused code layout with policy:
+an 11% “pinning gain” on PBBS came mostly from two different builds, and
+in a storm of empty tasks on Intel the final build took 12 ns per step,
+the same code in the ablation binary 16.</p></li>
+<li><p>Shared nodes have transient anomalies (once, unpinned fib ran 3-4 times
+slower in two rounds, never again in 240 runs), and heat is bimodal on some
+allocations (1.8 or 2.5 s, whatever the configuration).</p></li>
+</ul>
+</section>
+</section>
+<section id="leapfrogging">
+<h2>Leapfrogging<a class="headerlink" href="#leapfrogging" title="Link to this heading"></a></h2>
+<p>A worker that waits at a join for a stolen task <em>leapfrogs</em>: it steals from
+the thief, since that work is part of the awaited task.</p>
+<p><strong>Random leaps removed.</strong> Since 2014, a leapfrogging worker also stole a
+random task after 32 failed attempts. That takes the victim’s oldest and
+largest task, and the join stays blocked under it until that task is done; in
+phased algorithms (cholesky, matmul, lu) the next phase waits behind that
+join. Random steals also beget steals and move data between caches and
+sockets (cholesky: 349k instead of 60k steals, 7x the remote cache traffic).</p>
+<table class="docutils align-default" id="id1">
+<caption><span class="caption-text">Random leaps back on, time relative to the final design (16 workers)</span><a class="headerlink" href="#id1" title="Link to this table"></a></caption>
+<thead>
+<tr class="row-odd"><th class="head"><p>Machine</p></th>
+<th class="head"><p>Suite geomean</p></th>
+<th class="head"><p>cholesky</p></th>
+<th class="head"><p>lu</p></th>
+<th class="head"><p>matmul</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p>Intel, 2 sockets</p></td>
+<td><p>1.108</p></td>
+<td><p>2.29</p></td>
+<td><p>1.23</p></td>
+<td><p>1.42</p></td>
+</tr>
+<tr class="row-odd"><td><p>AMD, chiplets</p></td>
+<td><p>1.082</p></td>
+<td><p>2.04</p></td>
+<td><p>1.32</p></td>
+<td><p>1.20</p></td>
+</tr>
+<tr class="row-even"><td><p>Intel, 4 sockets</p></td>
+<td><p>1.087</p></td>
+<td><p>2.56</p></td>
+<td><p>1.23</p></td>
+<td><p>1.18</p></td>
+</tr>
+</tbody>
+</table>
+<p>Random leaps only while no worker is idle did not help (1.075-1.098).</p>
+<p><strong>Transitive leaps.</strong> Without random leaps, uts T3L (a tree with long
+sequential chains) waited at joins 18% of the time. With transitive leaps, a
+waiting worker whose thief has nothing to steal steals from the worker that
+the thief waits for, down the chain. Each worker publishes whom it waits for
+in a cache line that a steal attempt reads anyway, and only after a first
+failed attempt (most waits end before that). Without transitive leaps uts T3L
+takes 1.22-1.26 times as long on all three machines. How far the chain is
+followed (1, 4 or 16 hops) and whether the target is published at once made
+no difference; the design uses 4 hops and publishes lazily.</p>
+</section>
+<section id="steal-storms">
+<h2>Steal storms<a class="headerlink" href="#steal-storms" title="Link to this heading"></a></h2>
+<p>When there are many idle workers and only small tasks, idle workers keep
+succeeding at stealing worthless tasks, so they never back off, and every
+stolen task turns the owner’s join into a remote one. Lace v2.0.3 (before the
+backoff) took 1296 ns per step for a chain of empty tasks at 16 workers, v2.4.0
+72 ns, and the code before this work still kept all 16 cores busy.</p>
+<p><strong>A steal of a tiny task counts as a failed steal</strong> for the backoff: thieves
+then back off and leave the work to its owner. The thief times only the stolen
+task, not the steal.</p>
+<table class="docutils align-default" id="id2">
+<caption><span class="caption-text">Storms at 16 workers: ns per step and cores busy</span><a class="headerlink" href="#id2" title="Link to this table"></a></caption>
+<thead>
+<tr class="row-odd"><th class="head"><p>Storm</p></th>
+<th class="head"><p>Lace, no rule</p></th>
+<th class="head"><p>Lace</p></th>
+<th class="head"><p>OpenCilk</p></th>
+<th class="head"><p>Parlay</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p>Empty tasks, AMD</p></td>
+<td><p>26.0 on 13.5</p></td>
+<td><p>7.6 on 2.9</p></td>
+<td><p>17.8 on 3.9</p></td>
+<td><p>451 on 9.4</p></td>
+</tr>
+<tr class="row-odd"><td><p>Empty tasks, Intel 4 sockets</p></td>
+<td><p>58.5 on 13.0</p></td>
+<td><p>12.4 on 1.8</p></td>
+<td><p>57.5 on 3.9</p></td>
+<td><p>235 on 14.5</p></td>
+</tr>
+<tr class="row-even"><td><p>1 µs tasks, AMD</p></td>
+<td><p>2405 on 15.0 (500 ns)</p></td>
+<td><p>2097 on 1.6</p></td>
+<td><p>2722 on 16</p></td>
+<td><p>1904 on 9.0</p></td>
+</tr>
+</tbody>
+</table>
+<p><strong>The threshold adapts to the machine.</strong> A stolen task counts as tiny when it
+ran shorter than 16 times the thief’s running average of its steal cost
+(from the attempt until it holds the task). A fixed 500 ns let tasks of 1 µs
+be stolen, which bought nothing on AMD and on 4 sockets and 15% on Intel at
+nine times the CPU; with the factor 16 the threshold rose above 1 µs on all
+three server machines, as a fixed 2000 ns did. On the desktop processor,
+where steals are cheap, it stayed lower, and stealing the 1 µs tasks paid:
+that storm ran in 1307 instead of 2060 ns per step (on 7.4 instead of 1.1
+cores). A higher threshold costs 4-10% on regions of 10000 tasks of 100 ns,
+and nothing in the suite.</p>
+</section>
+<section id="sleeping-and-waking">
+<h2>Sleeping and waking<a class="headerlink" href="#sleeping-and-waking" title="Link to this heading"></a></h2>
+<p><strong>Sentinels.</strong> While some worker runs a task, two idle workers stay awake as
+<em>sentinels</em>: they look at the other workers’ deques in rounds, with 20 µs
+futex naps in between, and wake the others when they see work. A sentinel
+never steals itself: when it sees work it gives up its slot and steals as a
+normal thief, so that a sentinel always watches. Sentinels also take calls
+from outside Lace (<code class="docutils literal notranslate"><span class="pre">lace_run_task</span></code>) and end their nap at once when one
+arrives. A sentinel retires when no worker has run a task for the grace
+period.</p>
+<p>Because a sentinel watches, sleeping workers can back off exponentially to
+100 ms instead of waking every millisecond. Without sentinels, idle Lace used
+8-35 times the CPU (0.21 instead of 0.025 CPU-s per 2 s on AMD, 0.43 instead
+of 0.025 on Intel, 0.52 instead of 0.015 on 4 sockets). On Intel sentinels
+also make regions after short idle periods faster: without them a tiny region
+after a 2 ms sleep took 20.7 instead of 9.5 µs, and a region of 1000 tasks 206
+instead of 173 µs.</p>
+<ul class="simple">
+<li><p>Two sentinels and a 200 µs spin before a sentinel’s first nap: with one
+sentinel and no spin, a tiny region 200 µs after the previous one took
+5.9 instead of 2.1 µs on Intel and 3.1 instead of 1.4-1.9 µs on the desktop
+processor, and larger regions 2-7% longer on Intel; on AMD and on 4
+sockets there was no difference.</p></li>
+<li><p>Whether a sentinel asks a worker without shared tasks to share some made no
+difference. The 20 µs naps and the 1 µs timer slack that keeps them short
+matter on Intel: with 100 µs naps the tiny region after a 2 ms sleep took
+16.7 instead of 9.5 µs, and without the slack 14.8 µs, with regions of 1000
+tasks 24% slower. On AMD they made no clear difference.</p></li>
+<li><p>On AMD, the suite ran 1.6-1.8% faster without sentinels (fft, lu, quicksort,
+strassen 5-9%), on Intel and on 4 sockets not. One sentinel, longer naps,
+not asking for sharing, the default timer slack, dropping the wake-up while
+no sentinel watches, and capping a sleeper’s timeout at 1 ms while some
+worker is busy all left it in place. The cause is not known; the design
+accepts the cost for the idle CPU, and on Intel the latency, that sentinels
+buy.</p></li>
+</ul>
+<p><strong>Shallow sleep.</strong> For 20 ms after it ran a task, a worker sleeps in naps of
+100 µs, so its core stays in a shallow idle state and the next region starts
+fast. Against 5 ms, a region of 1000 tasks of 1 µs 5 ms after the previous
+one takes 168 instead of 227 µs (AMD), at less CPU per region, while an idle
+Lace uses 0.039 instead of 0.028 CPU-s per 2 s after work. The responsiveness
+was judged worth that.</p>
+<p><strong>Sentinel grace.</strong> A sentinel retires after 10 ms without work. 50 ms made
+tiny regions after short gaps faster while the helper wake-up still delayed
+them (3.0 instead of 5.1 µs on AMD), but with the helper woken by the caller
+(below) they are as fast with 10 ms, so the shorter grace stays.</p>
+<p><strong>Wake-ups.</strong></p>
+<ul class="simple">
+<li><p>A steal that leaves work at the victim wakes as many sleepers as the victim
+has tasks left (one futex call), instead of a chain of single wake-ups:
+regions of 1000-10000 tasks after a sleep start 10-14% faster.</p></li>
+<li><p>A steal while no sentinel watches wakes a sleeper too (a region after a long
+idle, when nobody watches the work that the stolen root task spawns).
+Without it the AMD suite was 0.9% slower (fft, quicksort 7-10%).</p></li>
+<li><p>The wake-up when a steal leaves work behind is needed besides the one when
+no sentinel watches: without it, regions of 1000 and 10000 tasks after a
+sleep took 6-9% longer on AMD.</p></li>
+<li><p>A woken worker used to steal for 16 rounds before it slept again, first
+from the worker its waker named. With the sentinels and the wake-ups above,
+neither made a difference (one binary for all four combinations, on Intel
+and AMD; without the rounds, regions of 1000 tasks were 4-6% faster), so
+both were dropped.</p></li>
+</ul>
+</section>
+<section id="calls-from-outside-lace">
+<h2>Calls from outside Lace<a class="headerlink" href="#calls-from-outside-lace" title="Link to this heading"></a></h2>
+<p>The calling thread is not a worker: <code class="docutils literal notranslate"><span class="pre">lace_run_task</span></code> hands the task to a
+worker and waits.</p>
+<ul class="simple">
+<li><p><strong>The caller spins 5 µs, then yields now and then, and sleeps after 20 µs.</strong>
+Yielding helps when the caller shares a CPU with the worker that runs its
+task; yielding from the start cost short calls 20-28%.</p></li>
+<li><p><strong>A helper wake-up.</strong> The task may spawn work while all other workers
+sleep, so a second worker is woken. Without it lu and fft were up to 14%
+slower. But when the worker that took the task made that futex call, every
+tiny region took 2 µs longer (4.5 instead of 2.5 µs). In the design the
+waiting caller, which has nothing else to do, wakes the helper once it sees
+its task taken (or the worker does if the caller sleeps already), and a task
+that is done before the caller looks wakes nobody. This kept the
+throughput (without a helper the suite was 0.4-1.3% slower, lu up to 11%)
+and made tiny regions 200 µs after the previous one take 2.1-2.9 µs on the
+server machines and 1.4-1.9 µs on the desktop processor, as fast as
+without a helper.</p></li>
+<li><p>Only the worker that ran a call stops backing off; the others keep backing
+off, so that a stream of calls does not keep every idle worker spinning.</p></li>
+</ul>
+<p>Short calls take 2.8 µs on AMD, against 4.8 for OpenCilk and 6.1 for Parlay;
+3.1 µs on Intel, against 3.4 and 3.9 (and 2.6 for v2.4.0, whose workers never
+stop spinning); and 2.0 µs on the desktop processor (Parlay 3.3). A tiny
+region after a 2 ms sleep takes 12.6 µs on AMD, against 2.3 for OpenCilk and
+8.2 for Parlay, and 8.9 µs on Intel, against 5.0 and 4.5: the remaining cost
+of the handoff to a sleeping worker, which the design accepts. On the desktop
+processor it takes 3.8 µs, as with Parlay (3.6).</p>
+</section>
+<section id="pinning">
+<h2>Pinning<a class="headerlink" href="#pinning" title="Link to this heading"></a></h2>
+<p>Lace now pins its workers by default, within the affinity mask of the thread
+that calls <code class="docutils literal notranslate"><span class="pre">lace_start</span></code> (see <a class="reference internal" href="building.html"><span class="doc">Building</span></a> for the modes and the API).</p>
+<ul class="simple">
+<li><p><strong>Unpinned costs 2-13%</strong> on every machine: up to 10% in the suite on 4
+sockets (cholesky 1.88), 13% on PBBS on Intel when the mask includes the
+second hardware thread of each core (an unpinned worker or sentinel lands
+next to a busy worker). On AMD PBBS pinning made no difference.</p></li>
+<li><p><strong>One CPU per worker is fastest when the workers fill the cores</strong> of the
+mask, on every machine. Workers that may move lose their caches after a
+wake-up, and two of them sometimes share a core while another is idle.
+Groups (one L3 cache, one NUMA node) were 1-4% slower than one CPU per
+worker on Intel, where an L3 group is a socket, and as fast on AMD, where it
+is a 4-core chiplet.</p></li>
+<li><p><strong>One CPU per worker under interference.</strong> With busy loops on 4 of 16 cores,
+one CPU per worker slowed down least (1.18 at 16 workers and 1.46 at 8,
+against 1.22 and 1.63 for v2.4.0): the workers on free cores keep running and
+take the work of those that share a core.</p></li>
+<li><p><strong>But not with spare cores.</strong> Two programs that each pin worker <em>i</em> to the
+<em>i</em>-th core pile onto the same cores: two copies took 1.95 times as long as
+one, against 1.14 for v2.4.0. With fewer workers than cores, the default
+therefore lets every worker run on any core of the mask (1.14).</p></li>
+</ul>
+<p>The default (<code class="docutils literal notranslate"><span class="pre">LACE_PIN_AUTO</span></code>) is the best or within 1.4% of the best mode in
+every test.</p>
+</section>
+<section id="do-no-harm-sylvan">
+<h2>Do no harm: Sylvan<a class="headerlink" href="#do-no-harm-sylvan" title="Link to this heading"></a></h2>
+<p>Sylvan’s BDD and LDD operations (9 benchmarks, 3 rounds) gave the same results
+with every version and worker count.</p>
+<table class="docutils align-default" id="id3">
+<caption><span class="caption-text">Sylvan with the final design, time relative to v2.4.0</span><a class="headerlink" href="#id3" title="Link to this table"></a></caption>
+<thead>
+<tr class="row-odd"><th class="head"><p>Machine</p></th>
+<th class="head"><p>1 worker</p></th>
+<th class="head"><p>4 workers</p></th>
+<th class="head"><p>8 workers</p></th>
+<th class="head"><p>16 workers</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p>Intel, 2 sockets</p></td>
+<td><p>0.961</p></td>
+<td></td>
+<td><p>0.850</p></td>
+<td><p>0.847</p></td>
+</tr>
+<tr class="row-odd"><td><p>AMD desktop</p></td>
+<td><p>0.972</p></td>
+<td><p>0.938</p></td>
+<td><p>0.896</p></td>
+<td><p>0.903</p></td>
+</tr>
+</tbody>
+</table>
+<p>On Intel every benchmark gained at 16 workers, from 2% (lddmc anderson.8) to
+35% (bddmc lifts.7), and the CPU time fell as much as the time. On the desktop
+processor the collision models gained most (0.72-0.73 at 8 workers); two
+models took 4-5% longer at 16 workers. Most models ran slower at 16 workers
+than at 8 there, with both versions: Sylvan’s shared tables span both
+chiplets. Most of the gain comes from dropping random leaps (20-36% on the
+largest models with an early version of this design).</p>
+</section>
+<section id="comparison-with-opencilk-and-parlay">
+<h2>Comparison with OpenCilk and Parlay<a class="headerlink" href="#comparison-with-opencilk-and-parlay" title="Link to this heading"></a></h2>
+<p><strong>Suite</strong> (16 workers, 5 rounds, time relative to the final code; geomean
+over 18 programs for v2.4.0 and 17 for OpenCilk):</p>
+<table class="docutils align-default">
+<thead>
+<tr class="row-odd"><th class="head"><p>Machine</p></th>
+<th class="head"><p>Lace v2.4.0</p></th>
+<th class="head"><p>OpenCilk</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p>Intel, 2 sockets</p></td>
+<td><p>1.116</p></td>
+<td><p>1.339</p></td>
+</tr>
+<tr class="row-odd"><td><p>AMD, chiplets</p></td>
+<td><p>1.107</p></td>
+<td><p>1.312</p></td>
+</tr>
+<tr class="row-even"><td><p>Intel, 4 sockets</p></td>
+<td><p>1.206</p></td>
+<td><p>1.493</p></td>
+</tr>
+<tr class="row-odd"><td><p>AMD desktop</p></td>
+<td><p>1.071 (ablation build)</p></td>
+<td><p>(not available)</p></td>
+</tr>
+</tbody>
+</table>
+<p>At 8 workers v2.4.0 took 1.04-1.06 times as long; the gap grows with the
+number of workers (see Scaling below). OpenCilk’s large numbers come from
+the fine-grained programs (fib, knapsack, dfs 2.7-3.9 times as long), where
+its spawns cost more. On the coarse-grained ones the two are close: OpenCilk
+is up to 13% faster on some (fft and quicksort on AMD), Lace up to 26% on
+others (cholesky on 4 sockets).</p>
+<p>OpenCilk’s release runtime crashes on uts T3L: it caps fiber stacks at 8 MB,
+and more than 1024 nested spawns write past its deque into the heap. With a
+patched runtime (1 GiB stacks, a deque of 99999 frames) it runs, and took
+1.02-1.06 times as long as Lace at 8 and 16 workers on AMD and Intel. The
+patched runtime is as fast as the release on the other programs (Intel suite
+within 2%).</p>
+<p><strong>PBBS</strong> (16 workers, 66-67 inputs of 21 benchmarks, time relative to
+Parlay):</p>
+<table class="docutils align-default">
+<thead>
+<tr class="row-odd"><th class="head"><p>Machine</p></th>
+<th class="head"><p>Lace</p></th>
+<th class="head"><p>OpenCilk</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p>Intel, 2 sockets (final code)</p></td>
+<td><p>0.966</p></td>
+<td><p>0.978</p></td>
+</tr>
+<tr class="row-odd"><td><p>AMD, chiplets (final code)</p></td>
+<td><p>0.963</p></td>
+<td><p>0.917</p></td>
+</tr>
+<tr class="row-even"><td><p>AMD, chiplets (older; an earlier round)</p></td>
+<td><p>0.958</p></td>
+<td><p>0.956</p></td>
+</tr>
+</tbody>
+</table>
+<p>At 8 workers on AMD Lace took 0.996 and OpenCilk 0.957. The two machines
+differ:</p>
+<ul class="simple">
+<li><p><strong>On Intel</strong> Lace was faster than OpenCilk on 13 of the 21 benchmarks at 16
+workers (0.995 of its time; an earlier round with the previous helper rule,
+18 of 21). At 8 workers one run gave Lace 1.042 of Parlay’s time; a second
+run did not reproduce that (Lace 0.980, OpenCilk 0.961), and pinning one
+CPU per worker (0.989) or per socket (0.984) instead of leaving the 8
+workers unpinned on the 18 cores made no difference. OpenCilk was faster
+than Lace on 12 of the 21 benchmarks at 8 workers (Lace 1.035 of its
+time); Lace’s largest gaps to Parlay on Intel are delaunayRefine and
+delaunayTriangulation (1.08-1.21) and rangeQuery2d.</p></li>
+<li><p><strong>On AMD</strong> OpenCilk was faster than Lace on 18 of the 21 benchmarks (Lace
+1.054 of its time, 1.041 without maximalMatching, where OpenCilk took 0.71
+of Parlay’s time). Lace’s lead over Parlay there comes from three
+benchmarks where Parlay’s scheduler does poorly (classify, convexHull,
+rayCast: Lace and OpenCilk 0.75-0.88 of Parlay’s time); without them Lace
+and Parlay are equal (0.993).</p></li>
+</ul>
+<p>OpenCilk crashes on two BFS inputs in some runs.</p>
+<p>A diagnosis on AMD looked at the seven benchmarks where Lace or OpenCilk
+stood out (2 rounds; the geomeans below are over these seven, not the whole
+set). It separated three causes:</p>
+<ul class="simple">
+<li><p><strong>Not pinning:</strong> Lace unpinned, pinned per CPU, and on one hardware thread
+per core was within 1%.</p></li>
+<li><p><strong>OpenCilk’s lead on maximalMatching (0.76 of Parlay’s time) comes from
+``cilk_for``, not from its scheduler:</strong> ParlayLib’s OpenCilk backend turns
+a loop into a <code class="docutils literal notranslate"><span class="pre">cilk_for</span></code>, while Parlay and the Lace plugin pick a grain
+with a sequential prefix and split in halves. With ParlayLib’s OpenCilk
+backend changed to split loops as Parlay does, OpenCilk took 1.02 of
+Parlay’s time there (Lace 1.00), and the difference sits in the phase whose
+loops become a <code class="docutils literal notranslate"><span class="pre">cilk_for</span></code>. Picking the grain as <code class="docutils literal notranslate"><span class="pre">cilk_for</span></code> does (at
+most 2048 iterations or 1/8P of the range) did not help Lace (1.054
+against 1.040 on the seven), so it is the compiled loop, which a library
+cannot offer. Hardware counters show no locality advantage: OpenCilk had
+as many fills from other chiplets as Parlay (1.06; on maximalMatching
+1.17) and Lace 0.96, and on maximalMatching it ran the same instructions
+in 0.90 of the cycles. (Parlay’s scheduler did four times as many
+cross-chiplet fills on classify as Lace and OpenCilk, which is why it is
+slow there.)</p></li>
+<li><p><strong>Lace’s own gap to Parlay on these benchmarks (1.04 on the seven, 4-9% on
+histogram, removeDuplicates and the graph benchmarks) comes from waiting at
+joins.</strong> With random leaps back on it shrank to 1.014 (removeDuplicates
+1.066 to 1.010, maximalMatching 1.025 to 0.985): Parlay’s scheduler, too,
+runs any task while it waits. Random leaps cost the suite 8-11% and Sylvan
+up to 36%, and random leaps only while no worker is idle gave the same 1.015
+here and did not help the suite; by the time a waiting worker knows that a
+random leap would have paid, the chance is gone. The design keeps
+leapfrogging only and accepts this gap. The PIE times show where it goes:
+without random leaps, workers spend 2-4% of their time searching for work at
+a join on these benchmarks (1% on sampleSort); with random leaps 0.5-2%, the
+work done while waiting rises from 8% to 30-45% of their time, and they make
+3-4 times fewer leap attempts.</p></li>
+<li><p>rangeQuery2d (1.07-1.09) did not change with random leaps; its build phase
+takes twice as long as with Parlay or OpenCilk, for a reason not yet known.</p></li>
+</ul>
+<p><strong>Idle and latency</strong> (16 workers, final code, 3 rounds; the idle CPU is
+measured after a loop of Parlay calls):</p>
+<table class="docutils align-default" id="id4">
+<caption><span class="caption-text">AMD EPYC 9354P</span><a class="headerlink" href="#id4" title="Link to this table"></a></caption>
+<thead>
+<tr class="row-odd"><th class="head"><p>Measure</p></th>
+<th class="head"><p>Lace</p></th>
+<th class="head"><p>Lace v2.4.0</p></th>
+<th class="head"><p>OpenCilk</p></th>
+<th class="head"><p>Parlay</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p>Short call from outside</p></td>
+<td><p>2.8 µs</p></td>
+<td><p>3.0 µs</p></td>
+<td><p>4.8 µs</p></td>
+<td><p>6.1 µs</p></td>
+</tr>
+<tr class="row-odd"><td><p>Tiny region 200 µs after the last</p></td>
+<td><p>2.8 µs</p></td>
+<td><p>4.1 µs</p></td>
+<td><p>9.6 µs</p></td>
+<td><p>5.3 µs</p></td>
+</tr>
+<tr class="row-even"><td><p>Tiny region after a 2 ms sleep</p></td>
+<td><p>12.6 µs</p></td>
+<td><p>11.0 µs</p></td>
+<td><p>2.3 µs</p></td>
+<td><p>8.2 µs</p></td>
+</tr>
+<tr class="row-odd"><td><p>1000 x 1 µs after a 5 ms sleep</p></td>
+<td><p>163 µs</p></td>
+<td><p>1053 µs</p></td>
+<td><p>258 µs</p></td>
+<td><p>103 µs</p></td>
+</tr>
+<tr class="row-even"><td><p>Storm of empty tasks</p></td>
+<td><p>7.8 ns/step, 2.6 cores</p></td>
+<td><p>7.9 ns/step, 2.3 cores</p></td>
+<td><p>18.7 ns/step, 3.5 cores</p></td>
+<td><p>657 ns/step, 10.1 cores</p></td>
+</tr>
+<tr class="row-odd"><td><p>Storm of 1 µs tasks</p></td>
+<td><p>2092 ns/step, 1.7 cores</p></td>
+<td><p>2200 ns/step, 16 cores</p></td>
+<td><p>2735 ns/step, 16 cores</p></td>
+<td><p>1947 ns/step, 9.0 cores</p></td>
+</tr>
+<tr class="row-even"><td><p>CPU in 2 s idle after work</p></td>
+<td><p>0.037 CPU-s</p></td>
+<td><p>0.224 CPU-s</p></td>
+<td><p>0.002 CPU-s</p></td>
+<td><p>0.054 CPU-s</p></td>
+</tr>
+</tbody>
+</table>
+<table class="docutils align-default" id="id5">
+<caption><span class="caption-text">Intel Xeon Silver 4314, 2 sockets</span><a class="headerlink" href="#id5" title="Link to this table"></a></caption>
+<thead>
+<tr class="row-odd"><th class="head"><p>Measure</p></th>
+<th class="head"><p>Lace</p></th>
+<th class="head"><p>Lace v2.4.0</p></th>
+<th class="head"><p>OpenCilk</p></th>
+<th class="head"><p>Parlay</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p>Short call from outside</p></td>
+<td><p>3.1 µs</p></td>
+<td><p>2.6 µs</p></td>
+<td><p>3.4 µs</p></td>
+<td><p>3.9 µs</p></td>
+</tr>
+<tr class="row-odd"><td><p>Tiny region 200 µs after the last</p></td>
+<td><p>2.2 µs</p></td>
+<td><p>5.5 µs</p></td>
+<td><p>5.1 µs</p></td>
+<td><p>3.1 µs</p></td>
+</tr>
+<tr class="row-even"><td><p>Tiny region after a 2 ms sleep</p></td>
+<td><p>8.9 µs</p></td>
+<td><p>20.5 µs</p></td>
+<td><p>5.0 µs</p></td>
+<td><p>4.5 µs</p></td>
+</tr>
+<tr class="row-odd"><td><p>1000 x 1 µs after a 5 ms sleep</p></td>
+<td><p>173 µs</p></td>
+<td><p>1093 µs</p></td>
+<td><p>203 µs</p></td>
+<td><p>89 µs</p></td>
+</tr>
+<tr class="row-even"><td><p>Storm of empty tasks</p></td>
+<td><p>11.3 ns/step, 2.3 cores</p></td>
+<td><p>46.1 ns/step, 14.7 cores</p></td>
+<td><p>25.8 ns/step, 3.2 cores</p></td>
+<td><p>386 ns/step, 10.8 cores</p></td>
+</tr>
+<tr class="row-odd"><td><p>Storm of 1 µs tasks</p></td>
+<td><p>2107 ns/step, 1.7 cores</p></td>
+<td><p>1670 ns/step, 16 cores</p></td>
+<td><p>2337 ns/step, 16 cores</p></td>
+<td><p>1568 ns/step, 12.1 cores</p></td>
+</tr>
+<tr class="row-even"><td><p>CPU in 2 s idle after work</p></td>
+<td><p>0.047 CPU-s</p></td>
+<td><p>0.453 CPU-s</p></td>
+<td><p>0.013 CPU-s</p></td>
+<td><p>0.103 CPU-s</p></td>
+</tr>
+</tbody>
+</table>
+<p>On the 4-socket machine the picture is the same (short calls 6.1 µs against
+14.2 for v2.4.0, a region of 1000 tasks 178 against 1150 µs, idle 0.040
+against 0.479 CPU-s), except that Parlay’s short calls (3.8 µs) are faster
+than Lace’s there. OpenCilk idles at the lowest CPU, but it has no storm
+rule: in the storm of 1 µs tasks it keeps all 16 cores busy, as v2.4.0 does.
+On Intel, v2.4.0 and Parlay take 21-26% less time than Lace in that storm, on
+7-9 times the CPU (see Steal storms).</p>
+<table class="docutils align-default" id="id6">
+<caption><span class="caption-text">AMD Ryzen 9 7950X3D (desktop)</span><a class="headerlink" href="#id6" title="Link to this table"></a></caption>
+<thead>
+<tr class="row-odd"><th class="head"><p>Measure</p></th>
+<th class="head"><p>Lace</p></th>
+<th class="head"><p>Lace v2.4.0</p></th>
+<th class="head"><p>Parlay</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p>Short call from outside</p></td>
+<td><p>2.0 µs</p></td>
+<td><p>2.2 µs</p></td>
+<td><p>3.3 µs</p></td>
+</tr>
+<tr class="row-odd"><td><p>Tiny region 200 µs after the last</p></td>
+<td><p>1.9 µs</p></td>
+<td><p>7.7 µs</p></td>
+<td><p>3.4 µs</p></td>
+</tr>
+<tr class="row-even"><td><p>Tiny region after a 2 ms sleep</p></td>
+<td><p>3.8 µs</p></td>
+<td><p>6.9 µs</p></td>
+<td><p>3.6 µs</p></td>
+</tr>
+<tr class="row-odd"><td><p>1000 x 1 µs after a 5 ms sleep</p></td>
+<td><p>113 µs</p></td>
+<td><p>1033 µs</p></td>
+<td><p>94 µs</p></td>
+</tr>
+<tr class="row-even"><td><p>100000 x 100 ns</p></td>
+<td><p>876 µs</p></td>
+<td><p>4184 µs</p></td>
+<td><p>965 µs</p></td>
+</tr>
+<tr class="row-odd"><td><p>Storm of empty tasks</p></td>
+<td><p>5.7 ns/step, 1.4 cores</p></td>
+<td><p>6.1 ns/step, 2.2 cores</p></td>
+<td><p>214 ns/step, 9.2 cores</p></td>
+</tr>
+<tr class="row-even"><td><p>CPU in 2 s idle after work</p></td>
+<td><p>0.018 CPU-s</p></td>
+<td><p>0.092 CPU-s</p></td>
+<td><p>0.032 CPU-s</p></td>
+</tr>
+</tbody>
+</table>
+<p>On the desktop processor, whose deepest idle state takes 350 µs to leave,
+v2.4.0 took ten times as long for a region of 1000 tasks after a short pause;
+the sentinels and the shallow sleep remove that.</p>
+</section>
+<section id="scaling">
+<h2>Scaling<a class="headerlink" href="#scaling" title="Link to this heading"></a></h2>
+<p>Speedup over the serial elision of each program (the program without its
+spawns), geomean over 17 programs (the elision of dfs is optimized away), on
+36 cores of the 4-socket machine (a shared node), 3 rounds. OpenCilk ran with
+the patched runtime, so that uts T3L runs too.</p>
+<table class="docutils align-default" id="id7">
+<caption><span class="caption-text">Speedup, 4 sockets</span><a class="headerlink" href="#id7" title="Link to this table"></a></caption>
+<thead>
+<tr class="row-odd"><th class="head"><p>Workers</p></th>
+<th class="head"><p>Lace</p></th>
+<th class="head"><p>Lace v2.4.0</p></th>
+<th class="head"><p>OpenCilk</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p>8</p></td>
+<td><p>5.7</p></td>
+<td><p>5.4</p></td>
+<td><p>4.2</p></td>
+</tr>
+<tr class="row-odd"><td><p>16</p></td>
+<td><p>9.7</p></td>
+<td><p>8.5</p></td>
+<td><p>7.1</p></td>
+</tr>
+<tr class="row-even"><td><p>24</p></td>
+<td><p>13.7</p></td>
+<td><p>10.6</p></td>
+<td><p>9.7</p></td>
+</tr>
+<tr class="row-odd"><td><p>32</p></td>
+<td><p>16.9</p></td>
+<td><p>11.3</p></td>
+<td><p>11.8</p></td>
+</tr>
+</tbody>
+</table>
+<p>v2.4.0 falls behind as workers are added: it takes 1.05 times as long as the
+final design at 8 workers and 1.50 times at 32. The gap is in the programs
+with blocked joins, where random leaps hurt: at 32 workers cholesky reaches a
+speedup of 17.2 against 5.2 with v2.4.0, matmul 25.2 against 11.4, fft 19.5
+against 9.9, lu 23.2 against 14.7, and uts T3L 19.6 against 12.0. OpenCilk
+scales as well as Lace on the coarse-grained programs (cilksort, lu, rectmul,
+strassen, uts; slightly better on uts T3L), and its spawn cost limits it on
+the fine-grained ones (fib 2.9, knapsack 5.5, pi 4.0 at 32 workers). heat and
+quicksort stop at 6-8 with all three.</p>
+<table class="docutils align-default" id="id8">
+<caption><span class="caption-text">Speedup, AMD chiplets (30 of the 32 cores of a node)</span><a class="headerlink" href="#id8" title="Link to this table"></a></caption>
+<thead>
+<tr class="row-odd"><th class="head"><p>Workers</p></th>
+<th class="head"><p>Lace</p></th>
+<th class="head"><p>Lace v2.4.0</p></th>
+<th class="head"><p>OpenCilk</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p>8</p></td>
+<td><p>5.8</p></td>
+<td><p>5.6</p></td>
+<td><p>4.8</p></td>
+</tr>
+<tr class="row-odd"><td><p>16</p></td>
+<td><p>10.5</p></td>
+<td><p>9.8</p></td>
+<td><p>8.6</p></td>
+</tr>
+<tr class="row-even"><td><p>24</p></td>
+<td><p>14.3</p></td>
+<td><p>12.8</p></td>
+<td><p>11.8</p></td>
+</tr>
+<tr class="row-odd"><td><p>30</p></td>
+<td><p>16.7</p></td>
+<td><p>14.8</p></td>
+<td><p>13.4</p></td>
+</tr>
+</tbody>
+</table>
+<p>On AMD the gap to v2.4.0 grows too, but less: 1.03 of the time at 8 workers,
+1.13 at 30 (cholesky 15.4 against 5.8, matmul 29.6 against 21.4, lu 23.5
+against 15.3). OpenCilk scales like Lace on the coarse-grained programs (fft
+18.5 against 16.7).</p>
+<p><strong>Which change gives the gain.</strong> On the same machine at 27 workers (27
+cores), time of the final design relative to each variant:</p>
+<table class="docutils align-default">
+<thead>
+<tr class="row-odd"><th class="head"><p>Variant</p></th>
+<th class="head"><p>16 workers</p></th>
+<th class="head"><p>27 workers</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p>Lace v2.4.0</p></td>
+<td><p>0.900</p></td>
+<td><p>0.844</p></td>
+</tr>
+<tr class="row-odd"><td><p>Random leaps back on</p></td>
+<td><p>0.922</p></td>
+<td><p>0.898</p></td>
+</tr>
+<tr class="row-even"><td><p>Without transitive leaps</p></td>
+<td><p>0.983</p></td>
+<td><p>0.976</p></td>
+</tr>
+<tr class="row-odd"><td><p>Unpinned</p></td>
+<td><p>0.989</p></td>
+<td><p>0.951</p></td>
+</tr>
+</tbody>
+</table>
+<p>Dropping random leaps gives most of it, more at more workers (cholesky 0.47,
+lu 0.65, matmul 0.74 of the time with them at 27 workers); pinning adds 5% at
+27 workers against 1% at 16 (fib, pi, nqueens, cilksort 7-10%); transitive
+leaps keep uts T3L fast (0.66 of the time without them). In one run at 30
+workers v2.4.0 reached a speedup of 25.2 on uts T3L against Lace’s 21.8; at
+27 workers the two were equal (0.518 against 0.511 s), and random leaps did
+not help it (0.536 s).</p>
+<p><strong>64 cores.</strong> On all 64 cores of the EPYC 7742, 3 rounds, geomean over 16
+programs: matmul is left out, since its time varied up to sevenfold between
+rounds for all three systems on this machine.</p>
+<table class="docutils align-default" id="id9">
+<caption><span class="caption-text">Speedup, AMD EPYC 7742 (64 cores)</span><a class="headerlink" href="#id9" title="Link to this table"></a></caption>
+<thead>
+<tr class="row-odd"><th class="head"><p>Workers</p></th>
+<th class="head"><p>Lace</p></th>
+<th class="head"><p>Lace v2.4.0</p></th>
+<th class="head"><p>OpenCilk</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p>8</p></td>
+<td><p>5.6</p></td>
+<td><p>5.4</p></td>
+<td><p>4.5</p></td>
+</tr>
+<tr class="row-odd"><td><p>16</p></td>
+<td><p>10.3</p></td>
+<td><p>9.5</p></td>
+<td><p>8.1</p></td>
+</tr>
+<tr class="row-even"><td><p>32</p></td>
+<td><p>17.0</p></td>
+<td><p>15.0</p></td>
+<td><p>13.4</p></td>
+</tr>
+<tr class="row-odd"><td><p>48</p></td>
+<td><p>20.9</p></td>
+<td><p>18.3</p></td>
+<td><p>16.5</p></td>
+</tr>
+<tr class="row-even"><td><p>64</p></td>
+<td><p>23.7</p></td>
+<td><p>20.5</p></td>
+<td><p>18.2</p></td>
+</tr>
+</tbody>
+</table>
+<p>v2.4.0 takes 1.05 times as long as the final design at 8 workers and 1.16
+times at 64, OpenCilk 1.27-1.31 times (at 64 workers cholesky 20.8 against
+9.1 and 14.5, lu 32.5 against 16.5 and 27.1, fft 24.5 against 18.0 and
+25.1). In one binary at 64 workers, the time of the final design relative to
+random leaps back on is 0.905 (cholesky 0.57, lu 0.55, fft 0.75), relative to
+no transitive leaps 0.988, and relative to unpinned workers 0.961. Two
+programs scale worse than with v2.4.0. uts T3L reaches a speedup of 30
+against 32 (OpenCilk 33), and random leaps make it 1.30 times as fast.
+quicksort takes 1.24 against 0.99 s (OpenCilk 1.09); neither leap setting
+changes that, and on the 32-core AMD node it took 4-9% longer than with
+v2.4.0 too. With 64 workers waking the sleepers costs more: a region of 1000
+tasks of 1 µs after a 5 ms sleep takes 172 µs (v2.4.0 1099, OpenCilk 68,
+Parlay 48), and one of 100000 tasks of 100 ns 558 µs (4944, 319, 360). An
+idle Lace uses 0.074 CPU-s in 2 s after work, v2.4.0 1.87.</p>
+</section>
+<section id="tried-and-dropped">
+<h2>Tried and dropped<a class="headerlink" href="#tried-and-dropped" title="Link to this heading"></a></h2>
+<ul class="simple">
+<li><p>Random leaps, and random leaps only while all workers are busy (they would
+close most of the gap to Parlay on PBBS, at a larger cost elsewhere).</p></li>
+<li><p>A <code class="docutils literal notranslate"><span class="pre">cilk_for</span></code>-style grain in the Parlay plugin (no gain).</p></li>
+<li><p>A fixed tiny-steal threshold (2000 ns was as good on the server machines,
+but gave up the gain from cheap steals on the desktop processor).</p></li>
+<li><p>A helper wake-up by the worker that takes the task, also only when all
+other workers sleep (it did not remove the 2 µs).</p></li>
+<li><p>One sentinel without the spin, and a sentinel grace of 50 ms.</p></li>
+<li><p>A cap of 1 ms on a sleeper’s timeout while some worker is busy (no effect
+on any machine).</p></li>
+<li><p>Pinning blocks of cores per worker when there are few workers (lost to all
+cores per worker with two programs).</p></li>
+<li><p>A 100 µs sentinel nap (slower on Intel), sentinels that do not ask for
+sharing (no difference).</p></li>
+<li><p>Extra steal rounds after a wake-up, and a hint which worker to steal from
+first (no difference once sentinels watch).</p></li>
+</ul>
+</section>
+<section id="open-issues">
+<h2>Open issues<a class="headerlink" href="#open-issues" title="Link to this heading"></a></h2>
+<ul class="simple">
+<li><p>The handoff to a sleeping worker after a few milliseconds of idle (9-13 µs
+against OpenCilk’s 2.3-5), the price of a calling thread that is not a
+worker.</p></li>
+<li><p>PBBS on AMD: OpenCilk is ahead of Lace on 18 of 21 benchmarks (4% without
+maximalMatching, whose gap is <code class="docutils literal notranslate"><span class="pre">cilk_for</span></code>). With Parlay’s loops OpenCilk
+is still 3-8% ahead on histogram, maximalIndependentSet and wordCounts: it
+never waits at a join (continuation stealing, out of reach for Lace with
+one stack per worker), and the hardware counters show no locality
+advantage. On a few benchmarks Lace is 4-9% behind Parlay, the price of
+leapfrogging only. The build phase of rangeQuery2d is slow on every
+machine.</p></li>
+<li><p>On AMD EPYC the suite runs 1.6-1.8% faster without sentinels; none of the
+sentinel variants tried removed that.</p></li>
+<li><p>At 64 cores (see Scaling): uts T3L, which random leaps would help at a
+larger cost elsewhere, and quicksort on AMD, whose cause is not known.
+Regions after a few milliseconds of idle start 2.5-3.6 times slower than
+with OpenCilk or Parlay.</p></li>
+<li><p>Pinning on FreeBSD and Windows (Linux only so far); timer granularity on
+Windows and macOS would change the idle behaviour, which was measured on
+Linux only.</p></li>
+<li><p>Scaling beyond 64 cores was not tested.</p></li>
+</ul>
+</section>
+</section>
+
+
+           </div>
+          </div>
+          <footer><div class="rst-footer-buttons" role="navigation" aria-label="Footer">
+        <a href="design.html" class="btn btn-neutral float-left" title="Design Notes" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
+        <a href="benchmarks.html" class="btn btn-neutral float-right" title="Benchmarks" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
+    </div>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright 2026, Tom van Dijk.</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>
