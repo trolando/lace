@@ -59,7 +59,7 @@ if(NOT TARGET lace)
     FetchContent_Declare(
         lace
         GIT_REPOSITORY https://github.com/trolando/lace.git
-        GIT_TAG        v1.8.2
+        GIT_TAG        v1.9.0
     )
     FetchContent_MakeAvailable(lace)
   endif()

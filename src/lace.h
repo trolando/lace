@@ -20,8 +20,8 @@
 
 // Lace version
 #define LACE_VERSION_MAJOR 1
-#define LACE_VERSION_MINOR 8
-#define LACE_VERSION_PATCH 2
+#define LACE_VERSION_MINOR 9
+#define LACE_VERSION_PATCH 0
 
 #if defined(_MSC_VER) && !defined(__clang__)
     #define LACE_MSVC 1
