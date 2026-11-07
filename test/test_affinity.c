@@ -12,8 +12,8 @@
 /*
  * With n_workers 0, Lace starts one worker per CPU it may run on: under an
  * affinity mask of two CPUs (as taskset, cgroups and SLURM set), at most two
- * workers. Without hwloc, this needs sched_getaffinity; the CMake check for
- * it failed on glibc (no _GNU_SOURCE), and Lace counted every online CPU.
+ * workers. This needs sched_getaffinity; the CMake check for it failed on
+ * glibc (no _GNU_SOURCE), and Lace counted every online CPU.
  * Linux and FreeBSD; elsewhere this only checks that Lace starts.
  */
 

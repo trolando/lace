@@ -42,7 +42,7 @@ Please [let us know](https://github.com/trolando/lace/issues) if you need featur
 ## Installation
 
 Lace requires a modern compiler supporting C11. It is tested with GCC, Clang, and MSVC.
-Lace pins its workers itself on Linux, FreeBSD and Windows. It can still use hwloc (`libhwloc-dev`, `LACE_USE_HWLOC`), but that option is deprecated.
+Lace pins its workers itself on Linux, FreeBSD and Windows.
 
 It is possible to install Lace with `cmake --install build` if that is desired.
 We recommend using Lace as a submodule in your repository or as a dependency in your CMake script,
@@ -83,8 +83,7 @@ Lace can be configured with the following CMake settings:
 
 Setting | Description | Default
 --------|-------------|--------
-`LACE_DEFAULT_PIN` | The pinning mode (Linux, FreeBSD, Windows; on Windows within the processor group of the thread that calls `lace_start`) when neither `lace_set_pinning()` nor the `LACE_PIN` environment variable chooses one: `AUTO`, `OFF`, `CPU`, `CORE`, `L2`, `L3`, `NUMA` or `ALL`, within the affinity mask the program is given; with `LACE_USE_HWLOC`, any mode but `OFF` pins to cores | AUTO
-`LACE_USE_HWLOC` | Deprecated. Use the `hwloc` library to pin threads to CPUs and allocate memory on the correct NUMA node, instead of the built-in pinning (macOS does not let programs pin threads) | OFF
+`LACE_DEFAULT_PIN` | The pinning mode (Linux, FreeBSD, Windows; on Windows within the processor group of the thread that calls `lace_start`) when neither `lace_set_pinning()` nor the `LACE_PIN` environment variable chooses one: `AUTO`, `OFF`, `CPU`, `CORE`, `L2`, `L3`, `NUMA` or `ALL`, within the affinity mask the program is given | AUTO
 `LACE_BACKOFF` | Workers sleep with exponential backoff when no work is available, reducing CPU usage without affecting throughput | ON
 `LACE_NATIVE_OPT` | Optimise for the host CPU architecture (`-march=native`) | ON as the top-level project, OFF as a subproject
 `LACE_ENABLE_PIC` | Compile with position-independent code (`-fPIC`) | OFF
