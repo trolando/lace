@@ -2,6 +2,24 @@
 
 All notable changes to Lace will be documented in this file.
 
+## [1.8.2] - 2026-11-07
+
+This release takes over the local patches of mCRL2.
+
+### Changed
+
+- `LACE_NATIVE_OPT` (`-march=native`) is ON by default only when Lace is the
+  top-level project, so programs that include Lace stay portable.
+
+### Fixed
+
+- On MSVC, Lace read the clock with `rdtscp`, which some (virtual) CPUs
+  lack; it now uses `rdtsc`.
+- Builds with `LACE_SANITIZE_THREAD` failed with Clang.
+- CMake failed when the build directory was the source directory.
+- The configuration summary was also printed when Lace is a subproject, and
+  its last lines (tests, benchmarks, sanitizers) were never printed.
+
 ## [1.8.1] - 2026-11-07
 
 ### Changed
