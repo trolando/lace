@@ -2246,17 +2246,21 @@ lace_worker_enter(unsigned int worker)
         exit(1);
     }
 
-    // Initialize data structures
-    lace_init_worker(worker);
-
-    // Pin as the pinning mode says (with lace_start_external only when asked)
-    lace_pin_worker();
+    // Pin first, as the pinning mode says (with lace_start_external only when
+    // asked): the worker then touches its memory (worker data, deque, stack,
+    // scratch arena) on its own CPU, so first touch places it on its NUMA node
 #if defined(__linux__) && !LACE_USE_HWLOC
     if (pin_sets != NULL) {
         if (external_mode) lace_saved_mask_set = sched_getaffinity(0, sizeof(cpu_set_t), &lace_saved_mask) == 0;
         (void)pthread_setaffinity_np(pthread_self(), sizeof(cpu_set_t), &pin_sets[worker]);
     }
 #endif
+
+    // Initialize data structures
+    lace_init_worker(worker);
+
+    // hwloc pins after the worker data exists, and moves that data to the node
+    lace_pin_worker();
 #if defined(__linux__)
     // A sentinel naps for microseconds; the default timer slack is 50 us
     if (external_mode) lace_saved_slack = prctl(PR_GET_TIMERSLACK, 0UL, 0UL, 0UL, 0UL);
