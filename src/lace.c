@@ -2363,14 +2363,18 @@ lace_worker_thread(void* arg)
 {
     unsigned int worker = (unsigned int)(size_t)arg;
 
-    // Initialize data structures
-    lace_init_worker(worker);
-
-    // Pin CPU
-    lace_pin_worker();
+    // Pin first, as the pinning mode says: the worker then touches its memory
+    // (worker data, deque, stack, scratch arena) on its own CPU, so first
+    // touch places it on its NUMA node
 #if defined(__linux__) && !LACE_USE_HWLOC
     if (pin_sets != NULL) (void)pthread_setaffinity_np(pthread_self(), sizeof(cpu_set_t), &pin_sets[worker]);
 #endif
+
+    // Initialize data structures
+    lace_init_worker(worker);
+
+    // hwloc pins after the worker data exists, and moves that data to the node
+    lace_pin_worker();
 #if defined(__linux__)
     // A sentinel naps for microseconds; the default timer slack is 50 us
     (void)prctl(PR_SET_TIMERSLACK, 1000UL, 0UL, 0UL, 0UL);

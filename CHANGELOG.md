@@ -2,6 +2,14 @@
 
 All notable changes to Lace will be documented in this file.
 
+## [Unreleased]
+
+### Fixed
+
+- A worker set up its data and deque before Lace pinned it, so first touch
+  could place them on another NUMA node than the worker's (half of the
+  workers on a two-socket machine); Lace now pins first (`test_numa`).
+
 ## [1.8.2] - 2026-11-07
 
 This release takes over the local patches of mCRL2.
