@@ -27,13 +27,16 @@
  *   pinned while they are workers and get their mask back when they leave.
  */
 
+#define STACK_SIZE ((size_t)64 << 20)
+
 #if defined(_WIN32)
 #include <windows.h>
 typedef HANDLE host_thread_t;
 static DWORD WINAPI trampoline(LPVOID p);
 static void thread_start(host_thread_t *t, void *arg)
 {
-    *t = CreateThread(NULL, 0, trampoline, arg, 0, NULL);
+    /* a large stack, as for any thread that joins Lace (Lace's own reserve 1 GB) */
+    *t = CreateThread(NULL, STACK_SIZE, trampoline, arg, STACK_SIZE_PARAM_IS_A_RESERVATION, NULL);
     if (*t == NULL) { printf("CreateThread failed\n"); exit(1); }
 }
 static void thread_join(host_thread_t t) { WaitForSingleObject(t, INFINITE); CloseHandle(t); }
@@ -43,7 +46,13 @@ typedef pthread_t host_thread_t;
 static void *trampoline(void *p);
 static void thread_start(host_thread_t *t, void *arg)
 {
-    if (pthread_create(t, NULL, trampoline, arg) != 0) { printf("pthread_create failed\n"); exit(1); }
+    /* a large stack, as for any thread that joins Lace (Lace's own reserve 1 GB):
+     * a worker waiting at a SYNC runs stolen tasks on its own stack */
+    pthread_attr_t attr;
+    pthread_attr_init(&attr);
+    pthread_attr_setstacksize(&attr, STACK_SIZE);
+    if (pthread_create(t, &attr, trampoline, arg) != 0) { printf("pthread_create failed\n"); exit(1); }
+    pthread_attr_destroy(&attr);
 }
 static void thread_join(host_thread_t t) { pthread_join(t, NULL); }
 #endif
@@ -138,7 +147,24 @@ static int thread_ids[N];
 #if defined(_WIN32)
 static DWORD WINAPI trampoline(LPVOID p) { host_thread(*(int*)p); return 0; }
 #else
-static void *trampoline(void *p) { host_thread(*(int*)p); return NULL; }
+#include <signal.h>
+static void *trampoline(void *p)
+{
+    /* the crash handler's alternate stack is per thread: give this thread one,
+     * so that a crash here (also a stack overflow) is reported */
+    stack_t ss;
+    memset(&ss, 0, sizeof(ss));
+    ss.ss_size = 1 << 16;
+    ss.ss_sp = malloc(ss.ss_size);
+    if (ss.ss_sp != NULL) sigaltstack(&ss, NULL);
+    host_thread(*(int*)p);
+    if (ss.ss_sp != NULL) {
+        ss.ss_flags = SS_DISABLE;
+        sigaltstack(&ss, NULL);
+        free(ss.ss_sp);
+    }
+    return NULL;
+}
 #endif
 
 static void
