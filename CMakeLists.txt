@@ -203,15 +203,21 @@ foreach(_target lace lace14)
         target_sources(${_target}
           PRIVATE src/lace.c
           PUBLIC  FILE_SET HEADERS
-                  BASE_DIRS src ${CMAKE_CURRENT_BINARY_DIR}
-                  FILES src/lace.h ${CMAKE_CURRENT_BINARY_DIR}/lace_config.h
+                  BASE_DIRS src
+                  FILES src/lace.h
+          PUBLIC  FILE_SET generated_headers TYPE HEADERS
+                  BASE_DIRS ${CMAKE_CURRENT_BINARY_DIR}
+                  FILES ${CMAKE_CURRENT_BINARY_DIR}/lace_config.h
         )
     else()
         target_sources(${_target}
           PRIVATE src/lace14.c
           PUBLIC  FILE_SET HEADERS
-                  BASE_DIRS src ${CMAKE_CURRENT_BINARY_DIR}
-                  FILES src/lace14.h ${CMAKE_CURRENT_BINARY_DIR}/lace_config.h
+                  BASE_DIRS src
+                  FILES src/lace14.h
+          PUBLIC  FILE_SET generated_headers TYPE HEADERS
+                  BASE_DIRS ${CMAKE_CURRENT_BINARY_DIR}
+                  FILES ${CMAKE_CURRENT_BINARY_DIR}/lace_config.h
         )
     endif()
  
@@ -341,6 +347,7 @@ install(TARGETS lace lace14
     LIBRARY       DESTINATION ${CMAKE_INSTALL_LIBDIR}
     RUNTIME       DESTINATION ${CMAKE_INSTALL_BINDIR}
     FILE_SET HEADERS DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
+    FILE_SET generated_headers DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
 )
  
 install(EXPORT lace-targets
