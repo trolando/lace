@@ -2682,6 +2682,13 @@ lace_worker_thread(void* arg)
     (void)prctl(PR_SET_TIMERSLACK, 1000UL, 0UL, 0UL, 0UL);
 #endif
 
+    // Start together: no worker steals before all are set up. A thief that
+    // asked a worker still being set up to move its split wrote to that
+    // worker's memory first, which put the page on the thief's NUMA node. The
+    // barrier backs off rather than spin, as on a busy machine the threads may
+    // outnumber the CPUs.
+    lace_barrier();
+
     // Run the steal loop
     WorkerP *__lace_worker = lace_get_worker();
     Task *__lace_dq_head = lace_get_head(__lace_worker);
