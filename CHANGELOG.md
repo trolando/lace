@@ -18,6 +18,13 @@ All notable changes to Lace will be documented in this file.
   files (one per core and one per package instead of two per CPU): on Linux
   machines with many CPUs a start took 1-3 ms, mostly reading sysfs.
 
+### Deprecated
+
+- `LACE_USE_HWLOC`: Lace pins its workers itself on Linux, FreeBSD and
+  Windows, and `lace_start` takes about 50 ms less without hwloc. Binding the
+  memory of the workers to their NUMA node, as hwloc does, was not faster
+  than first touch by the pinned worker.
+
 ### Fixed
 
 - A worker set up its data and deque before Lace pinned it, so first touch
