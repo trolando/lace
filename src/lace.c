@@ -2126,7 +2126,8 @@ lace_sentinel(WorkerP *lw, atomic_int *quit, unsigned int *last_victim, unsigned
  * Steal from random victims until "quit" is set.
  */
 LACE_NO_SANITIZE_THREAD
-TASK(void, lace_steal_loop, atomic_int*, quit)
+static void
+lace_steal_loop_body(WorkerP *__lace_worker, Task *__lace_dq_head, atomic_int *quit)
 {
     // Determine who I am
     const unsigned int worker_id =(unsigned int) __lace_worker->worker;
@@ -2343,6 +2344,14 @@ TASK(void, lace_steal_loop, atomic_int*, quit)
 
         if (atomic_load_explicit(quit, memory_order_relaxed)) break;
     }
+}
+
+/* The steal loop as a task, which TOGETHER and NEWFRAME run on the other
+ * workers. Its body is a plain function: an attribute before TASK would
+ * apply to the task struct, not to a function (Clang rejects it). */
+TASK(void, lace_steal_loop, atomic_int*, quit)
+{
+    lace_steal_loop_body(__lace_worker, __lace_dq_head, quit);
 }
 
 /**
