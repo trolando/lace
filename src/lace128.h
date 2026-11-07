@@ -372,9 +372,66 @@ typedef struct lace_task lace_task;
 void lace_start(unsigned int n_workers, size_t dqsize, size_t stacksize);
 
 /**
+ * Start Lace on threads that the program creates itself.
+ *
+ * Like lace_start, but Lace creates no threads: the program brings
+ * @p n_workers threads, for example from a runtime that creates its threads
+ * itself, and each becomes a worker with lace_worker_enter. The threads may
+ * already run, but each enters only after this call has returned, for example
+ * after a barrier of the program, or by creating the threads afterwards. A thread that
+ * only works then calls lace_worker_loop; a thread that generates the tasks
+ * runs them directly after lace_worker_enter, and only steals while it waits
+ * at a SYNC (leapfrogging). Every thread ends with lace_worker_leave, and
+ * then one of them, or another thread, calls lace_stop.
+ *
+ * The threads use their own stacks, so deep task trees need large thread
+ * stacks. Lace pins them only when the program asks, with lace_set_pinning,
+ * lace_set_pin_cpus or the LACE_PIN environment variable, before this call;
+ * LACE_DEFAULT_PIN does not apply. lace_worker_leave gives a thread its
+ * affinity back.
+ *
+ * @param n_workers  Number of threads that will enter. Pass 0 for one per
+ *                   available CPU (see lace_worker_count).
+ * @param dqsize     Task deque size per worker. Pass 0 for the default.
+ *
+ * @see lace_worker_enter, lace_worker_loop, lace_worker_leave, lace_stop
+ */
+void lace_start_external(unsigned int n_workers, size_t dqsize);
+
+/**
+ * Make the calling thread Lace worker @p worker, after lace_start_external
+ * has returned (the calling thread must be synchronised with that call, for
+ * example by a barrier, or created after it).
+ *
+ * Each worker id from 0 to n_workers-1 is entered by one thread per run. A
+ * worker that does not call lace_worker_loop runs tasks directly, for example
+ * the root of the computation. Until it leaves, every worker takes part in
+ * TOGETHER and NEWFRAME, which wait for all workers, so between tasks such a
+ * thread should not do long work outside Lace; while it is a worker, idle
+ * workers also stay ready to steal its tasks.
+ */
+void lace_worker_enter(unsigned int worker);
+
+/**
+ * Steal and run tasks until lace_stop. Called by a worker (lace_worker_enter)
+ * that only works; returns when Lace stops.
+ */
+void lace_worker_loop(void);
+
+/**
+ * The calling thread stops being a Lace worker; it gets its affinity back.
+ * Not from inside a task. Every worker leaves before lace_stop returns.
+ */
+void lace_worker_leave(void);
+
+/**
  * Stop all workers and free resources.
  *
- * Must be called from a thread that is not a Lace worker.
+ * Must be called from a thread that is not a Lace worker (or has left with
+ * lace_worker_leave), never from inside a task. With lace_start_external, it
+ * makes every lace_worker_loop return and waits until all workers have left;
+ * the program then joins its own threads. Afterwards Lace can be started
+ * again, also with other threads as the workers.
  * Do not call from a signal handler.
  *
  * @see lace_start

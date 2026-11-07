@@ -4,6 +4,13 @@ All notable changes to Lace will be documented in this file.
 
 ## [Unreleased]
 
+### Added
+
+- `lace_start_external()`, `lace_worker_enter()`, `lace_worker_loop()` and
+  `lace_worker_leave()` run Lace on the program's own threads, for example
+  those of a runtime that creates its threads itself (`test_own_threads`,
+  docs: "Your own threads").
+
 ### Changed
 
 - SPAWN no longer executes a memory fence: the tasks are published by a

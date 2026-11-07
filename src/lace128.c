@@ -476,6 +476,9 @@ static_assert(offsetof(worker_data, worker_private) == sizeof(lace_worker_public
  */
 static worker_data **workers_memory = NULL;
 
+/* lace_start_external: the program brings the worker threads (1), or Lace creates them (0) */
+static int external_mode = 0;
+
 /* lace_set_pinning (-1: LACE_PIN or the default) and lace_set_pin_cpus */
 static int pin_api_mode = -1;
 static int *pin_api_cpus = NULL;
@@ -515,7 +518,7 @@ lace_hwloc_pins(void)
     if (pin_api_mode >= 0) return pin_api_mode != LACE_PIN_OFF;
     const char *pe = getenv("LACE_PIN");
     if (pe != NULL && *pe != '\0') return strcmp(pe, "off") != 0;
-    return LACE_DEFAULT_PIN != LACE_PIN_OFF;
+    return !external_mode && LACE_DEFAULT_PIN != LACE_PIN_OFF;
 }
 #endif
 
@@ -525,7 +528,8 @@ lace_hwloc_pins(void)
  * calls lace_start (taskset, cgroups, SLURM). The modes are lace_pin_mode
  * (lace128.h): what each worker may run on, from one hardware thread to a NUMA
  * node; lace_set_pinning() or else LACE_PIN in the environment chooses, else
- * the default is LACE_DEFAULT_PIN (CMake, LACE_PIN_AUTO unless set).
+ * the default is LACE_DEFAULT_PIN (CMake, LACE_PIN_AUTO unless set), or
+ * LACE_PIN_OFF with lace_start_external.
  * The CPUs come one of every physical core first (sysfs thread_siblings_list),
  * package by package, in mask order. In the group modes (L2, L3, NUMA) the
  * workers are spread over the groups in proportion to their cores, so that
@@ -666,7 +670,7 @@ lace_pin_setup(void)
     } else if (pe != NULL && *pe != '\0') {
         pin_mode = lace_pin_mode_env(pe, &list, &nlist);
     } else {
-        pin_mode = LACE_DEFAULT_PIN;
+        pin_mode = external_mode ? LACE_PIN_OFF : LACE_DEFAULT_PIN; // own threads: only when asked
     }
     cpu_set_t mask;
     if (pin_mode <= 0 || sched_getaffinity(0, sizeof(mask), &mask) != 0 || CPU_COUNT(&mask) == 0) goto done;
@@ -890,6 +894,15 @@ static int is_running = 0;
 static atomic_uint release_gen = 0;
 static atomic_uint release_done = 0;
 static atomic_flag release_lock = ATOMIC_FLAG_INIT;
+
+/**
+ * Per run: the worker ids that a thread has entered (lace_worker_enter), the
+ * workers that have left (lace_stop waits for all of them), and the workers
+ * in the steal loop (lace_release_memory waits for those).
+ */
+static atomic_int *worker_entered = NULL;
+static atomic_uint n_left = 0;
+static atomic_uint n_looping = 0;
 
 /**
  * Futex-based idle system for progressive worker sleeping
@@ -1183,6 +1196,11 @@ lace_check_memory(void)
 #endif
 }
 
+#if LACE_USE_HWLOC
+/* The binding of a program thread before it became a worker (lace_start_external) */
+static LACE_TLS hwloc_bitmap_t lace_saved_cpubind = NULL;
+#endif
+
 static void
 lace_pin_worker(void)
 {
@@ -1191,6 +1209,11 @@ lace_pin_worker(void)
 
     // Get the worker id
     unsigned int worker = lace_get_worker()->worker;
+
+    if (external_mode && lace_saved_cpubind == NULL) {
+        lace_saved_cpubind = hwloc_bitmap_alloc();
+        if (lace_saved_cpubind != NULL) (void)hwloc_get_cpubind(topo, lace_saved_cpubind, HWLOC_CPUBIND_THREAD);
+    }
 
     // Pin the thread and bind its memory to its NUMA node, where the system
     // supports it (macOS does neither); report a failure once
@@ -1816,7 +1839,8 @@ lace_release_memory(void)
     atomic_fetch_add_explicit(&wake_futex, 1, memory_order_release);
     lace_futex_wake_all(&wake_futex);
 
-    while (atomic_load_explicit(&release_done, memory_order_acquire) < n_workers) lace_sleep_us(50);
+    while (atomic_load_explicit(&release_done, memory_order_acquire) <
+           atomic_load_explicit(&n_looping, memory_order_relaxed)) lace_sleep_us(50);
     atomic_flag_clear_explicit(&release_lock, memory_order_release);
 }
 
@@ -2145,36 +2169,131 @@ void lace_steal_loop_CALL(lace_worker* lw, atomic_int* quit)
     }
 }
 
+#if defined(__linux__) && !LACE_USE_HWLOC
+/* The affinity of a program thread before it became a worker (lace_start_external) */
+static LACE_TLS cpu_set_t lace_saved_mask;
+static LACE_TLS int lace_saved_mask_set = 0;
+#endif
+#if defined(__linux__)
+/* The timer slack of a program thread before it became a worker, or -1 */
+static LACE_TLS int lace_saved_slack = -1;
+#endif
+
 /**
- * Initialize the current thread as a Lace thread, and perform work-stealing
- * as worker <worker> until lace_exit() is called.
+ * Make the calling thread Lace worker <worker> (lace128.h).
  */
-static void*
-lace_worker_thread(void* arg)
+void
+lace_worker_enter(unsigned int worker)
 {
-    unsigned int worker = (unsigned int)(size_t)arg;
+    if (!is_running || worker >= n_workers) {
+        fprintf(stderr, "Lace error: lace_worker_enter(%u): Lace is not running, or has fewer workers\n", worker);
+        exit(1);
+    }
+    if (lace_thread_worker != NULL) {
+        fprintf(stderr, "Lace error: lace_worker_enter(%u): this thread is already Lace worker %u\n",
+            worker, (unsigned int)lace_thread_worker->worker);
+        exit(1);
+    }
+    int expected = 0;
+    if (!atomic_compare_exchange_strong_explicit(&worker_entered[worker], &expected, 1,
+            memory_order_relaxed, memory_order_relaxed)) {
+        fprintf(stderr, "Lace error: lace_worker_enter(%u): another thread is already worker %u\n", worker, worker);
+        exit(1);
+    }
 
     // Initialize data structures
     lace_init_worker(worker);
 
-    // Pin CPU
+    // Pin as the pinning mode says (with lace_start_external only when asked)
     lace_pin_worker();
 #if defined(__linux__) && !LACE_USE_HWLOC
-    if (pin_sets != NULL) (void)pthread_setaffinity_np(pthread_self(), sizeof(cpu_set_t), &pin_sets[worker]);
+    if (pin_sets != NULL) {
+        if (external_mode) lace_saved_mask_set = sched_getaffinity(0, sizeof(cpu_set_t), &lace_saved_mask) == 0;
+        (void)pthread_setaffinity_np(pthread_self(), sizeof(cpu_set_t), &pin_sets[worker]);
+    }
 #endif
 #if defined(__linux__)
     // A sentinel naps for microseconds; the default timer slack is 50 us
+    if (external_mode) lace_saved_slack = prctl(PR_GET_TIMERSLACK, 0UL, 0UL, 0UL, 0UL);
     (void)prctl(PR_SET_TIMERSLACK, 1000UL, 0UL, 0UL, 0UL);
 #endif
 
-    // Run the steal loop
-    lace_worker* lw = workers_p[worker];
+    // A worker counts as busy until it idles in the steal loop, so a thread
+    // that runs tasks itself keeps the sentinels awake while it works
+    lace_set_idle(lace_thread_worker, 0);
+}
+
+/**
+ * Steal and run tasks until lace_stop (lace128.h).
+ */
+void
+lace_worker_loop(void)
+{
+    lace_worker* lw = lace_thread_worker;
+    if (lw == NULL) {
+        fprintf(stderr, "Lace error: lace_worker_loop: this thread is not a Lace worker\n");
+        exit(1);
+    }
+    atomic_fetch_add_explicit(&n_looping, 1, memory_order_relaxed);
     lace_steal_loop_CALL(lw, &lace_quits);
+    atomic_fetch_sub_explicit(&n_looping, 1, memory_order_relaxed);
 
     // Time worker exit event
     lace_time_event(lw, 9);
+}
 
+/**
+ * The calling thread stops being a Lace worker (lace128.h).
+ */
+void
+lace_worker_leave(void)
+{
+    lace_worker* lw = lace_thread_worker;
+    if (lw == NULL) {
+        fprintf(stderr, "Lace error: lace_worker_leave: this thread is not a Lace worker\n");
+        exit(1);
+    }
+    if (lw->head != lw->dq) {
+        fprintf(stderr, "Lace error: lace_worker_leave: worker %u still has tasks (called from inside a task?)\n",
+            (unsigned int)lw->worker);
+        exit(1);
+    }
+    lace_set_idle(lw, 1);
 
+    // Give a program thread its affinity and timer slack back
+#if LACE_USE_HWLOC
+    if (lace_saved_cpubind != NULL) {
+        (void)hwloc_set_cpubind(topo, lace_saved_cpubind, HWLOC_CPUBIND_THREAD);
+        hwloc_bitmap_free(lace_saved_cpubind);
+        lace_saved_cpubind = NULL;
+    }
+#elif defined(__linux__)
+    if (lace_saved_mask_set) {
+        (void)pthread_setaffinity_np(pthread_self(), sizeof(cpu_set_t), &lace_saved_mask);
+        lace_saved_mask_set = 0;
+    }
+#endif
+#if defined(__linux__)
+    if (lace_saved_slack >= 0) {
+        (void)prctl(PR_SET_TIMERSLACK, (unsigned long)lace_saved_slack, 0UL, 0UL, 0UL);
+        lace_saved_slack = -1;
+    }
+#endif
+
+    lace_thread_worker = NULL;
+    atomic_fetch_add_explicit(&n_left, 1, memory_order_release);
+}
+
+/**
+ * Lace's own worker threads: enter as worker <worker>, steal until lace_stop,
+ * and leave.
+ */
+static void*
+lace_worker_thread(void* arg)
+{
+    lace_worker_enter((unsigned int)(size_t)arg);
+    lace_worker_loop();
+    lace_worker_leave();
     return NULL;
 }
 
@@ -2349,53 +2468,18 @@ lace_alloc_stacks(size_t stacksize)
 
 
 /**
- * Start Lace and spawn worker threads.
- *
- * Allocates per-worker deques and launches @p n_workers threads.
- * Workers begin busy-waiting for tasks immediately. If LACE_BACKOFF
- * is enabled (the default), CPU usage drops to near zero after roughly
- * one second of inactivity.
- *
- * **Deque allocation.** Each worker's task deque is allocated as a
- * virtual memory mapping (mmap on Unix, VirtualAlloc on Windows).
- * Physical pages are committed lazily on first access, so a large
- * @p dqsize has no upfront memory cost.
- *
- * **Stack allocation.** Worker thread stacks are allocated explicitly
- * rather than by pthreads, with a guard page at the low end to catch
- * stack overflow. On Unix without hwloc, stacks are allocated with
- * mmap and MAP_NORESERVE; the kernel's first-touch policy places
- * physical pages on the NUMA node where the worker thread runs. When
- * LACE_USE_HWLOC is enabled, stacks are allocated with
- * hwloc_alloc_membind, which binds pages to the correct NUMA node at
- * allocation time. On Windows without hwloc, the OS manages stacks.
- * The @p stacksize parameter is rounded up to the system page size.
- *
- * **Thread pinning.** When LACE_USE_HWLOC is enabled, each worker
- * thread is pinned to a CPU core. Workers are distributed across
- * physical cores first (avoiding hyperthreading) before assigning
- * multiple workers to the same core.
- *
- * @param n_workers  Number of worker threads. Pass 0 to auto-detect
- *                   available cores (respects process affinity masks).
- * @param dqsize     Task deque size per worker (number of task slots).
- *                   Pass 0 for a default of 1 048 576. Each live SPAWN
- *                   that has not yet been SYNCed occupies one slot.
- *                   Since deques are backed by virtual memory, only
- *                   pages actually touched consume physical memory.
- * @param stacksize  Worker thread stack size in bytes, at least 16 MB.
- *                   Pass 0 for the default: a 1 GB reservation on 64-bit
- *                   systems where stack pages are committed on first touch
- *                   (not with LACE_DONT_OVERCOMMIT, not on Windows except
- *                   MSVC), otherwise RLIMIT_STACK clamped to 16-64 MB. If
- *                   the 1 GB stacks cannot be reserved (for example under
- *                   ulimit -v), Lace falls back to the latter.
- *
- * @see lace_stop
+ * The part of lace_start that lace_start_external shares: everything but the
+ * worker threads and their stacks.
  */
-void
-lace_start(unsigned int _n_workers, size_t dequesize, size_t stacksize)
+static void
+lace_setup(unsigned int _n_workers, size_t dequesize, int external)
 {
+    if (is_running) {
+        fprintf(stderr, "Lace error: Lace is already running\n");
+        exit(1);
+    }
+    external_mode = external;
+
     /* Cache the OS page size for scratch-arena commit/decommit. */
     lace_scratch_init_page_size();
 
@@ -2575,56 +2659,6 @@ lace_start(unsigned int _n_workers, size_t dequesize, size_t stacksize)
     // Compute memory size for each worker
     workers_memory_size = sizeof(worker_data) + sizeof(lace_task) * dqsize;
 
-    const int default_stack = (stacksize == 0);
-    if (default_stack) stacksize = lace_default_stack_size();
-    if (stacksize < LACE_STACK_MIN) stacksize = LACE_STACK_MIN;
-
-#if LACE_MSVC
-    // Windows MSVC: the stack size is passed to thread creation directly, as
-    // a reservation (see _beginthreadex below); it must fit in an unsigned.
-    if (stacksize > ((size_t)1 << 31)) stacksize = (size_t)1 << 31;
-#else
-    // Prepare structures for thread creation
-    pthread_attr_t worker_attr;
-    if (pthread_attr_init(&worker_attr) != 0) {
-        fprintf(stderr, "Lace error: unable to initialize thread attributes!\n");
-        exit(1);
-    }
-
-#if LACE_USE_HWLOC || (!defined(_WIN32) && !defined(__FreeBSD__))
-    // Allocate the stacks ourselves: with hwloc bound to the worker's NUMA
-    // node, otherwise with mmap so first-touch places pages on the right node
-    // after pinning.
-    worker_stacks = malloc(n_workers * sizeof(void*));
-    if (worker_stacks == NULL) {
-        fprintf(stderr, "Lace error: unable to allocate stack pointer array!\n");
-        exit(1);
-    }
-    if (lace_alloc_stacks(stacksize) != 0) {
-        int err = errno;
-        size_t fallback = lace_small_stack_size();
-        if (default_stack && fallback < stacksize && lace_alloc_stacks(fallback) == 0) {
-            // e.g. a limit on address space (ulimit -v) or strict overcommit
-            if (verbosity) {
-                fprintf(stdout, "Lace startup: could not reserve %zu-byte stacks (%s), using %zu bytes.\n",
-                    stacksize, strerror(err), fallback);
-            }
-        } else {
-            fprintf(stderr, "Lace error: unable to allocate a %zu-byte stack for each of %u workers: %s\n",
-                stacksize, n_workers, strerror(err));
-            exit(1);
-        }
-    }
-    stacksize = worker_stack_size - worker_stack_page_size;
-#else
-    // _WIN32 or FreeBSD without HWLOC: just set stack size, let the OS handle it
-    if (pthread_attr_setstacksize(&worker_attr, stacksize) != 0) {
-        fprintf(stderr, "Lace error: unable to set stack size to %zu bytes!\n", stacksize);
-        exit(1);
-    }
-#endif
-#endif /* !LACE_MSVC */
-
     // Reserve the scratch arenas here, before the workers start, so the size
     // is one decision for all of them: like the stacks, a default that does
     // not fit (ulimit -v) falls back to the conservative size.
@@ -2684,6 +2718,117 @@ lace_start(unsigned int _n_workers, size_t dequesize, size_t stacksize)
     us_elapsed_start();
     count_at_start = lace_gethrtime();
 
+    // Per run: the worker ids taken, the workers that left, the workers in the steal loop
+    worker_entered = malloc(n_workers * sizeof(atomic_int));
+    if (worker_entered == NULL) {
+        fprintf(stderr, "Lace error: unable to allocate memory for the workers!\n");
+        exit(1);
+    }
+    for (unsigned int i = 0; i < n_workers; i++) atomic_init(&worker_entered[i], 0);
+    atomic_store_explicit(&n_left, 0, memory_order_relaxed);
+    atomic_store_explicit(&n_looping, 0, memory_order_relaxed);
+}
+
+/**
+ * Start Lace and spawn worker threads.
+ *
+ * Allocates per-worker deques and launches @p n_workers threads.
+ * Workers begin busy-waiting for tasks immediately. If LACE_BACKOFF
+ * is enabled (the default), CPU usage drops to near zero after roughly
+ * one second of inactivity.
+ *
+ * **Deque allocation.** Each worker's task deque is allocated as a
+ * virtual memory mapping (mmap on Unix, VirtualAlloc on Windows).
+ * Physical pages are committed lazily on first access, so a large
+ * @p dqsize has no upfront memory cost.
+ *
+ * **Stack allocation.** Worker thread stacks are allocated explicitly
+ * rather than by pthreads, with a guard page at the low end to catch
+ * stack overflow. On Unix without hwloc, stacks are allocated with
+ * mmap and MAP_NORESERVE; the kernel's first-touch policy places
+ * physical pages on the NUMA node where the worker thread runs. When
+ * LACE_USE_HWLOC is enabled, stacks are allocated with
+ * hwloc_alloc_membind, which binds pages to the correct NUMA node at
+ * allocation time. On Windows without hwloc, the OS manages stacks.
+ * The @p stacksize parameter is rounded up to the system page size.
+ *
+ * **Thread pinning.** When LACE_USE_HWLOC is enabled, each worker
+ * thread is pinned to a CPU core. Workers are distributed across
+ * physical cores first (avoiding hyperthreading) before assigning
+ * multiple workers to the same core.
+ *
+ * @param n_workers  Number of worker threads. Pass 0 to auto-detect
+ *                   available cores (respects process affinity masks).
+ * @param dqsize     Task deque size per worker (number of task slots).
+ *                   Pass 0 for a default of 1 048 576. Each live SPAWN
+ *                   that has not yet been SYNCed occupies one slot.
+ *                   Since deques are backed by virtual memory, only
+ *                   pages actually touched consume physical memory.
+ * @param stacksize  Worker thread stack size in bytes, at least 16 MB.
+ *                   Pass 0 for the default: a 1 GB reservation on 64-bit
+ *                   systems where stack pages are committed on first touch
+ *                   (not with LACE_DONT_OVERCOMMIT, not on Windows except
+ *                   MSVC), otherwise RLIMIT_STACK clamped to 16-64 MB. If
+ *                   the 1 GB stacks cannot be reserved (for example under
+ *                   ulimit -v), Lace falls back to the latter.
+ *
+ * @see lace_stop
+ */
+void
+lace_start(unsigned int _n_workers, size_t dequesize, size_t stacksize)
+{
+    lace_setup(_n_workers, dequesize, 0);
+
+    const int default_stack = (stacksize == 0);
+    if (default_stack) stacksize = lace_default_stack_size();
+    if (stacksize < LACE_STACK_MIN) stacksize = LACE_STACK_MIN;
+
+#if LACE_MSVC
+    // Windows MSVC: the stack size is passed to thread creation directly, as
+    // a reservation (see _beginthreadex below); it must fit in an unsigned.
+    if (stacksize > ((size_t)1 << 31)) stacksize = (size_t)1 << 31;
+#else
+    // Prepare structures for thread creation
+    pthread_attr_t worker_attr;
+    if (pthread_attr_init(&worker_attr) != 0) {
+        fprintf(stderr, "Lace error: unable to initialize thread attributes!\n");
+        exit(1);
+    }
+
+#if LACE_USE_HWLOC || (!defined(_WIN32) && !defined(__FreeBSD__))
+    // Allocate the stacks ourselves: with hwloc bound to the worker's NUMA
+    // node, otherwise with mmap so first-touch places pages on the right node
+    // after pinning.
+    worker_stacks = malloc(n_workers * sizeof(void*));
+    if (worker_stacks == NULL) {
+        fprintf(stderr, "Lace error: unable to allocate stack pointer array!\n");
+        exit(1);
+    }
+    if (lace_alloc_stacks(stacksize) != 0) {
+        int err = errno;
+        size_t fallback = lace_small_stack_size();
+        if (default_stack && fallback < stacksize && lace_alloc_stacks(fallback) == 0) {
+            // e.g. a limit on address space (ulimit -v) or strict overcommit
+            if (verbosity) {
+                fprintf(stdout, "Lace startup: could not reserve %zu-byte stacks (%s), using %zu bytes.\n",
+                    stacksize, strerror(err), fallback);
+            }
+        } else {
+            fprintf(stderr, "Lace error: unable to allocate a %zu-byte stack for each of %u workers: %s\n",
+                stacksize, n_workers, strerror(err));
+            exit(1);
+        }
+    }
+    stacksize = worker_stack_size - worker_stack_page_size;
+#else
+    // _WIN32 or FreeBSD without HWLOC: just set stack size, let the OS handle it
+    if (pthread_attr_setstacksize(&worker_attr, stacksize) != 0) {
+        fprintf(stderr, "Lace error: unable to set stack size to %zu bytes!\n", stacksize);
+        exit(1);
+    }
+#endif
+#endif /* !LACE_MSVC */
+
     /* Report startup if verbose */
     if (verbosity) {
         fprintf(stdout, "Lace startup: creating %u worker threads with program stack %zu bytes.\n", n_workers, stacksize);
@@ -2694,6 +2839,8 @@ lace_start(unsigned int _n_workers, size_t dequesize, size_t stacksize)
 #else
     handles = (HANDLE*)malloc(n_workers * sizeof(*handles));
 #endif
+
+    is_running = 1; // before the threads start, as they enter
 
     /* Spawn all workers */
     for (unsigned int i = 0; i < n_workers; i++) {
@@ -2728,7 +2875,18 @@ lace_start(unsigned int _n_workers, size_t dequesize, size_t stacksize)
     pthread_attr_destroy(&worker_attr);
 #endif
 
+}
 
+/**
+ * Start Lace on the program's own threads (lace128.h).
+ */
+void
+lace_start_external(unsigned int _n_workers, size_t dequesize)
+{
+    lace_setup(_n_workers, dequesize, 1);
+    if (verbosity) {
+        fprintf(stdout, "Lace startup: %u workers on the program's own threads.\n", n_workers);
+    }
     is_running = 1;
 }
 
@@ -2939,22 +3097,35 @@ lace_count_report_file(FILE *file)
  */
 void lace_stop(void)
 {
+    if (lace_thread_worker != NULL) {
+        fprintf(stderr, "Lace error: lace_stop called by Lace worker %u "
+            "(call lace_worker_leave first, and never from inside a task)\n",
+            (unsigned int)lace_thread_worker->worker);
+        exit(1);
+    }
+
     atomic_store_explicit(&lace_quits, 1, memory_order_relaxed);
 
     /* Wake all sleeping workers so they observe the quit flag */
     atomic_fetch_add_explicit(&wake_futex, 1, memory_order_release);
     lace_futex_wake_all(&wake_futex);
 
-    for (unsigned int i = 0; i < n_workers; i++) {
+    if (!external_mode) {
+        for (unsigned int i = 0; i < n_workers; i++) {
 #if !LACE_MSVC
-        pthread_join(handles[i], NULL);
+            pthread_join(handles[i], NULL);
 #else
-        WaitForSingleObject(handles[i], INFINITE);
-        CloseHandle(handles[i]);
+            WaitForSingleObject(handles[i], INFINITE);
+            CloseHandle(handles[i]);
 #endif
+        }
+        free(handles);
+        handles = NULL;
     }
 
-    free(handles);
+    /* Every worker has left: Lace's own threads before they ended, the
+     * program's threads with lace_worker_leave once their loops returned */
+    while (atomic_load_explicit(&n_left, memory_order_acquire) < n_workers) lace_sleep_us(50);
 
 #if LACE_COUNT_EVENTS
     // before the stacks are freed: the report includes their high-water marks
@@ -3019,6 +3190,10 @@ void lace_stop(void)
     free(idle_flags);
 #endif
     idle_flags = NULL;
+
+    free(worker_entered);
+    worker_entered = NULL;
+    external_mode = 0;
 
     is_running = 0;
 }

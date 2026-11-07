@@ -64,6 +64,8 @@ pointer is always passed explicitly.
 
 **lace_startup is now lace_start.** The initialising thread is no longer
 a Lace worker. Starting Lace with N workers simply starts N threads.
+Programs whose own threads were the workers (``lace_init_worker`` in old
+versions) use ``lace_start_external`` (see :doc:`threads`).
 
 **lace_suspend/lace_resume are gone.** Use ``LACE_BACKOFF`` (enabled by
 default) instead — idle workers sleep automatically with exponential backoff.

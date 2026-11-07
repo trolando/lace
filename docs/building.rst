@@ -272,6 +272,10 @@ CPU list such as ``list:0,2,4-7``. ``LACE_PIN_PRINT=1`` prints the CPUs of every
 worker. On other systems these calls have no effect; with ``LACE_USE_HWLOC``,
 hwloc pins every worker to a core unless the mode is ``off``.
 
+With ``lace_start_external`` (:doc:`threads`), Lace pins the program's threads
+only when the program chooses a mode or ``LACE_PIN`` is set; the default mode
+is then ``off``, whatever ``LACE_DEFAULT_PIN`` says.
+
 
 Installing
 ----------
