@@ -2187,7 +2187,12 @@ void lace_steal_loop_CALL(lace_worker* lw, atomic_int* quit)
     int worked = 0; // ran a task since this worker last slept: may become a sentinel
     int sentinel_nap_first = 0; // its last sentinel episode saw work that turned out not worth it
     uint64_t last_work_us = 0; // when this worker last ran a task (lace_now_us)
+    /* The scratch below this point belongs to tasks this loop interrupted:
+     * NEWFRAME and TOGETHER run the steal loop on top of the task a worker
+     * was running. In the worker's own loop, it is the base of the arena. */
+    char *const scratch_floor = lw->scratch_top;
 
+    (void)scratch_floor; // without LACE_BACKOFF there is no deep idle
     (void)worked;
     (void)sentinel_nap_first;
     (void)last_work_us;
@@ -2320,13 +2325,15 @@ void lace_steal_loop_CALL(lace_worker* lw, atomic_int* quit)
              * sequence (idle_count resets on successful steal), so it
              * does not become hot.
              *
-             * At this point all task frames have unwound: scratch_top
-             * should equal scratch_base. If it doesn't, a task forgot
-             * to lace_scratch_reset() before returning. We warn once
-             * per worker and recover by resetting top to base, so the
-             * trim below releases the full arena. */
+             * At this point the tasks this loop ran have returned:
+             * scratch_top should equal scratch_floor (the base of the
+             * arena, or in a NEWFRAME the top of the interrupted task's
+             * scratch). If it doesn't, a task forgot to
+             * lace_scratch_reset() before returning. We warn once per
+             * worker and recover by resetting top to the floor, so the
+             * trim below releases everything above it. */
             if (futex_iters == 1) {
-                if (lw->scratch_top != lw->scratch_base) {
+                if (lw->scratch_top != scratch_floor) {
                     if (!lw->scratch_leak_reported) {
                         lw->scratch_leak_reported = 1;
                         fprintf(stderr,
@@ -2334,9 +2341,9 @@ void lace_steal_loop_CALL(lace_worker* lw, atomic_int* quit)
                                 "%zu bytes of leaked scratch. Some task "
                                 "did not lace_scratch_reset() before returning.\n",
                                 (unsigned)lw->worker,
-                                (size_t)(lw->scratch_top - lw->scratch_base));
+                                (size_t)(lw->scratch_top - scratch_floor));
                     }
-                    lw->scratch_top = lw->scratch_base;
+                    lw->scratch_top = scratch_floor;
                 }
                 lace_scratch_trim(lw);
             }

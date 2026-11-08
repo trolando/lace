@@ -4,6 +4,14 @@ All notable changes to Lace will be documented in this file.
 
 ## [Unreleased]
 
+### Fixed
+
+- In a NEWFRAME or TOGETHER, a worker that went into deep idle in the frame's
+  steal loop reset its scratch arena under the task it had interrupted,
+  which still used it: a "leaked scratch" warning, then crashes or wrong
+  data (seen in mCRL2 with Sylvan's garbage collection as the frame). The
+  loop now resets only to the scratch it started with (`test_scratch_frame`).
+
 ### Removed
 
 - `LACE_USE_HWLOC` and the hwloc code, deprecated in 2.6.0: Lace pins its
