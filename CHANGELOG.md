@@ -2,7 +2,7 @@
 
 All notable changes to Lace will be documented in this file.
 
-## [Unreleased]
+## [1.10.0] - 2026-11-08
 
 ### Fixed
 
