@@ -21,6 +21,16 @@ lazily via a ``movesplit`` flag: when a thief finds no stealable
 tasks, it sets ``movesplit`` on the victim, and the victim moves
 the split on its next SPAWN.
 
+Keeping new tasks private is what makes SPAWN and SYNC cheap: publishing
+every task at once makes fib about three times slower. The price is paid by
+a task that spawns a few tasks and then runs for a long time without
+spawning or syncing: the tasks it spawned stay private until it does, and
+idle workers find nothing to steal. A tiled DSYRK with about one tile per
+worker took up to 1.6 times as long as with OpenCilk. Such a task should call
+``lace_make_all_shared()`` before its long computation; that cut the DSYRK
+time by up to 37%, and costs nothing elsewhere. Programs with many small
+tasks, the case Lace is built for, do not need it.
+
 Each task slot contains a function pointer and an atomic ``thief``
 field. The ``thief`` field serves as a state machine:
 

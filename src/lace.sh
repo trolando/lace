@@ -802,8 +802,11 @@ static inline int lace_check_yield(lace_worker* lw) LACE_UNUSED;
 /**
  * Make all tasks on the current worker'"'"'s deque stealable.
  *
- * Normally only tasks up to the split point are visible to thieves.
- * This moves the split to the head, exposing all pending tasks.
+ * Normally only tasks up to the split point are visible to thieves, and
+ * the owner moves the split when a thief asks, at its next SPAWN or SYNC.
+ * This moves the split to the head, exposing all pending tasks. Call it
+ * in a task that spawned work and is about to run for long without
+ * spawning or syncing, so that idle workers can take that work meanwhile.
  */
 static inline void lace_make_all_shared(void) LACE_UNUSED;
 
