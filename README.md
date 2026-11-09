@@ -31,7 +31,7 @@ int main(int argc, char **argv)
 Feature | Description
 ---------|------------
 Low overhead | Lace uses a **scalable** double-ended queue for its implementation of work-stealing, which is **wait-free** for the thread spawning tasks and **lock-free** for the threads stealing tasks. The design of the datastructure minimizes interaction between CPUs.
-Quiet when idle | When idle, Lace workers sleep with exponential backoff (up to 100 ms), reducing CPU usage to near zero when there is no work. While work runs, two idle workers stay awake as sentinels and wake the others when work appears, so Lace is quick to wake up. This is controlled by the `LACE_BACKOFF` option (enabled by default).
+Quiet when idle | When idle, Lace workers search for work for a time that grows with the work they found, then sleep with exponential backoff (up to 100 ms), reducing CPU usage to near zero when there is no work. While work runs, two idle workers stay awake as sentinels and wake the others when work appears, so Lace is quick to wake up. This is controlled by the `LACE_BACKOFF` option (enabled by default).
 Pinning | On Linux, workers are pinned by default, per CPU, core, cache or NUMA node, within the affinity mask of the program (`LACE_DEFAULT_PIN`, `lace_set_pinning`, `lace_set_pin_cpus` or the `LACE_PIN` environment variable).
 Multi-threaded task submission | Non-Lace threads can submit tasks concurrently via `RUN`. Up to 64 external threads can submit tasks simultaneously without contention.
 Interrupting | Lace threads can be (cooperatively) interrupted to execute another task first. This is for example used by [Sylvan](https://github.com/trolando/sylvan) to perform garbage collection.

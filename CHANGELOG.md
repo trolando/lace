@@ -2,6 +2,27 @@
 
 All notable changes to Lace will be documented in this file.
 
+## [Unreleased]
+
+### Changed
+
+- Each sleeping worker waits on its own futex word, and a waker wakes chosen
+  sleepers, the lowest-numbered first: one shared word caused wake storms at
+  96-192 workers. The globals of the idle path have their own cache lines.
+- An idle worker searches while its search balance is positive. Searching
+  spends it, and a worthwhile stolen or external task earns 8 times its
+  useful time (within 1 ms either way): workers that find work search
+  through gaps, workers that find only crumbs soon sleep.
+- With pinned workers on Linux, 75% of random steal attempts go to the
+  thief's own package (socket), and consecutive wake-ups go to different
+  packages.
+- A thief whose previous steal was a crumb wakes no sleepers for its
+  victim's remaining tasks, and does not prefer that victim next.
+- On a 4-socket Xeon (96 cores, 192 threads), the last three changes make
+  mCRL2's symbolic reachability 5-28% faster with the same or less CPU time;
+  the geometric mean of the Lace benchmarks changes by less than 2% on 16-96
+  cores.
+
 ## [1.10.0] - 2026-11-08
 
 ### Fixed
