@@ -11,6 +11,11 @@ All notable changes to Lace will be documented in this file.
   timeouts. With the idle path of 1.11.0 this cost milliseconds per frame:
   Sylvan's frequent garbage collections took minutes instead of seconds with 8
   workers on macOS. Lace now wakes them (`test_frame_wake`).
+- When a NEWFRAME or TOGETHER started, or a NEWFRAME's task completed, Lace
+  did not wake napping sentinels, so the frame waited for their nap to end: up
+  to a timer tick on Windows, about 11 ms per frame (since 1.10.0 or earlier).
+  Lace now wakes them, and a sentinel does not start a nap while a frame is
+  pending or ending.
 
 ## [1.11.0] - 2026-11-09
 
