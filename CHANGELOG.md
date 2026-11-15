@@ -2,6 +2,20 @@
 
 All notable changes to Lace will be documented in this file.
 
+## [2.7.1] - 2026-11-15
+
+### Fixed
+
+- When the task of a NEWFRAME completed, Lace did not wake the workers that
+  had fallen asleep inside the frame, so the frame waited for their futex
+  timeouts: several milliseconds per frame, minutes for programs with frequent
+  frames such as Sylvan's garbage collection. Lace now wakes them
+  (`test_frame_wake`).
+- When a NEWFRAME or TOGETHER started, or a NEWFRAME's task completed, Lace
+  did not wake napping sentinels, so the frame waited for their nap to end: up
+  to a timer tick on Windows, about 11 ms per frame. Lace now wakes them, and
+  a sentinel does not start a nap while a frame is pending or ending.
+
 ## [2.7.0] - 2026-11-08
 
 ### Fixed
