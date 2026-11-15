@@ -7,8 +7,9 @@
  * Each frame runs a 20 ms sequential task, long enough for the other workers
  * to fall asleep and back off; the test fails if the median overhead of a frame
  * (its time minus 20 ms) exceeds 2 ms. Measured on quiet machines with 4
- * workers: 1.11.0 5.6-6.8 ms (Linux and macOS), fixed 0.03-0.2 ms. Skipped
- * without LACE_BACKOFF (no worker sleeps).
+ * workers: 1.11.0 5.6-6.8 ms (Linux and macOS), fixed 0.03-0.2 ms. At most as
+ * many workers as CPUs (3 on a macOS CI runner): an oversubscribed run waits
+ * for time slices instead. Skipped without LACE_BACKOFF (no worker sleeps).
  */
 #include <stdio.h>
 #include <stdlib.h>
@@ -23,6 +24,7 @@
     #include <windows.h>
 #else
     #include <time.h>
+    #include <unistd.h>
 #endif
 
 static double
@@ -75,11 +77,23 @@ main(void)
     printf("LACE_BACKOFF is off: no worker sleeps, nothing to test\n");
     return 0;
 #endif
-    lace_start(4, 0);
+    unsigned int workers = 4;
+#if defined(_WIN32)
+    const unsigned int ncpu = (unsigned int)GetActiveProcessorCount(ALL_PROCESSOR_GROUPS);
+#else
+    const long np = sysconf(_SC_NPROCESSORS_ONLN);
+    const unsigned int ncpu = np > 0 ? (unsigned int)np : 1;
+#endif
+    if (ncpu < workers) workers = ncpu;
+    if (workers < 2) {
+        printf("fewer than 2 CPUs: nothing to test\n");
+        return 0;
+    }
+    lace_start(workers, 0);
     RUN(frames);
     lace_stop();
     qsort(overhead_ms, FRAMES, sizeof(double), cmp);
-    printf("NEWFRAME of a 20 ms task, 4 workers: overhead median %.2f ms, max %.2f ms\n", overhead_ms[FRAMES / 2], overhead_ms[FRAMES - 1]);
+    printf("NEWFRAME of a 20 ms task, %u workers: overhead median %.2f ms, max %.2f ms\n", workers, overhead_ms[FRAMES / 2], overhead_ms[FRAMES - 1]);
     if (overhead_ms[FRAMES / 2] > 2.0) {
         fprintf(stderr, "a frame waited for sleeping workers (median overhead %.2f ms)\n", overhead_ms[FRAMES / 2]);
         return 1;
