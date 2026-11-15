@@ -2363,7 +2363,10 @@ void lace_steal_loop_CALL(lace_worker* lw, atomic_int* quit)
              * submits a task after this check sees us and wakes us. */
             atomic_fetch_add_explicit(&n_sleeping, 1, memory_order_seq_cst);
             int val = atomic_load_explicit(&wake_futex, memory_order_acquire);
-            if (atomic_load_explicit(&external_task_count, memory_order_seq_cst) == 0) {
+            /* quit after val: a NEWFRAME's task sets quit (its done) before it
+             * bumps wake_futex, so a sleeper that read the new val sees quit */
+            if (atomic_load_explicit(&external_task_count, memory_order_seq_cst) == 0 &&
+                atomic_load_explicit(quit, memory_order_seq_cst) == 0) {
                 lace_futex_wait(&wake_futex, val, timeout_us);
             }
             atomic_fetch_sub_explicit(&n_sleeping, 1, memory_order_relaxed);
@@ -3471,8 +3474,12 @@ void
 lace_newframe_root_CALL(lace_worker *lw, lace_task* t, atomic_int *done)
 {
     t->f(lw, t);
-    atomic_thread_fence(memory_order_release); // no StoreStore reordering
-    atomic_store_explicit(done, 1, memory_order_relaxed);
+    /* done is the quit flag of the other workers' steal loops: wake those that
+     * fell asleep in the frame, or its last barrier waits for their futex
+     * timeouts (up to 100 ms) */
+    atomic_store_explicit(done, 1, memory_order_seq_cst);
+    atomic_fetch_add_explicit(&wake_futex, 1, memory_order_seq_cst);
+    lace_futex_wake_all(&wake_futex);
 }
 
 TASK(void, lace_wrap_newframe, lace_task*, task)
