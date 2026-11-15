@@ -2,6 +2,16 @@
 
 All notable changes to Lace will be documented in this file.
 
+## [Unreleased]
+
+### Fixed
+
+- When the task of a NEWFRAME completed, Lace did not wake the workers that
+  had fallen asleep inside the frame, so the frame waited for their futex
+  timeouts. With the idle path of 1.11.0 this cost milliseconds per frame:
+  Sylvan's frequent garbage collections took minutes instead of seconds with 8
+  workers on macOS. Lace now wakes them (`test_frame_wake`).
+
 ## [1.11.0] - 2026-11-09
 
 ### Changed

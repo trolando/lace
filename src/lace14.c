@@ -3656,8 +3656,11 @@ TASK(void, lace_wrap_together, Task*, task)
 TASK(void, lace_newframe_root, Task*, t, atomic_int*, done)
 {
     t->f(__lace_worker, __lace_dq_head, t);
-    atomic_thread_fence(memory_order_release); // no StoreStore reordering
-    atomic_store_explicit(done, 1, memory_order_relaxed);
+    /* seq_cst: the other workers' steal loops have done as their quit flag and
+     * recheck it after marking themselves asleep; wake those that sleep, or the
+     * frame's last barrier waits for their futex timeouts (up to 100 ms) */
+    atomic_store_explicit(done, 1, memory_order_seq_cst);
+    lace_wake_all_sleepers();
 }
 
 TASK(void, lace_wrap_newframe, Task*, task)
