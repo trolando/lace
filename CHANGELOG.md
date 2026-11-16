@@ -26,6 +26,8 @@ All notable changes to Lace will be documented in this file.
   and keeps one sentinel, for less CPU time; `performance` searches through
   gaps of up to 10 ms, for the fastest response; `balanced`, the default, is
   the idle path above.
+- The benchmarks `dsyrk-lace` and `dsyrk-seq`: a tiled DSYRK (C = C - A A^T
+  in b x b tiles), coarse regular tasks as in tiled linear algebra.
 
 ## [2.7.1] - 2026-11-15
 
