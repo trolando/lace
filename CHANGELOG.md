@@ -10,14 +10,15 @@ All notable changes to Lace will be documented in this file.
   sleepers, the lowest-numbered first: one shared word caused wake storms at
   96-192 workers. The globals of the idle path have their own cache lines.
 - An idle worker searches while its search balance is positive. Searching
-  spends it; every external task, and every stolen task that is worthwhile
-  (not a crumb), earns 8 times its useful time: its run time without the
-  search in leapfrog. NEWFRAME and TOGETHER interrupts count for neither,
-  also not for a crumb: a NEWFRAME's own steal loop accounts for its time,
-  and a TOGETHER's task earns nothing. The balance stays within 1 ms either
-  way: workers that find work search through gaps, workers that find only
-  crumbs soon sleep. A searching worker pauses between steal attempts and
-  yields the CPU every 5 us.
+  spends it; an external task that the steal loop takes, and a stolen task
+  that is worthwhile (not a crumb), earns 8 times its useful time: its run
+  time without the search in leapfrog. NEWFRAME and TOGETHER interrupts
+  count for neither, also not for a crumb: a NEWFRAME's own steal loop
+  accounts for its time, and the TOGETHER task of an interrupted worker, as
+  the initiator's wait for the others, earns nothing. The balance stays
+  within 1 ms either way: workers that find work search through gaps,
+  workers that find only crumbs soon sleep. A searching worker pauses
+  between steal attempts and yields the CPU every 5 us.
 - With pinned workers on Linux, 75% of random steal attempts pick a worker
   on the thief's own package (socket), the rest pick from all workers; and
   wake-ups take the packages in turn.
@@ -48,6 +49,9 @@ All notable changes to Lace will be documented in this file.
 - A worker that ran a TOGETHER task after it came from its idle loop still
   counted as idle, so sentinels could retire and sleeping workers miss the
   work that the task spawned. It now counts as busy.
+- A worker that kept losing the race for waiting external tasks skipped its
+  backoff: during a stream of external calls it could search without limit.
+  It now backs off as after any failed steal.
 
 ## [2.7.1] - 2026-11-15
 
