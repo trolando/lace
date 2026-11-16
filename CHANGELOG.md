@@ -7,21 +7,23 @@ All notable changes to Lace will be documented in this file.
 ### Changed
 
 - A searching worker pauses once between steal attempts instead of for
-  500 ns, and still yields the CPU every 5 us: the paced rounds of 1.11
-  slowed programs down on desktop processors.
+  500 ns, and still yields the CPU every 5 us: on bursty workloads, searching
+  without the paced rounds of 1.11 was 6-7% faster on a desktop processor and
+  on two servers (mCRL2 was unchanged).
 - With pinned workers on Linux on more than one package, wake-ups take the
   packages in turn, each from its lowest worker up (package 0's first,
   package 1's first, ..., then each package's second, ...), instead of a
   stride over the worker numbers; otherwise the lowest-numbered sleepers are
   woken first, as before.
-- The search balance leaves NEWFRAME and TOGETHER interrupts out: every
-  external task, and every stolen task that is worthwhile (not a crumb),
-  earns 8 times its run time without the search in leapfrog and without the
-  interrupts in it, and an interrupt does not count as search either, also
-  not in a crumb. A NEWFRAME's own steal loop accounts for its time, and a
-  TOGETHER's task earns nothing. In 1.11, a task with 60 us of its own work
-  in a 5 ms frame counted as 5 ms of work, and the search before an
-  interrupt was not spent.
+- The search balance leaves NEWFRAME and TOGETHER interrupts out: an
+  external task that the steal loop takes, and a stolen task that is
+  worthwhile (not a crumb), earns 8 times its run time without the search in
+  leapfrog and without the interrupts in it, and an interrupt does not count
+  as search either, also not in a crumb. A NEWFRAME's own steal loop
+  accounts for its time, and the TOGETHER task of an interrupted worker, as
+  the initiator's wait for the others, earns nothing. In 1.11, a task with
+  60 us of its own work in a 5 ms frame counted as 5 ms of work, and the
+  search before an interrupt was not spent.
 
 ### Added
 
@@ -50,6 +52,9 @@ All notable changes to Lace will be documented in this file.
 - A worker that ran a TOGETHER task after it came from its idle loop still
   counted as idle, so sentinels could retire and sleeping workers miss the
   work that the task spawned. It now counts as busy.
+- A worker that kept losing the race for waiting external tasks skipped its
+  backoff: during a stream of external calls it could search without limit.
+  It now backs off as after any failed steal.
 
 ## [1.11.1] - 2026-11-15
 
