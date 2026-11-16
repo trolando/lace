@@ -43,6 +43,9 @@ All notable changes to Lace will be documented in this file.
   external task that another worker took, so the task ran without helpers
   until a futex timeout, up to 100 ms. The worker now checks again after it
   counts itself as sleeping.
+- A worker that ran a TOGETHER task after it came from its idle loop still
+  counted as idle, so sentinels could retire and sleeping workers miss the
+  work that the task spawned. It now counts as busy.
 
 ## [2.7.1] - 2026-11-15
 
