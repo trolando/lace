@@ -1307,6 +1307,17 @@ static LACE_IDLE_LINE atomic_int n_sleeping = 0;   /* count of workers currently
 static LACE_IDLE_LINE atomic_uint n_sentinels = 0; /* idle workers that stay awake (idle_sentinels) */
 static LACE_IDLE_LINE atomic_int sentinel_futex = 0; /* napping sentinels wait on it; lace_run_task bumps it */
 static LACE_IDLE_LINE atomic_int n_napping = 0;      /* sentinels in a futex nap: lace_run_task wakes one only then */
+/* A worker that took an external task wakes a helper unless a sentinel
+ * watches (lace_wake_helper), but a worker that has decided to sleep rather
+ * than watch is not yet counted in n_sleeping: it would sleep through the
+ * notification. So the notifier bumps wake_gen (seq_cst) before it reads
+ * n_sleeping and n_sentinels, and a worker reads wake_gen before it decides
+ * and again after it has counted itself in n_sleeping and set its sleep flag
+ * (seq_cst). Either the notifier sees the sleeper and wakes it, or the
+ * sleeper sees the bump and decides again instead of sleeping; the worker
+ * that runs the task is then active (it sets its idle flag before it
+ * notifies), so the sleeper becomes a sentinel if a slot is free. */
+static LACE_IDLE_LINE atomic_uint wake_gen = 0;
 
 /* Wake worker i if it sleeps on its futex word; 1 if it did. A waker
  * publishes its event (seq_cst) before it reads the flag, and a sleeper sets
@@ -2009,12 +2020,14 @@ typedef struct ext_lace_task {
 static _Atomic(ext_lace_task*)external_tasks[LACE_EXT_SLOTS];
 static LACE_IDLE_LINE atomic_int external_task_count = 0;
 
-/* Wake a sleeping worker to help with an external task that a worker took, if no sentinel watches */
+/* Wake a sleeping worker to help with an external task that a worker took, if
+ * no sentinel watches; bump wake_gen first, for the workers about to sleep */
 static inline void
 lace_wake_helper(void)
 {
-    if (atomic_load_explicit(&n_sleeping, memory_order_relaxed) > 0
-        && atomic_load_explicit(&n_sentinels, memory_order_relaxed) == 0
+    atomic_fetch_add_explicit(&wake_gen, 1, memory_order_seq_cst);
+    if (atomic_load_explicit(&n_sleeping, memory_order_seq_cst) > 0
+        && atomic_load_explicit(&n_sentinels, memory_order_seq_cst) == 0
         ) {
         lace_wake_sleepers(1);
     }
@@ -2053,7 +2066,8 @@ pushed:
     /* Wake a worker only if one sleeps. A worker counts itself in n_sleeping
      * before it last checks external_task_count (both seq_cst, here too), so
      * either it sees our task or we see it sleeping. Awake workers check
-     * external_task_count in their idle loop. */
+     * external_task_count in their idle loop. Once a worker takes the task,
+     * lace_wake_helper covers the workers that were about to sleep. */
     if (atomic_load_explicit(&n_sleeping, memory_order_seq_cst) > 0
         && atomic_load_explicit(&n_sentinels, memory_order_seq_cst) == 0
         ) {
@@ -2075,7 +2089,9 @@ pushed:
     for (unsigned int spin = 1; ; spin++) {
         if (atomic_load_explicit(&et.state, memory_order_acquire) == EXT_DONE) return;
         if (!helped) {
-            const int tk = atomic_load_explicit(&et.taken, memory_order_relaxed);
+            /* acquire: the worker's idle flag, set before taken, is then
+             * visible to whoever sees our wake_gen bump */
+            const int tk = atomic_load_explicit(&et.taken, memory_order_acquire);
             if (tk != 0) {
                 lace_wake_helper();
                 helped = 1;
@@ -2121,6 +2137,9 @@ lace_steal_external(lace_worker *self)
         ext_lace_task* stolen = atomic_exchange_explicit(&external_tasks[i], NULL, memory_order_acquire);
         if (stolen != NULL) {
             atomic_fetch_sub_explicit(&external_task_count, 1, memory_order_relaxed);
+            /* Busy before the notification below, so that a worker that sees
+             * it (wake_gen) sees this one active */
+            lace_set_idle(self, 0);
             /* The task may spawn work while the other workers sleep, so a
              * helper is woken (unless a sentinel watches, see
              * lace_wake_helper). The waiting caller does that (see
@@ -2132,7 +2151,6 @@ lace_steal_external(lace_worker *self)
             }
             // execute task
             atomic_store_explicit(&stolen->task->thief, self->_public, memory_order_relaxed);
-            lace_set_idle(self, 0);
             lace_time_event(self, 1);
             stolen->task->f(self, stolen->task);
             lace_time_event(self, 2);
@@ -2546,6 +2564,9 @@ void lace_steal_loop_CALL(lace_worker* lw, atomic_int* quit)
         if (idle_count > LACE_IDLE_STAGE1_LIMIT) {
             /* with the balance spent it skips stage 1, whose end checks quit */
             if (atomic_load_explicit(quit, memory_order_relaxed)) break;
+            /* A notification after this read makes it decide again instead
+             * of sleeping (see wake_gen) */
+            const unsigned int gen = atomic_load_explicit(&wake_gen, memory_order_seq_cst);
             /* Before sleeping: become a sentinel if fewer than
              * idle_sentinels workers are, and this worker ran a task
              * since it last slept or another one runs a task now. Not after
@@ -2626,7 +2647,8 @@ void lace_steal_loop_CALL(lace_worker* lw, atomic_int* quit)
              * every waker publishes its event before it scans the marks (a
              * NEWFRAME's task sets quit, its done, before it wakes us). */
             atomic_store_explicit(&idle_flags[worker_id].sleep, 1, memory_order_seq_cst);
-            if (atomic_load_explicit(&external_task_count, memory_order_seq_cst) == 0 &&
+            if (atomic_load_explicit(&wake_gen, memory_order_seq_cst) == gen &&
+                atomic_load_explicit(&external_task_count, memory_order_seq_cst) == 0 &&
                 atomic_load_explicit(&lace_newframe.t, memory_order_seq_cst) == NULL &&
                 atomic_load_explicit(quit, memory_order_seq_cst) == 0 &&
                 atomic_load_explicit(&release_gen, memory_order_seq_cst) == seen_release) {
