@@ -2363,8 +2363,12 @@ lace_release_memory(void)
     /* seq_cst: a worker rechecks release_gen after marking itself asleep */
     atomic_fetch_add_explicit(&release_gen, 1, memory_order_seq_cst);
 
-    /* Wake sleeping workers, so they release now instead of at their next timeout */
+    /* Wake sleeping workers, so they release now instead of at their next
+     * timeout, and napping sentinels, which check release_gen after each nap
+     * (on Windows a nap lasts up to a timer tick, 15.6 ms by default) */
     lace_wake_all_sleepers();
+    atomic_fetch_add_explicit(&sentinel_futex, 1, memory_order_release);
+    lace_futex_wake_all(&sentinel_futex);
 
     while (atomic_load_explicit(&release_done, memory_order_acquire) < n_workers) lace_sleep_us(50);
     atomic_flag_clear_explicit(&release_lock, memory_order_release);
@@ -2394,18 +2398,20 @@ lace_claim_sentinel(void)
 }
 
 static void
-lace_nap(atomic_int *quit)
+lace_nap(atomic_int *quit, unsigned int seen_release)
 {
     /* A futex nap: a caller of lace_run_task ends it at once. Count the nap
      * first (seq_cst, as the sleepers): either the caller sees it, or the
-     * nap sees the caller's task. A new frame or the end of the frame (quit)
-     * bumps the word after it is published, so a nap that read the bumped
-     * value (acquire) sees the event and skips the nap. */
+     * nap sees the caller's task. A new frame, the end of the frame or
+     * lace_stop (quit), and lace_release_memory (release_gen) bump the word
+     * after they publish the event, so a nap that read the bumped value
+     * (acquire) sees the event and skips the nap. */
     atomic_fetch_add_explicit(&n_napping, 1, memory_order_seq_cst);
     int val = atomic_load_explicit(&sentinel_futex, memory_order_acquire);
     if (atomic_load_explicit(&external_task_count, memory_order_seq_cst) == 0 &&
         atomic_load_explicit(&lace_newframe.t, memory_order_relaxed) == NULL &&
-        atomic_load_explicit(quit, memory_order_relaxed) == 0) {
+        atomic_load_explicit(quit, memory_order_relaxed) == 0 &&
+        atomic_load_explicit(&release_gen, memory_order_relaxed) == seen_release) {
         lace_futex_wait(&sentinel_futex, val, LACE_SENTINEL_NAP_US);
     }
     atomic_fetch_sub_explicit(&n_napping, 1, memory_order_relaxed);
@@ -2438,7 +2444,7 @@ lace_sentinel(WorkerP *lw, atomic_int *quit, unsigned int *last_victim, unsigned
     const unsigned int n = n_workers, self = lw->worker;
     /* The last work it saw was a tiny task or gone: nap before looking, or
      * a storm of tiny tasks keeps it from backing off. */
-    if (nap_first) lace_nap(quit);
+    if (nap_first) lace_nap(quit, seen_release);
     const uint64_t start = lace_now_us();
     uint64_t last_active = start;
     while (!atomic_load_explicit(quit, memory_order_relaxed)) {
@@ -2475,7 +2481,7 @@ lace_sentinel(WorkerP *lw, atomic_int *quit, unsigned int *last_victim, unsigned
             lace_cpu_yield();
             continue;
         }
-        lace_nap(quit);
+        lace_nap(quit, seen_release);
     }
     return -1;
 }
@@ -3468,8 +3474,12 @@ void lace_stop(void)
     /* seq_cst: a worker rechecks the quit flag after marking itself asleep */
     atomic_store_explicit(&lace_quits, 1, memory_order_seq_cst);
 
-    /* Wake all sleeping workers so they observe the quit flag */
+    /* Wake all sleeping workers so they observe the quit flag, and napping
+     * sentinels, which check it after each nap (on Windows a nap lasts up to a
+     * timer tick, 15.6 ms by default) */
     lace_wake_all_sleepers();
+    atomic_fetch_add_explicit(&sentinel_futex, 1, memory_order_release);
+    lace_futex_wake_all(&sentinel_futex);
 
     for (unsigned int i = 0; i < n_workers; i++) {
 #if !LACE_MSVC
