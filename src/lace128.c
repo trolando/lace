@@ -1374,10 +1374,12 @@ lace_wake_all_sleepers(void)
 /* Progressive idle: an idle worker searches (stage 1) while its search
  * balance is positive, then it becomes a sentinel or sleeps on its futex word.
  * The balance is the worker's, kept across nested steal loops, and conserved:
- * all time in the steal loop is spent (the pauses and yields too), except
- * running tasks, sleeping and sentinel duty. A worthwhile stolen task (see
- * LACE_IDLE_STEAL_MIN_X) or an external task earns idle_alpha times its
- * useful time: its run time minus the search in leapfrog inside it. The
+ * every ns of a steal loop is either spent (search: steal attempts, crumbs,
+ * pauses, yields), or earned (a worthwhile stolen task, see
+ * LACE_IDLE_STEAL_MIN_X, or an external task earns idle_alpha times its
+ * useful time, once), or left out (sleep, sentinel duty, and interrupts,
+ * which a NEWFRAME's own steal loop accounts for). A task's useful time is its
+ * run time minus the search in leapfrog and the interrupts inside it. The
  * balance starts at idle_start_ns in every run (lace_init_worker) and stays
  * within plus and minus idle_cap_ns; no wake-up or timeout refills it. So a
  * worker that keeps finding work searches through longer gaps, and a worker
@@ -1435,9 +1437,54 @@ lace_setup_idle_mode(void)
     }
 }
 
-static LACE_TLS uint64_t lace_leap_ns = 0; // time in lace_leapfrog, for the balance
-static LACE_TLS uint64_t lace_stolen_sum_ns = 0; // run time of all stolen tasks, nested ones too
+/* Running totals of this thread; the useful time of a task comes from their
+ * differences over the task (lace_bal_earn). The time in leapfrog and of
+ * stolen tasks leaves out interrupts (lace_yield), which their own steal
+ * loops account for. */
+static LACE_TLS uint64_t lace_leap_ns = 0;         // time in lace_leapfrog
+static LACE_TLS uint64_t lace_stolen_sum_ns = 0;   // run time of stolen tasks, nested ones too
+static LACE_TLS uint64_t lace_frame_ns = 0;        // time in interrupts (outermost ones)
+static LACE_TLS uint64_t lace_frame_stolen_ns = 0; // what they added to lace_stolen_sum_ns
 static LACE_TLS int64_t lace_bal_ns = 0; // the search balance
+
+/* The running totals at the start of a task (lace_bal_earn) */
+typedef struct {
+    uint64_t leap, stolen, frame, frame_stolen;
+} lace_bal_mark;
+
+static inline lace_bal_mark
+lace_bal_mark_now(void)
+{
+    lace_bal_mark m = { lace_leap_ns, lace_stolen_sum_ns, lace_frame_ns, lace_frame_stolen_ns };
+    return m;
+}
+
+/* Spend the search from *clock to now, less task_ns of a task run in it */
+static inline void
+lace_bal_spend(uint64_t *clock, uint64_t now, uint64_t task_ns)
+{
+    const uint64_t el = now - *clock;
+    *clock = now;
+    lace_bal_ns -= (int64_t)(el > task_ns ? el - task_ns : 0);
+    if (lace_bal_ns < -idle_cap_ns) lace_bal_ns = -idle_cap_ns;
+}
+
+/* Earn idle_alpha times the useful time of a task that ran d ns since m: d
+ * minus the interrupts in it, minus the search in leapfrog in it. Stolen
+ * tasks that ran in leapfrog (outside interrupts) are work; a stolen task
+ * (stolen = 1) added its own time to lace_stolen_sum_ns as well. */
+static inline void
+lace_bal_earn(const lace_bal_mark *m, uint64_t d, int stolen)
+{
+    const uint64_t fr = lace_frame_ns - m->frame;
+    const uint64_t own = d > fr ? d - fr : 0;
+    const uint64_t st = (lace_stolen_sum_ns - m->stolen) - (lace_frame_stolen_ns - m->frame_stolen);
+    const uint64_t nested = !stolen ? st : st > own ? st - own : 0;
+    const uint64_t lt = lace_leap_ns - m->leap;
+    const uint64_t lp = lt > nested ? lt - nested : 0;
+    const int64_t earned = idle_alpha * (int64_t)(own > lp ? own - lp : 0);
+    lace_bal_ns = lace_bal_ns + earned > idle_cap_ns ? idle_cap_ns : lace_bal_ns + earned;
+}
 /* A thief whose previous steal was a crumb (not worthwhile) wakes no sleepers
  * for the tasks its victim has left, unless no sentinel watches, and it does
  * not prefer that victim for its next steals. */
@@ -2439,7 +2486,7 @@ void lace_steal_loop_CALL(lace_worker* lw, atomic_int* quit)
     (void)last_work_us;
 
     while(1) {
-        const uint64_t bal_leap0 = lace_leap_ns, bal_sum0 = lace_stolen_sum_ns;
+        const lace_bal_mark bal_m = lace_bal_mark_now();
         uint64_t bal_task_ns = 0; // run time of a task this round, not spent
         /* In the steal loop a worker is idle until it steals; a task that
          * returned (stolen, external or an interrupt's) left the flag 0. */
@@ -2498,16 +2545,8 @@ void lace_steal_loop_CALL(lace_worker* lw, atomic_int* quit)
                     worked = 1;
                     sentinel_nap_first = 0;
                     last_work_us = lace_now_us();
-                    {
-                        /* only the search in leapfrog is not earned: the tasks it ran
-                         * (stolen inside this task) count as work */
-                        const uint64_t nested = lace_stolen_sum_ns - bal_sum0 > lace_last_stolen_ns ? lace_stolen_sum_ns - bal_sum0 - lace_last_stolen_ns : 0;
-                        const uint64_t lt = lace_leap_ns - bal_leap0;
-                        const uint64_t lp = lt > nested ? lt - nested : 0;
-                        const int64_t earned = idle_alpha * (int64_t)(lace_last_stolen_ns > lp ? lace_last_stolen_ns - lp : 0);
-                        lace_bal_ns = lace_bal_ns + earned > idle_cap_ns ? idle_cap_ns : lace_bal_ns + earned;
-                        bal_task_ns = lace_last_stolen_ns;
-                    }
+                    lace_bal_earn(&bal_m, lace_last_stolen_ns, 1);
+                    bal_task_ns = lace_last_stolen_ns;
                 }
             } else if (res == LACE_BUSY) {
                 PR_COUNTSTEALS(lw, CTR_steal_busy);
@@ -2521,9 +2560,14 @@ void lace_steal_loop_CALL(lace_worker* lw, atomic_int* quit)
             idle_count++; // a lone worker has no victims: back off and sleep too
         }
 
-        if (lace_check_yield(lw)) {
-            idle_count = 0;
-            bal_clock = lace_now_ns(); bal_task_ns = 0; // interrupt work, and its own loop's search, are not this loop's
+        if (LACE_UNLIKELY(atomic_load_explicit(&lace_newframe.t, memory_order_relaxed) != NULL)) {
+            /* An interrupt (NEWFRAME, TOGETHER): spend the search until now,
+             * run it, and restart the clock after it, as its own steal loop
+             * accounts for it */
+            lace_bal_spend(&bal_clock, lace_now_ns(), bal_task_ns);
+            bal_task_ns = 0;
+            if (lace_check_yield(lw)) idle_count = 0;
+            bal_clock = lace_now_ns();
         }
 
         /* Every round: the counter's cache line changes only when external
@@ -2533,18 +2577,12 @@ void lace_steal_loop_CALL(lace_worker* lw, atomic_int* quit)
             /* Only the worker that ran the task is busy again: the others
              * keep backing off, or a stream of external calls (from a
              * thread outside Lace) keeps every idle worker spinning. */
-            uint64_t bal_ext_t0 = lace_now_ns();
-            { const uint64_t el = bal_ext_t0 - bal_clock; lace_bal_ns -= (int64_t)(el > bal_task_ns ? el - bal_task_ns : 0); if (lace_bal_ns < -idle_cap_ns) lace_bal_ns = -idle_cap_ns; bal_clock = bal_ext_t0; }
-            const uint64_t bal_ext_leap0 = lace_leap_ns, bal_ext_sum0 = lace_stolen_sum_ns;
+            const uint64_t bal_ext_t0 = lace_now_ns();
+            lace_bal_spend(&bal_clock, bal_ext_t0, bal_task_ns);
+            const lace_bal_mark bal_ext_m = lace_bal_mark_now();
             if (lace_steal_external(lw)) {
-                {
-                    const uint64_t now = lace_now_ns(), d = now - bal_ext_t0;
-                    const uint64_t nested = lace_stolen_sum_ns - bal_ext_sum0, lt = lace_leap_ns - bal_ext_leap0;
-                    const uint64_t lp = lt > nested ? lt - nested : 0;
-                    const int64_t earned = idle_alpha * (int64_t)(d > lp ? d - lp : 0);
-                    lace_bal_ns = lace_bal_ns + earned > idle_cap_ns ? idle_cap_ns : lace_bal_ns + earned;
-                    bal_clock = now;
-                }
+                bal_clock = lace_now_ns();
+                lace_bal_earn(&bal_ext_m, bal_clock - bal_ext_t0, 0);
                 idle_count = 0;
                 worked = 1;
                 last_work_us = lace_now_us();
@@ -2554,13 +2592,8 @@ void lace_steal_loop_CALL(lace_worker* lw, atomic_int* quit)
 
 #if LACE_BACKOFF
         // Progressive idle: search while the balance lasts, then sleep on the futex word
-        {
-            const uint64_t now = lace_now_ns(), el = now - bal_clock; // since the last debit: the pause and yields of stage 1 too
-            bal_clock = now;
-            lace_bal_ns -= (int64_t)(el > bal_task_ns ? el - bal_task_ns : 0);
-            if (lace_bal_ns < -idle_cap_ns) lace_bal_ns = -idle_cap_ns;
-            if (idle_count <= LACE_IDLE_STAGE1_LIMIT && lace_bal_ns <= 0) idle_count = LACE_IDLE_STAGE1_LIMIT + 1;
-        }
+        lace_bal_spend(&bal_clock, lace_now_ns(), bal_task_ns); // since the last debit: the pause and yields of stage 1 too
+        if (idle_count <= LACE_IDLE_STAGE1_LIMIT && lace_bal_ns <= 0) idle_count = LACE_IDLE_STAGE1_LIMIT + 1;
         if (idle_count > LACE_IDLE_STAGE1_LIMIT) {
             /* with the balance spent it skips stage 1, whose end checks quit */
             if (atomic_load_explicit(quit, memory_order_relaxed)) break;
@@ -2663,17 +2696,10 @@ void lace_steal_loop_CALL(lace_worker* lw, atomic_int* quit)
 
             if (atomic_load_explicit(&external_task_count, memory_order_acquire) > 0) {
                 const uint64_t bal_ext_t0 = lace_now_ns(); // after a sleep: nothing to spend (bal_clock was reset)
-                bal_clock = bal_ext_t0;
-                const uint64_t bal_ext_leap0 = lace_leap_ns, bal_ext_sum0 = lace_stolen_sum_ns;
+                const lace_bal_mark bal_ext_m = lace_bal_mark_now();
                 if (lace_steal_external(lw)) {
-                    {
-                        const uint64_t now = lace_now_ns(), d = now - bal_ext_t0;
-                        const uint64_t nested = lace_stolen_sum_ns - bal_ext_sum0, lt = lace_leap_ns - bal_ext_leap0;
-                        const uint64_t lp = lt > nested ? lt - nested : 0;
-                        const int64_t earned = idle_alpha * (int64_t)(d > lp ? d - lp : 0);
-                        lace_bal_ns = lace_bal_ns + earned > idle_cap_ns ? idle_cap_ns : lace_bal_ns + earned;
-                        bal_clock = now;
-                    }
+                    bal_clock = lace_now_ns();
+                    lace_bal_earn(&bal_ext_m, bal_clock - bal_ext_t0, 0);
                     idle_count = 0;
                     worked = 1;
                     last_work_us = lace_now_us();
@@ -3713,6 +3739,12 @@ lace_exec_in_new_frame(lace_worker* _lace_worker, lace_task *root)
 void
 lace_yield(lace_worker *worker)
 {
+    /* A NEWFRAME's steal loop accounts for the search balance of the
+     * interrupt (a TOGETHER's task earns nothing): count it in lace_frame_ns,
+     * which the intervals around it leave out. Interrupts nested in this one
+     * are in its time already. */
+    const uint64_t t0 = lace_now_ns(), f0 = lace_frame_ns, fs0 = lace_frame_stolen_ns, s0 = lace_stolen_sum_ns;
+
     // make a local copy of the task
     lace_task _t;
     memcpy(&_t, atomic_load_explicit(&lace_newframe.t, memory_order_relaxed), sizeof(lace_task));
@@ -3725,6 +3757,9 @@ lace_yield(lace_worker *worker)
     unsigned char was_idle = atomic_load_explicit(&idle_flags[worker->worker].idle, memory_order_relaxed);
     lace_exec_in_new_frame(worker, &_t);
     lace_set_idle(worker, was_idle);
+
+    lace_frame_ns = f0 + (lace_now_ns() - t0);
+    lace_frame_stolen_ns = fs0 + (lace_stolen_sum_ns - s0);
 }
 
 /**
@@ -3938,10 +3973,14 @@ lace_steal(lace_worker *self, lace_worker_public *victim)
                 lace_set_idle(self, 0);
                 lace_time_event(self, 1);
                 const uint64_t task_t0 = woke ? lace_now_ns() : stolen_at;
+                const uint64_t frame0 = lace_frame_ns;
                 t->f(self, t);
                 /* After the task: steals nested in it set these too */
                 lace_last_stolen_ns = lace_now_ns() - task_t0;
-                lace_stolen_sum_ns += lace_last_stolen_ns;
+                {
+                    const uint64_t fr = lace_frame_ns - frame0; // interrupts in it: accounted by their own loops
+                    lace_stolen_sum_ns += lace_last_stolen_ns > fr ? lace_last_stolen_ns - fr : 0;
+                }
                 lace_last_stolen_at = stolen_at;
                 lace_time_event(self, 2);
                 atomic_store_explicit(&t->thief, THIEF_COMPLETED, memory_order_release);
@@ -3998,14 +4037,16 @@ lace_shrink_shared(lace_worker *w)
 
 static void lace_leapfrog_body(lace_worker *worker);
 
-/* Counts the time in leapfrog (lace_leap_ns): a stolen task earns search
- * balance for its run time minus the leapfrog search inside it */
+/* Counts the time in leapfrog outside interrupts (lace_leap_ns): a stolen
+ * task earns search balance for its run time minus the leapfrog search
+ * inside it */
 void
 lace_leapfrog(lace_worker *worker)
 {
-    const uint64_t t0 = lace_now_ns();
+    const uint64_t t0 = lace_now_ns(), f0 = lace_frame_ns;
     lace_leapfrog_body(worker);
-    lace_leap_ns += lace_now_ns() - t0;
+    const uint64_t el = lace_now_ns() - t0, fr = lace_frame_ns - f0;
+    lace_leap_ns += el > fr ? el - fr : 0;
 }
 
 static void
