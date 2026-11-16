@@ -3737,6 +3737,30 @@ lace_exec_in_new_frame(lace_worker* _lace_worker, lace_task *root)
     }
 }
 
+/* A stretch that the search balance of the intervals around it leaves out:
+ * an interrupt (lace_yield), whose NEWFRAME steal loop accounts for it, and
+ * the wait of TOGETHER's initiator for the other workers. Its time goes into
+ * lace_frame_ns (stretches nested in it are in its time already), and the
+ * totals of leapfrog and of stolen tasks are put back as they were. */
+typedef struct {
+    uint64_t t0, frame, leap, stolen;
+} lace_bal_scope;
+
+static inline lace_bal_scope
+lace_bal_scope_begin(void)
+{
+    lace_bal_scope sc = { lace_now_ns(), lace_frame_ns, lace_leap_ns, lace_stolen_sum_ns };
+    return sc;
+}
+
+static inline void
+lace_bal_scope_end(const lace_bal_scope *sc)
+{
+    lace_frame_ns = sc->frame + (lace_now_ns() - sc->t0);
+    lace_leap_ns = sc->leap;
+    lace_stolen_sum_ns = sc->stolen;
+}
+
 /**
  * This method is called when there is a new frame (NEWFRAME or TOGETHER)
  * Each Lace worker executes lace_yield to execute the task in a new frame.
@@ -3744,12 +3768,9 @@ lace_exec_in_new_frame(lace_worker* _lace_worker, lace_task *root)
 void
 lace_yield(lace_worker *worker)
 {
-    /* A NEWFRAME's steal loop accounts for the search balance of the
-     * interrupt (a TOGETHER's task earns nothing), so the intervals around it
-     * leave it out: its time goes into lace_frame_ns (interrupts nested in
-     * this one are in its time already), and the totals of leapfrog and of
-     * stolen tasks are put back as they were. */
-    const uint64_t t0 = lace_now_ns(), f0 = lace_frame_ns, l0 = lace_leap_ns, s0 = lace_stolen_sum_ns;
+    /* Left out of the search balance around it (a TOGETHER's task of an
+     * interrupted worker earns nothing) */
+    const lace_bal_scope sc = lace_bal_scope_begin();
 
     // make a local copy of the task
     lace_task _t;
@@ -3764,9 +3785,7 @@ lace_yield(lace_worker *worker)
     lace_exec_in_new_frame(worker, &_t);
     lace_set_idle(worker, was_idle);
 
-    lace_frame_ns = f0 + (lace_now_ns() - t0);
-    lace_leap_ns = l0;
-    lace_stolen_sum_ns = s0;
+    lace_bal_scope_end(&sc);
 }
 
 /**
@@ -3790,8 +3809,13 @@ lace_together_root_CALL(lace_worker* lw, lace_task* t, atomic_int* finished)
     // signal out completion
     atomic_fetch_sub_explicit(finished, 1, memory_order_relaxed);
 
-    // while threads aren't done, steal randomly
+    /* while threads aren't done, steal randomly: left out of the search
+     * balance, as for an interrupted worker (lace_yield), so that the
+     * initiator's task neither earns for this wait nor takes the tasks it
+     * steals here for leapfrog */
+    const lace_bal_scope sc = lace_bal_scope_begin();
     while (atomic_load_explicit(finished, memory_order_relaxed) != 0) lace_steal_random(lw);
+    lace_bal_scope_end(&sc);
 }
 
 TASK(void, lace_wrap_together, lace_task*, task)
