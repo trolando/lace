@@ -2521,7 +2521,10 @@ void lace_steal_loop_CALL(lace_worker* lw, atomic_int* quit)
                  * chiplets or sockets does not). Each sample counts as at most
                  * twice and at least half the average (a preempted steal does
                  * not throw it off); LACE_IDLE_STEAL_MIN_NS divided by the
-                 * factor is where the average starts. */
+                 * factor is where the average starts. The task's time is its
+                 * run time without the interrupts in it (NEWFRAME, TOGETHER),
+                 * which their own loops account for: they neither make a
+                 * task worthwhile nor count as this loop's search. */
                 uint64_t min_ns = (uint64_t)LACE_IDLE_STEAL_MIN_NS;
                 if (lace_last_stolen_at > steal_t0) {
                     const uint64_t k = (uint64_t)LACE_IDLE_STEAL_MIN_X;
@@ -2533,10 +2536,13 @@ void lace_steal_loop_CALL(lace_worker* lw, atomic_int* quit)
                     lace_steal_cost_avg = avg > 0 ? avg : 1;
                     min_ns = k * lace_steal_cost_avg;
                 }
-                if (lace_last_stolen_ns < min_ns) {
+                const uint64_t frame_ns = lace_frame_ns - bal_m.frame;
+                const uint64_t task_ns = lace_last_stolen_ns > frame_ns ? lace_last_stolen_ns - frame_ns : 0;
+                if (task_ns < min_ns) {
                     idle_count++;
                     lace_last_worth = 0;
                     last_victim = worker_id; // no preference after a crumb
+                    bal_task_ns = frame_ns; // a crumb is search, its interrupts are not
                 } else
                 {
                     lace_last_worth = 1;

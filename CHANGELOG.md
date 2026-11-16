@@ -12,10 +12,12 @@ All notable changes to Lace will be documented in this file.
 - An idle worker searches while its search balance is positive. Searching
   spends it; every external task, and every stolen task that is worthwhile
   (not a crumb), earns 8 times its useful time: its run time without the
-  search in leapfrog and the NEWFRAME or TOGETHER interrupts inside it. The
-  balance stays within 1 ms either way: workers that find work search
-  through gaps, workers that find only crumbs soon sleep. A searching worker
-  pauses between steal attempts and yields the CPU every 5 us.
+  search in leapfrog. NEWFRAME and TOGETHER interrupts count for neither,
+  also not for a crumb: a NEWFRAME's own steal loop accounts for its time,
+  and a TOGETHER's task earns nothing. The balance stays within 1 ms either
+  way: workers that find work search through gaps, workers that find only
+  crumbs soon sleep. A searching worker pauses between steal attempts and
+  yields the CPU every 5 us.
 - With pinned workers on Linux, 75% of random steal attempts pick a worker
   on the thief's own package (socket), the rest pick from all workers; and
   wake-ups take the packages in turn.
