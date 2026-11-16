@@ -3694,8 +3694,8 @@ lace_yield(WorkerP *__lace_worker, Task *__lace_dq_head)
     // wait until all workers have made a local copy
     lace_barrier();
 
-    /* The new frame's steal loop sets the idle flag; the worker returns to
-     * what it did before (a task, or its own steal loop). */
+    /* The new frame's steal loop, or TOGETHER's root, sets the idle flag; the
+     * worker returns to what it did before (a task, or its own steal loop). */
     unsigned char was_idle = atomic_load_explicit(&idle_flags[__lace_worker->worker].idle, memory_order_relaxed);
     lace_exec_in_new_frame(__lace_worker, __lace_dq_head, &_t);
     lace_set_idle(__lace_worker, was_idle);
@@ -3711,6 +3711,12 @@ lace_yield(WorkerP *__lace_worker, Task *__lace_dq_head)
  */
 TASK(void, lace_together_root, Task*, t, atomic_int*, finished)
 {
+    /* Busy while it runs the root task, as for any task: a worker that came
+     * from its idle loop still has its flag at 1 (lace_yield restores it
+     * afterwards). Sentinels and sleepers must see it active, also through a
+     * NEWFRAME the task starts, which it publishes after this store. */
+    lace_set_idle(__lace_worker, 0);
+
     // run the root task
     t->f(__lace_worker, __lace_dq_head, t);
 
