@@ -15,6 +15,7 @@
 #ifndef DSYRK_H
 #define DSYRK_H
 
+#include <limits.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -136,7 +137,7 @@ dsyrk_init_parallel(void)
         for (int t = 0; t < T; t++) {
             args[t] = (dsyrk_init_arg){ t, T, phase, cpus[t] };
             started[t] = pthread_create(&th[t], NULL, dsyrk_init_thread, &args[t]) == 0;
-            if (!started[t]) dsyrk_init_thread(&args[t]); // no thread: do its rows here
+            if (!started[t]) dsyrk_init_rows(t, T, phase); // no thread: do its rows here, unpinned
         }
         for (int t = 0; t < T; t++) if (started[t]) pthread_join(th[t], NULL);
     }
@@ -144,6 +145,14 @@ dsyrk_init_parallel(void)
     free(args);
     free(started);
 #endif
+}
+
+/* x * y elements of size s in bytes, or 0 if that does not fit in a size_t */
+static size_t
+dsyrk_bytes(size_t x, size_t y, size_t s)
+{
+    if (x != 0 && y > SIZE_MAX / s / x) return 0;
+    return x * y * s;
 }
 
 /* Allocate and fill A, A^T and C, and list the tiles, for n, k and b as set; 0 or -1 */
@@ -156,12 +165,19 @@ dsyrk_setup(void)
     }
     nt = n / b;
     kt = k / b;
-    ntiles = nt * (nt + 1) / 2;
+    const uint64_t tiles = (uint64_t)nt * ((uint64_t)nt + 1) / 2; // nt <= INT_MAX: fits
+    const size_t a_bytes = dsyrk_bytes((size_t)n, (size_t)k, sizeof(double));
+    const size_t c_bytes = dsyrk_bytes((size_t)n, (size_t)n, sizeof(double));
+    if (tiles > INT_MAX || tiles > SIZE_MAX / sizeof(int) || a_bytes == 0 || c_bytes == 0) {
+        fprintf(stderr, "n (%d), k (%d) and b (%d) are too large for this machine\n", n, k, b);
+        return -1;
+    }
+    ntiles = (int)tiles;
     tile_i = malloc(sizeof(int) * (size_t)ntiles);
     tile_j = malloc(sizeof(int) * (size_t)ntiles);
-    A = malloc(sizeof(double) * (size_t)n * (size_t)k);
-    AT = malloc(sizeof(double) * (size_t)n * (size_t)k);
-    C = malloc(sizeof(double) * (size_t)n * (size_t)n);
+    A = malloc(a_bytes);
+    AT = malloc(a_bytes);
+    C = malloc(c_bytes);
     if (!tile_i || !tile_j || !A || !AT || !C) {
         fprintf(stderr, "out of memory\n");
         return -1;
