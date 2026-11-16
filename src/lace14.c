@@ -2908,6 +2908,10 @@ lace_steal_loop_body(WorkerP *__lace_worker, Task *__lace_dq_head, atomic_int *q
 
         if (atomic_load_explicit(quit, memory_order_relaxed)) break;
     }
+#if LACE_BACKOFF
+    /* The loop ends: spend the search of its last round, its pause or yield */
+    lace_bal_spend(&bal_clock, lace_now_ns(), 0);
+#endif
 }
 
 /* The steal loop as a task, which TOGETHER and NEWFRAME run on the other
