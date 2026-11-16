@@ -1261,11 +1261,16 @@ static LACE_IDLE_LINE atomic_uint n_sentinels = 0; /* idle workers that stay awa
 static LACE_IDLE_LINE atomic_int sentinel_futex = 0; /* napping sentinels wait on it; lace_run_task bumps it */
 static LACE_IDLE_LINE atomic_int n_napping = 0;      /* sentinels in a futex nap: lace_run_task wakes one only then */
 
-/* Wake worker i if it sleeps on its futex word; 1 if it did */
+/* Wake worker i if it sleeps on its futex word; 1 if it did. A waker
+ * publishes its event (seq_cst) before it reads the flag, and a sleeper sets
+ * its flag (seq_cst) before it checks for the event: either the waker sees the
+ * flag or the sleeper sees the event. So the read is seq_cst as well (a
+ * relaxed read may return an old 0); it spares the flags of workers that do
+ * not sleep a write, and the exchange lets one waker only wake a sleeper. */
 static inline int
 lace_wake_sleeper(unsigned int i)
 {
-    if (atomic_load_explicit(&idle_flags[i].sleep, memory_order_relaxed) &&
+    if (atomic_load_explicit(&idle_flags[i].sleep, memory_order_seq_cst) &&
         atomic_exchange_explicit(&idle_flags[i].sleep, 0, memory_order_seq_cst)) {
         (void)lace_futex_wake_one(&idle_flags[i].sleep);
         return 1;
@@ -1305,9 +1310,7 @@ static void
 lace_wake_all_sleepers(void)
 {
     if (idle_flags == NULL) return;
-    for (unsigned int i = 0; i < n_workers; i++) {
-        if (atomic_exchange_explicit(&idle_flags[i].sleep, 0, memory_order_seq_cst)) (void)lace_futex_wake_one(&idle_flags[i].sleep);
-    }
+    for (unsigned int i = 0; i < n_workers; i++) (void)lace_wake_sleeper(i);
 }
 
 /* Progressive idle: an idle worker searches (stage 1) while its search
@@ -2357,7 +2360,8 @@ lace_release_memory(void)
 
     while (atomic_flag_test_and_set_explicit(&release_lock, memory_order_acquire)) lace_sleep_us(50);
     atomic_store_explicit(&release_done, 0, memory_order_relaxed);
-    atomic_fetch_add_explicit(&release_gen, 1, memory_order_release);
+    /* seq_cst: a worker rechecks release_gen after marking itself asleep */
+    atomic_fetch_add_explicit(&release_gen, 1, memory_order_seq_cst);
 
     /* Wake sleeping workers, so they release now instead of at their next timeout */
     lace_wake_all_sleepers();
@@ -3461,7 +3465,8 @@ lace_count_report_file(FILE* file)
  */
 void lace_stop(void)
 {
-    atomic_store_explicit(&lace_quits, 1, memory_order_relaxed);
+    /* seq_cst: a worker rechecks the quit flag after marking itself asleep */
+    atomic_store_explicit(&lace_quits, 1, memory_order_seq_cst);
 
     /* Wake all sleeping workers so they observe the quit flag */
     lace_wake_all_sleepers();
