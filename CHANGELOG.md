@@ -2,6 +2,23 @@
 
 All notable changes to Lace will be documented in this file.
 
+## [Unreleased]
+
+### Changed
+
+- Each sleeping worker waits on its own futex word, and a waker wakes chosen
+  sleepers, the lowest-numbered first: one shared word caused wake storms at
+  96-192 workers. The globals of the idle path have their own cache lines.
+- An idle worker searches while its search balance is positive. Searching
+  spends it, and a worthwhile stolen or external task earns 8 times its
+  useful time (within 1 ms either way): workers that find work search
+  through gaps, workers that find only crumbs soon sleep. A searching worker
+  pauses between steal attempts and yields the CPU every 5 us.
+- With pinned workers on Linux, 75% of random steal attempts go to the
+  thief's own package (socket), and wake-ups take the packages in turn.
+- A thief whose previous steal was a crumb wakes no sleepers for its
+  victim's remaining tasks, and does not prefer that victim next.
+
 ## [2.7.1] - 2026-11-15
 
 ### Fixed
