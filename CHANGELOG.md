@@ -14,6 +14,32 @@ All notable changes to Lace will be documented in this file.
   package 1's first, ..., then each package's second, ...), instead of a
   stride over the worker numbers; otherwise the lowest-numbered sleepers are
   woken first, as before.
+- The search balance leaves NEWFRAME and TOGETHER interrupts out: every
+  external task, and every stolen task that is worthwhile (not a crumb),
+  earns 8 times its run time without the search in leapfrog and without the
+  interrupts in it, and an interrupt does not count as search either, also
+  not in a crumb. A NEWFRAME's own steal loop accounts for its time, and a
+  TOGETHER's task earns nothing. In 1.11, a task with 60 us of its own work
+  in a 5 ms frame counted as 5 ms of work, and the search before an
+  interrupt was not spent.
+
+### Fixed
+
+- A waker read a sleeper's flag with a relaxed load, and `lace_stop()` and
+  `lace_release_memory()` published their events without sequentially
+  consistent order, so a worker could sleep through a wake-up until a futex
+  timeout, up to 100 ms.
+- `lace_stop()` and `lace_release_memory()` did not wake napping sentinels,
+  so they waited for the naps to end, up to a timer tick on Windows, and a
+  sentinel could start a nap just after a release. Lace now wakes them, and
+  a sentinel does not start a nap while a release is pending.
+- A worker that had just decided to sleep could miss the wake-up for an
+  external task that another worker took, so the task ran without helpers
+  until a futex timeout, up to 100 ms. The worker now checks again after it
+  counts itself as sleeping.
+- A worker that ran a TOGETHER task after it came from its idle loop still
+  counted as idle, so sentinels could retire and sleeping workers miss the
+  work that the task spawned. It now counts as busy.
 
 ## [1.11.1] - 2026-11-15
 
