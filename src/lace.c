@@ -87,10 +87,6 @@
 #define LACE_IDLE_BALANCE_CAP_US 1000
 #endif
 
-#ifndef LACE_IDLE_ROUND_NS /* A searching worker pauses this long between its steal attempts */
-#define LACE_IDLE_ROUND_NS 500
-#endif
-
 #ifndef LACE_IDLE_SPIN_YIELD_US /* A searching worker yields the CPU this often */
 #define LACE_IDLE_SPIN_YIELD_US 5
 #endif
@@ -534,18 +530,20 @@ lace_set_pin_cpus(const int *cpus, unsigned int n)
 
 /* Locality (Linux, pinned workers): the package (socket) of every worker,
  * from its pin set. LACE_LOCAL_STEAL% of random steal attempts go to a worker
- * on the thief's own package, and wake-ups spread over the packages. */
+ * on the thief's own package, and wake-ups take the packages in turn. */
 #if LACE_PIN_BUILTIN && defined(__linux__)
 #define LACE_LOCALITY 1
 #else
 #define LACE_LOCALITY 0
 #endif
 #if LACE_LOCALITY
-static unsigned int *loc_members = NULL; // the workers, grouped by package, in worker order
-static unsigned int *loc_start = NULL;   // per worker: where its package starts in loc_members
-static unsigned int *loc_count = NULL;   // per worker: the workers on its package
+static unsigned int *loc_members = NULL;   // the workers, grouped by package, in worker order
+static unsigned int *loc_start = NULL;     // per worker: where its package starts in loc_members
+static unsigned int *loc_count = NULL;     // per worker: the workers on its package
+static unsigned int *loc_pkg_first = NULL; // per package: where it starts in loc_members
+static unsigned int loc_npkg = 0;          // the packages
+static unsigned int loc_pkg_max = 0;       // the most workers on one package
 #endif
-static unsigned int wake_stride = 1;     // the wake order: workers 0, s, 2s, ... (mod n_workers)
 
 #if LACE_PIN_BUILTIN
 /**
@@ -1104,22 +1102,24 @@ done:
 }
 
 #if LACE_LOCALITY
-/* The package of every worker, from its pin set: loc_members, loc_start, loc_count */
+/* The package of every worker, from its pin set: loc_members, loc_start,
+ * loc_count, and per package loc_pkg_first */
 static void
 lace_setup_locality(void)
 {
-    free(loc_members); free(loc_start); free(loc_count);
-    loc_members = loc_start = loc_count = NULL;
-    wake_stride = 1;
+    free(loc_members); free(loc_start); free(loc_count); free(loc_pkg_first);
+    loc_members = loc_start = loc_count = loc_pkg_first = NULL;
+    loc_npkg = loc_pkg_max = 0;
     const unsigned int n = n_workers;
     if (pin_sets == NULL || n < 2) return;
     int *pk = calloc(n, sizeof(int));
     loc_members = calloc(n, sizeof(unsigned int));
     loc_start = calloc(n, sizeof(unsigned int));
     loc_count = calloc(n, sizeof(unsigned int));
-    if (pk == NULL || loc_members == NULL || loc_start == NULL || loc_count == NULL) {
-        free(pk); free(loc_members); free(loc_start); free(loc_count);
-        loc_members = loc_start = loc_count = NULL;
+    loc_pkg_first = calloc(n, sizeof(unsigned int));
+    if (pk == NULL || loc_members == NULL || loc_start == NULL || loc_count == NULL || loc_pkg_first == NULL) {
+        free(pk); free(loc_members); free(loc_start); free(loc_count); free(loc_pkg_first);
+        loc_members = loc_start = loc_count = loc_pkg_first = NULL;
         return;
     }
     for (unsigned int w = 0; w < n; w++) {
@@ -1136,17 +1136,8 @@ lace_setup_locality(void)
         const unsigned int s = k;
         for (unsigned int v = w; v < n; v++) if (pk[v] == pk[w]) loc_members[k++] = v;
         for (unsigned int i = s; i < k; i++) { loc_start[loc_members[i]] = s; loc_count[loc_members[i]] = k - s; }
-    }
-    /* Workers are pinned package by package (cores first, then their other
-     * hardware threads). With w workers on the first package before another
-     * one, the stride is the smallest above w that is coprime to n, so
-     * consecutive wake-ups land on different packages; one package: 1. */
-    unsigned int w0 = 1;
-    while (w0 < n && pk[w0] == pk[0]) w0++;
-    for (unsigned int st = w0 + 1; st < n; st++) {
-        unsigned int x = n, y = st;
-        while (y != 0) { const unsigned int t = x % y; x = y; y = t; }
-        if (x == 1) { wake_stride = st; break; }
+        loc_pkg_first[loc_npkg++] = s;
+        if (k - s > loc_pkg_max) loc_pkg_max = k - s;
     }
     free(pk);
 }
@@ -1270,24 +1261,43 @@ static LACE_IDLE_LINE atomic_uint n_sentinels = 0; /* idle workers that stay awa
 static LACE_IDLE_LINE atomic_int sentinel_futex = 0; /* napping sentinels wait on it; lace_run_task bumps it */
 static LACE_IDLE_LINE atomic_int n_napping = 0;      /* sentinels in a futex nap: lace_run_task wakes one only then */
 
+/* Wake worker i if it sleeps on its futex word; 1 if it did */
+static inline int
+lace_wake_sleeper(unsigned int i)
+{
+    if (atomic_load_explicit(&idle_flags[i].sleep, memory_order_relaxed) &&
+        atomic_exchange_explicit(&idle_flags[i].sleep, 0, memory_order_seq_cst)) {
+        (void)lace_futex_wake_one(&idle_flags[i].sleep);
+        return 1;
+    }
+    return 0;
+}
+
 /* Each worker sleeps on its own futex word (idle_flags[i].sleep), so a waker
  * wakes chosen sleepers and no futex hash bucket is shared by all workers.
- * Wake up to n sleepers, the first ones in wake order (from worker 0, by
- * wake_stride): the same few are woken first, so the others back off deeply,
- * and consecutive wake-ups land on different packages. */
+ * Wake up to n sleepers, the first ones in wake order: the same few are woken
+ * first, so the others back off deeply. With pinned workers on more than one
+ * package (Linux), the packages take turns, each from its lowest worker up
+ * (package 0's first, package 1's first, ..., then each package's second,
+ * ...), so consecutive wake-ups land on different packages; otherwise the
+ * lowest-numbered first. */
 static void
 lace_wake_sleepers(int n)
 {
     const unsigned int nw = n_workers;
     if (nw == 0 || idle_flags == NULL) return;
-    for (unsigned int k = 0; k < nw && n > 0; k++) {
-        const unsigned int i = (unsigned int)(((uint64_t)k * wake_stride) % nw);
-        if (atomic_load_explicit(&idle_flags[i].sleep, memory_order_relaxed) &&
-            atomic_exchange_explicit(&idle_flags[i].sleep, 0, memory_order_seq_cst)) {
-            (void)lace_futex_wake_one(&idle_flags[i].sleep);
-            n--;
+#if LACE_LOCALITY
+    if (loc_npkg > 1) {
+        for (unsigned int j = 0; j < loc_pkg_max && n > 0; j++) {
+            for (unsigned int p = 0; p < loc_npkg && n > 0; p++) {
+                const unsigned int f = loc_pkg_first[p];
+                if (j < loc_count[loc_members[f]]) n -= lace_wake_sleeper(loc_members[f + j]);
+            }
         }
+        return;
     }
+#endif
+    for (unsigned int i = 0; i < nw && n > 0; i++) n -= lace_wake_sleeper(i);
 }
 
 /* Wake every sleeping worker (NEWFRAME, TOGETHER, lace_release_memory, lace_stop) */
@@ -2243,7 +2253,8 @@ lace_leapfrog_body(WorkerP *__lace_worker, Task *__lace_dq_head)
  * Pick a random victim among the n-1 workers other than self (n > 1).
  * Two 64-bit divisions (rng % (n-1), then % n) cost tens of cycles on every
  * steal attempt; instead scale 32 random bits to [0, n-1) by a multiply and
- * shift, then wrap past self with a compare.
+ * shift, then wrap past self with a compare. With locality (LACE_LOCALITY),
+ * LACE_LOCAL_STEAL% of the picks are among the others on self's package.
  */
 static inline unsigned int lace_random_victim(WorkerP *w, unsigned int self, unsigned int n)
 {
@@ -2603,7 +2614,7 @@ lace_steal_loop_body(WorkerP *__lace_worker, Task *__lace_dq_head, atomic_int *q
         }
 
         /* Every round: the counter's cache line changes only when external
-         * tasks come and go, so the load is cheap next to the yield below,
+         * tasks come and go, so the load is cheap next to the pause below,
          * and a waiting caller gets its task picked up a round sooner. */
         if (LACE_UNLIKELY(atomic_load_explicit(&external_task_count, memory_order_acquire) > 0)) {
             /* Only the worker that ran the task is busy again: the others
@@ -2629,7 +2640,7 @@ lace_steal_loop_body(WorkerP *__lace_worker, Task *__lace_dq_head, atomic_int *q
         }
 
 #if LACE_BACKOFF
-        // Progressive idle: yield → futex sleep
+        // Progressive idle: search while the balance lasts, then sleep on the futex word
         {
             const uint64_t now = lace_now_ns(), el = now - bal_clock; // since the last debit: the pause and yields of stage 1 too
             bal_clock = now;
@@ -2638,7 +2649,7 @@ lace_steal_loop_body(WorkerP *__lace_worker, Task *__lace_dq_head, atomic_int *q
             if (idle_count <= LACE_IDLE_STAGE1_LIMIT && lace_bal_ns <= 0) idle_count = LACE_IDLE_STAGE1_LIMIT + 1;
         }
         if (idle_count > LACE_IDLE_STAGE1_LIMIT) {
-            /* without balance it skips stage 1, whose end checks quit */
+            /* with the balance spent it skips stage 1, whose end checks quit */
             if (atomic_load_explicit(quit, memory_order_relaxed)) break;
             /* Before sleeping: become a sentinel if fewer than
              * LACE_IDLE_SENTINELS workers are, and this worker ran a task
@@ -2750,15 +2761,13 @@ lace_steal_loop_body(WorkerP *__lace_worker, Task *__lace_dq_head, atomic_int *q
                 continue;
             }
         } else {
-            /* Stage 1: yield the CPU briefly */
-            {
-                const uint64_t t0 = lace_now_ns();
-                uint64_t t = t0;
-                do { lace_cpu_pause(); t = lace_now_ns(); } while (t - t0 < (uint64_t)LACE_IDLE_ROUND_NS);
-                if (t - last_yield_ns > (uint64_t)LACE_IDLE_SPIN_YIELD_US * 1000u) {
-                    lace_cpu_yield();
-                    last_yield_ns = lace_now_ns();
-                }
+            /* Stage 1: search on, with one pause per round, and yield the
+             * CPU every LACE_IDLE_SPIN_YIELD_US (for an oversubscribed
+             * machine); bal_clock was read this round */
+            lace_cpu_pause();
+            if (bal_clock - last_yield_ns > (uint64_t)LACE_IDLE_SPIN_YIELD_US * 1000u) {
+                lace_cpu_yield();
+                last_yield_ns = lace_now_ns();
             }
         }
 #endif

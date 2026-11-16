@@ -2,6 +2,19 @@
 
 All notable changes to Lace will be documented in this file.
 
+## [Unreleased]
+
+### Changed
+
+- A searching worker pauses once between steal attempts instead of for
+  500 ns, and still yields the CPU every 5 us: the paced rounds of 1.11
+  slowed programs down on desktop processors.
+- With pinned workers on Linux on more than one package, wake-ups take the
+  packages in turn, each from its lowest worker up (package 0's first,
+  package 1's first, ..., then each package's second, ...), instead of a
+  stride over the worker numbers; otherwise the lowest-numbered sleepers are
+  woken first, as before.
+
 ## [1.11.1] - 2026-11-15
 
 ### Fixed
