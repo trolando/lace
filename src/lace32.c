@@ -2729,6 +2729,10 @@ void lace_steal_loop_CALL(lace_worker* lw, atomic_int* quit)
 
         if (atomic_load_explicit(quit, memory_order_relaxed)) break;
     }
+#if LACE_BACKOFF
+    /* The loop ends: spend the search of its last round, its pause or yield */
+    lace_bal_spend(&bal_clock, lace_now_ns(), 0);
+#endif
 }
 
 #if LACE_PIN_BUILTIN
