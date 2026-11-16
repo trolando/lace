@@ -1440,22 +1440,21 @@ lace_setup_idle_mode(void)
 /* Running totals of this thread; the useful time of a task comes from their
  * differences over the task (lace_bal_earn). The time in leapfrog and of
  * stolen tasks leaves out interrupts (lace_yield), which their own steal
- * loops account for. */
-static LACE_TLS uint64_t lace_leap_ns = 0;         // time in lace_leapfrog
-static LACE_TLS uint64_t lace_stolen_sum_ns = 0;   // run time of stolen tasks, nested ones too
-static LACE_TLS uint64_t lace_frame_ns = 0;        // time in interrupts (outermost ones)
-static LACE_TLS uint64_t lace_frame_stolen_ns = 0; // what they added to lace_stolen_sum_ns
+ * loops account for: lace_yield puts both totals back when it returns. */
+static LACE_TLS uint64_t lace_leap_ns = 0;       // time in lace_leapfrog
+static LACE_TLS uint64_t lace_stolen_sum_ns = 0; // run time of stolen tasks, nested ones too
+static LACE_TLS uint64_t lace_frame_ns = 0;      // time in interrupts (outermost ones)
 static LACE_TLS int64_t lace_bal_ns = 0; // the search balance
 
 /* The running totals at the start of a task (lace_bal_earn) */
 typedef struct {
-    uint64_t leap, stolen, frame, frame_stolen;
+    uint64_t leap, stolen, frame;
 } lace_bal_mark;
 
 static inline lace_bal_mark
 lace_bal_mark_now(void)
 {
-    lace_bal_mark m = { lace_leap_ns, lace_stolen_sum_ns, lace_frame_ns, lace_frame_stolen_ns };
+    lace_bal_mark m = { lace_leap_ns, lace_stolen_sum_ns, lace_frame_ns };
     return m;
 }
 
@@ -1478,7 +1477,7 @@ lace_bal_earn(const lace_bal_mark *m, uint64_t d, int stolen)
 {
     const uint64_t fr = lace_frame_ns - m->frame;
     const uint64_t own = d > fr ? d - fr : 0;
-    const uint64_t st = (lace_stolen_sum_ns - m->stolen) - (lace_frame_stolen_ns - m->frame_stolen);
+    const uint64_t st = lace_stolen_sum_ns - m->stolen;
     const uint64_t nested = !stolen ? st : st > own ? st - own : 0;
     const uint64_t lt = lace_leap_ns - m->leap;
     const uint64_t lp = lt > nested ? lt - nested : 0;
@@ -3740,10 +3739,11 @@ void
 lace_yield(lace_worker *worker)
 {
     /* A NEWFRAME's steal loop accounts for the search balance of the
-     * interrupt (a TOGETHER's task earns nothing): count it in lace_frame_ns,
-     * which the intervals around it leave out. Interrupts nested in this one
-     * are in its time already. */
-    const uint64_t t0 = lace_now_ns(), f0 = lace_frame_ns, fs0 = lace_frame_stolen_ns, s0 = lace_stolen_sum_ns;
+     * interrupt (a TOGETHER's task earns nothing), so the intervals around it
+     * leave it out: its time goes into lace_frame_ns (interrupts nested in
+     * this one are in its time already), and the totals of leapfrog and of
+     * stolen tasks are put back as they were. */
+    const uint64_t t0 = lace_now_ns(), f0 = lace_frame_ns, l0 = lace_leap_ns, s0 = lace_stolen_sum_ns;
 
     // make a local copy of the task
     lace_task _t;
@@ -3759,7 +3759,8 @@ lace_yield(lace_worker *worker)
     lace_set_idle(worker, was_idle);
 
     lace_frame_ns = f0 + (lace_now_ns() - t0);
-    lace_frame_stolen_ns = fs0 + (lace_stolen_sum_ns - s0);
+    lace_leap_ns = l0;
+    lace_stolen_sum_ns = s0;
 }
 
 /**
