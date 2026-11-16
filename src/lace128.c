@@ -2591,8 +2591,12 @@ void lace_steal_loop_CALL(lace_worker* lw, atomic_int* quit)
                 idle_count = 0;
                 worked = 1;
                 last_work_us = lace_now_us();
+                continue;
             }
-            continue;
+            /* Another worker took it: go on as after a failed steal, through
+             * the balance and quit checks below. While tasks wait the count
+             * stays positive, so the next round looks again. */
+            bal_task_ns = 0; // spent above
         }
 
 #if LACE_BACKOFF
