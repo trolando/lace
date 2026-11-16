@@ -19,6 +19,14 @@ All notable changes to Lace will be documented in this file.
 - A thief whose previous steal was a crumb wakes no sleepers for its
   victim's remaining tasks, and does not prefer that victim next.
 
+### Added
+
+- Idle modes, chosen with `lace_set_idle_mode()` or the environment variable
+  `LACE_IDLE`: `energy` searches less (16 us per other worker, at most 1 ms)
+  and keeps one sentinel, for less CPU time; `performance` searches through
+  gaps of up to 10 ms, for the fastest response; `balanced`, the default, is
+  the idle path above.
+
 ## [2.7.1] - 2026-11-15
 
 ### Fixed

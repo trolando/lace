@@ -24,7 +24,7 @@
     #endif
 #endif
 
-/* MSVC warns that getenv (LACE_PIN) may be unsafe */
+/* MSVC warns that getenv (LACE_PIN, LACE_IDLE) may be unsafe */
 #if defined(_MSC_VER) && !defined(_CRT_SECURE_NO_WARNINGS)
     #define _CRT_SECURE_NO_WARNINGS
 #endif
@@ -48,7 +48,7 @@
 #define LACE_LEAP_HOPS 4
 #endif
 
-#ifndef LACE_IDLE_SENTINELS /* Idle workers kept awake (napping) while some worker runs a task */
+#ifndef LACE_IDLE_SENTINELS /* Idle workers kept awake (napping) while some worker runs a task (balanced idle mode) */
 #define LACE_IDLE_SENTINELS 2
 #endif
 
@@ -64,7 +64,7 @@
 #define LACE_SENTINEL_GRACE_US 10000
 #endif
 
-#ifndef LACE_IDLE_SHALLOW_US /* For this long after it ran a task, a sleeping worker keeps the shortest timeout */
+#ifndef LACE_IDLE_SHALLOW_US /* For this long after it ran a task, a sleeping worker keeps the shortest timeout (balanced idle mode) */
 #define LACE_IDLE_SHALLOW_US 20000
 #endif
 
@@ -76,15 +76,15 @@
 #define LACE_IDLE_STEAL_MIN_NS 500
 #endif
 
-#ifndef LACE_IDLE_SPIN_US /* The search balance of a worker that has not worked yet */
+#ifndef LACE_IDLE_SPIN_US /* The search balance of a worker that has not worked yet (balanced idle mode) */
 #define LACE_IDLE_SPIN_US 250
 #endif
 
-#ifndef LACE_IDLE_BALANCE_ALPHA /* Each ns of useful work earns this many ns of search */
+#ifndef LACE_IDLE_BALANCE_ALPHA /* Each ns of useful work earns this many ns of search (balanced idle mode) */
 #define LACE_IDLE_BALANCE_ALPHA 8
 #endif
 
-#ifndef LACE_IDLE_BALANCE_CAP_US /* The search balance stays within plus and minus this */
+#ifndef LACE_IDLE_BALANCE_CAP_US /* The search balance stays within plus and minus this (balanced idle mode) */
 #define LACE_IDLE_BALANCE_CAP_US 1000
 #endif
 
@@ -520,6 +520,15 @@ lace_set_pin_cpus(const int *cpus, unsigned int n)
     memcpy(pin_api_cpus, cpus, sizeof(int) * n);
     pin_api_ncpus = n;
     pin_api_mode = 8; // LACE_PIN_LIST_
+}
+
+/* lace_set_idle_mode (-1: LACE_IDLE or the default, balanced) */
+static int idle_api_mode = -1;
+
+void
+lace_set_idle_mode(lace_idle_mode mode)
+{
+    idle_api_mode = (int)mode;
 }
 
 
@@ -1295,7 +1304,7 @@ static atomic_uint n_looping = 0;
  * Futex-based idle system for progressive worker sleeping
  */
 static LACE_IDLE_LINE atomic_int n_sleeping = 0;   /* count of workers currently in futex_wait */
-static LACE_IDLE_LINE atomic_uint n_sentinels = 0; /* idle workers that stay awake (LACE_IDLE_SENTINELS) */
+static LACE_IDLE_LINE atomic_uint n_sentinels = 0; /* idle workers that stay awake (idle_sentinels) */
 static LACE_IDLE_LINE atomic_int sentinel_futex = 0; /* napping sentinels wait on it; lace_run_task bumps it */
 static LACE_IDLE_LINE atomic_int n_napping = 0;      /* sentinels in a futex nap: lace_run_task wakes one only then */
 
@@ -1353,16 +1362,65 @@ lace_wake_all_sleepers(void)
  * The balance is the worker's, kept across nested steal loops, and conserved:
  * all time in the steal loop is spent (the pauses and yields too), except
  * running tasks, sleeping and sentinel duty. A worthwhile stolen task (see
- * LACE_IDLE_STEAL_MIN_X) or an external task earns LACE_IDLE_BALANCE_ALPHA
- * times its useful time: its run time minus the search in leapfrog inside it.
- * The balance starts at LACE_IDLE_SPIN_US in every run (lace_init_worker) and
- * stays within plus and minus LACE_IDLE_BALANCE_CAP_US; no wake-up or timeout
- * refills it. So a worker that keeps finding work searches through longer
- * gaps, and a worker that finds only crumbs soon sleeps. Join waiting,
- * sentinel monitoring and one probe per futex timeout are outside the
- * balance. */
+ * LACE_IDLE_STEAL_MIN_X) or an external task earns idle_alpha times its
+ * useful time: its run time minus the search in leapfrog inside it. The
+ * balance starts at idle_start_ns in every run (lace_init_worker) and stays
+ * within plus and minus idle_cap_ns; no wake-up or timeout refills it. So a
+ * worker that keeps finding work searches through longer gaps, and a worker
+ * that finds only crumbs soon sleeps. Join waiting, sentinel monitoring and
+ * one probe per futex timeout are outside the balance. */
 #define LACE_IDLE_STAGE1_LIMIT (1u << 30) /* the balance decides */
-#define LACE_BAL_CAP_NS ((int64_t)LACE_IDLE_BALANCE_CAP_US * 1000)
+
+/* The idle mode (lace_set_idle_mode, else LACE_IDLE in the environment, else
+ * balanced) sets these at lace_start; balanced uses the compile-time
+ * constants. */
+static int64_t idle_alpha = LACE_IDLE_BALANCE_ALPHA;                       // each ns of useful work earns this many ns of search
+static int64_t idle_start_ns = (int64_t)LACE_IDLE_SPIN_US * 1000;          // the balance of a worker that has not worked yet
+static int64_t idle_cap_ns = (int64_t)LACE_IDLE_BALANCE_CAP_US * 1000;     // the balance stays within plus and minus this
+static unsigned int idle_sentinels = LACE_IDLE_SENTINELS;                  // idle workers kept awake while some worker runs a task
+static uint64_t idle_shallow_us = LACE_IDLE_SHALLOW_US;                    // short naps for this long after a worker ran a task
+
+static void
+lace_setup_idle_mode(void)
+{
+    int mode = idle_api_mode;
+    if (mode < 0) {
+        const char *ie = getenv("LACE_IDLE");
+        mode = LACE_IDLE_BALANCED;
+        if (ie != NULL && *ie != '\0') {
+            if (strcmp(ie, "energy") == 0) mode = LACE_IDLE_ENERGY;
+            else if (strcmp(ie, "performance") == 0) mode = LACE_IDLE_PERFORMANCE;
+            else if (strcmp(ie, "balanced") != 0) {
+                fprintf(stderr, "Lace warning: LACE_IDLE=%s is not a mode (energy, balanced, performance); "
+                                "using balanced\n", ie);
+            }
+        }
+    }
+    if (mode == LACE_IDLE_ENERGY) {
+        /* Search for about as long as it takes to wake the other workers
+         * again, 16 us each, at most the balanced cap; work earns less; one
+         * sentinel; no short naps */
+        int64_t us = 16 * (int64_t)(n_workers > 1 ? n_workers - 1 : 0);
+        if (us > LACE_IDLE_BALANCE_CAP_US) us = LACE_IDLE_BALANCE_CAP_US;
+        idle_alpha = 4;
+        idle_start_ns = idle_cap_ns = us * 1000;
+        idle_sentinels = 1;
+        idle_shallow_us = 0;
+    } else if (mode == LACE_IDLE_PERFORMANCE) {
+        /* Search through gaps of up to 10 ms, and work earns much more */
+        idle_alpha = 64;
+        idle_start_ns = idle_cap_ns = (int64_t)10000 * 1000;
+        idle_sentinels = 2;
+        idle_shallow_us = 20000;
+    } else {
+        idle_alpha = LACE_IDLE_BALANCE_ALPHA;
+        idle_start_ns = (int64_t)LACE_IDLE_SPIN_US * 1000;
+        idle_cap_ns = (int64_t)LACE_IDLE_BALANCE_CAP_US * 1000;
+        idle_sentinels = LACE_IDLE_SENTINELS;
+        idle_shallow_us = LACE_IDLE_SHALLOW_US;
+    }
+}
+
 static LACE_TLS uint64_t lace_leap_ns = 0; // time in lace_leapfrog, for the balance
 static LACE_TLS uint64_t lace_stolen_sum_ns = 0; // run time of all stolen tasks, nested ones too
 static LACE_TLS int64_t lace_bal_ns = 0; // the search balance
@@ -1513,7 +1571,7 @@ static barrier_t lace_bar;
 /**
  * The slow path of lace_barrier: sleep on the wait flag until the leader
  * flips it, like an idle worker (lace_steal_loop): in naps of
- * LACE_IDLE_FUTEX_TIMEOUT_MIN for LACE_IDLE_SHALLOW_US after the wait began,
+ * LACE_IDLE_FUTEX_TIMEOUT_MIN for idle_shallow_us after the wait began,
  * then until woken. The leader wakes the sleepers, which ends a nap at once;
  * the naps only keep the core in a shallow idle state. A sleep without a
  * timeout let the core go into a deep idle state that took 30-140 us to leave.
@@ -1525,7 +1583,7 @@ lace_barrier_sleep(int wait, uint64_t start)
      * the leader sees us sleeping, or we see the flip before we sleep */
     atomic_fetch_add_explicit(&lace_bar.sleeping, 1, memory_order_seq_cst);
     while (atomic_load_explicit(&lace_bar.wait, memory_order_seq_cst) == wait) {
-        const int64_t timeout = lace_now_us() - start < (uint64_t)LACE_IDLE_SHALLOW_US ?
+        const int64_t timeout = lace_now_us() - start < idle_shallow_us ?
             LACE_IDLE_FUTEX_TIMEOUT_MIN : -1;
         lace_futex_wait(&lace_bar.wait, wait, timeout);
     }
@@ -1862,7 +1920,7 @@ lace_init_worker(unsigned int worker)
     lace_worker_public *wt = workers[worker] = &workers_memory[worker]->worker_public;
     lace_worker *w = workers_p[worker] = &workers_memory[worker]->worker_private;
     lace_thread_worker = w;
-    lace_bal_ns = (int64_t)LACE_IDLE_SPIN_US * 1000; // a fresh search balance per run
+    lace_bal_ns = idle_start_ns; // a fresh search balance per run
 
     w->dq = workers_memory[worker]->deque;
     w->head = w->dq;
@@ -2209,7 +2267,7 @@ lace_release_memory(void)
  * Steal from random victims until "quit" is set.
  */
 /**
- * Sentinels (LACE_IDLE_SENTINELS = K): while some worker runs a task, up to K
+ * Sentinels (idle_sentinels = K): while some worker runs a task, up to K
  * idle workers stay awake instead of sleeping. A sentinel tries every other
  * worker once per round and naps LACE_SENTINEL_NAP_US between rounds, so it
  * finds new work within a round and wakes a sleeper, at a small fraction of a
@@ -2224,7 +2282,7 @@ LACE_UNUSED static int
 lace_claim_sentinel(void)
 {
     unsigned int c = atomic_load_explicit(&n_sentinels, memory_order_relaxed);
-    while (c < (unsigned int)LACE_IDLE_SENTINELS) {
+    while (c < idle_sentinels) {
         if (atomic_compare_exchange_weak_explicit(&n_sentinels, &c, c + 1,
                 memory_order_relaxed, memory_order_relaxed)) return 1;
     }
@@ -2418,8 +2476,8 @@ void lace_steal_loop_CALL(lace_worker* lw, atomic_int* quit)
                         const uint64_t nested = lace_stolen_sum_ns - bal_sum0 > lace_last_stolen_ns ? lace_stolen_sum_ns - bal_sum0 - lace_last_stolen_ns : 0;
                         const uint64_t lt = lace_leap_ns - bal_leap0;
                         const uint64_t lp = lt > nested ? lt - nested : 0;
-                        const int64_t earned = (int64_t)LACE_IDLE_BALANCE_ALPHA * (int64_t)(lace_last_stolen_ns > lp ? lace_last_stolen_ns - lp : 0);
-                        lace_bal_ns = lace_bal_ns + earned > LACE_BAL_CAP_NS ? LACE_BAL_CAP_NS : lace_bal_ns + earned;
+                        const int64_t earned = idle_alpha * (int64_t)(lace_last_stolen_ns > lp ? lace_last_stolen_ns - lp : 0);
+                        lace_bal_ns = lace_bal_ns + earned > idle_cap_ns ? idle_cap_ns : lace_bal_ns + earned;
                         bal_task_ns = lace_last_stolen_ns;
                     }
                 }
@@ -2448,15 +2506,15 @@ void lace_steal_loop_CALL(lace_worker* lw, atomic_int* quit)
              * keep backing off, or a stream of external calls (from a
              * thread outside Lace) keeps every idle worker spinning. */
             uint64_t bal_ext_t0 = lace_now_ns();
-            { const uint64_t el = bal_ext_t0 - bal_clock; lace_bal_ns -= (int64_t)(el > bal_task_ns ? el - bal_task_ns : 0); if (lace_bal_ns < -LACE_BAL_CAP_NS) lace_bal_ns = -LACE_BAL_CAP_NS; bal_clock = bal_ext_t0; }
+            { const uint64_t el = bal_ext_t0 - bal_clock; lace_bal_ns -= (int64_t)(el > bal_task_ns ? el - bal_task_ns : 0); if (lace_bal_ns < -idle_cap_ns) lace_bal_ns = -idle_cap_ns; bal_clock = bal_ext_t0; }
             const uint64_t bal_ext_leap0 = lace_leap_ns, bal_ext_sum0 = lace_stolen_sum_ns;
             if (lace_steal_external(lw)) {
                 {
                     const uint64_t now = lace_now_ns(), d = now - bal_ext_t0;
                     const uint64_t nested = lace_stolen_sum_ns - bal_ext_sum0, lt = lace_leap_ns - bal_ext_leap0;
                     const uint64_t lp = lt > nested ? lt - nested : 0;
-                    const int64_t earned = (int64_t)LACE_IDLE_BALANCE_ALPHA * (int64_t)(d > lp ? d - lp : 0);
-                    lace_bal_ns = lace_bal_ns + earned > LACE_BAL_CAP_NS ? LACE_BAL_CAP_NS : lace_bal_ns + earned;
+                    const int64_t earned = idle_alpha * (int64_t)(d > lp ? d - lp : 0);
+                    lace_bal_ns = lace_bal_ns + earned > idle_cap_ns ? idle_cap_ns : lace_bal_ns + earned;
                     bal_clock = now;
                 }
                 idle_count = 0;
@@ -2472,14 +2530,14 @@ void lace_steal_loop_CALL(lace_worker* lw, atomic_int* quit)
             const uint64_t now = lace_now_ns(), el = now - bal_clock; // since the last debit: the pause and yields of stage 1 too
             bal_clock = now;
             lace_bal_ns -= (int64_t)(el > bal_task_ns ? el - bal_task_ns : 0);
-            if (lace_bal_ns < -LACE_BAL_CAP_NS) lace_bal_ns = -LACE_BAL_CAP_NS;
+            if (lace_bal_ns < -idle_cap_ns) lace_bal_ns = -idle_cap_ns;
             if (idle_count <= LACE_IDLE_STAGE1_LIMIT && lace_bal_ns <= 0) idle_count = LACE_IDLE_STAGE1_LIMIT + 1;
         }
         if (idle_count > LACE_IDLE_STAGE1_LIMIT) {
             /* with the balance spent it skips stage 1, whose end checks quit */
             if (atomic_load_explicit(quit, memory_order_relaxed)) break;
             /* Before sleeping: become a sentinel if fewer than
-             * LACE_IDLE_SENTINELS workers are, and this worker ran a task
+             * idle_sentinels workers are, and this worker ran a task
              * since it last slept or another one runs a task now. Not after
              * a mere timeout, or sentinels would form again and again in a
              * program that no longer uses Lace (test_idle). */
@@ -2547,7 +2605,7 @@ void lace_steal_loop_CALL(lace_worker* lw, atomic_int* quit)
             /* Shortly after it ran a task, a worker sleeps in short naps: its
              * core stays in a shallow idle state and wakes fast for the next
              * region, at a few microseconds of CPU per nap. */
-            if (lace_now_us() - last_work_us < (uint64_t)LACE_IDLE_SHALLOW_US) timeout_us = LACE_IDLE_FUTEX_TIMEOUT_MIN;
+            if (lace_now_us() - last_work_us < idle_shallow_us) timeout_us = LACE_IDLE_FUTEX_TIMEOUT_MIN;
             if (timeout_us > LACE_IDLE_FUTEX_TIMEOUT_MAX) timeout_us = LACE_IDLE_FUTEX_TIMEOUT_MAX;
 
             /* Count ourselves as sleeping, then check for external tasks
@@ -2580,8 +2638,8 @@ void lace_steal_loop_CALL(lace_worker* lw, atomic_int* quit)
                         const uint64_t now = lace_now_ns(), d = now - bal_ext_t0;
                         const uint64_t nested = lace_stolen_sum_ns - bal_ext_sum0, lt = lace_leap_ns - bal_ext_leap0;
                         const uint64_t lp = lt > nested ? lt - nested : 0;
-                        const int64_t earned = (int64_t)LACE_IDLE_BALANCE_ALPHA * (int64_t)(d > lp ? d - lp : 0);
-                        lace_bal_ns = lace_bal_ns + earned > LACE_BAL_CAP_NS ? LACE_BAL_CAP_NS : lace_bal_ns + earned;
+                        const int64_t earned = idle_alpha * (int64_t)(d > lp ? d - lp : 0);
+                        lace_bal_ns = lace_bal_ns + earned > idle_cap_ns ? idle_cap_ns : lace_bal_ns + earned;
                         bal_clock = now;
                     }
                     idle_count = 0;
@@ -3073,6 +3131,7 @@ lace_setup(unsigned int _n_workers, size_t dequesize, int external)
 #if LACE_LOCALITY
     lace_setup_locality();
 #endif
+    lace_setup_idle_mode();
 
 
     // Compute memory size for each worker

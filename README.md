@@ -33,7 +33,7 @@ int main(int argc, char** argv)
 ## Features
 
 - ⚡ Low-overhead, lock-free work-stealing
-- 💤 Quiet when idle, quick to wake up
+- 💤 Quiet when idle, quick to wake up, with energy, balanced and performance idle modes
 - 📌 Thread pinning per CPU, core, cache or NUMA node (Linux, FreeBSD, Windows)
 - 🧵 Workers on Lace's threads or on the program's own
 - 📈 Low-overhead statistics per worker
