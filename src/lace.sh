@@ -420,6 +420,44 @@ void lace_set_pinning(lace_pin_mode mode);
  * @see lace_set_pinning
  */
 void lace_set_pin_cpus(const int *cpus, unsigned int n);
+
+/**
+ * Idle modes for lace_set_idle_mode().
+ */
+typedef enum lace_idle_mode {
+    LACE_IDLE_BALANCED = 0,
+    LACE_IDLE_ENERGY = 1,
+    LACE_IDLE_PERFORMANCE = 2,
+} lace_idle_mode;
+
+/**
+ * Choose how long idle workers look for work before they sleep: CPU time
+ * (energy) against how fast work is picked up after a gap.
+ *
+ * An idle worker searches while its search balance lasts: searching spends
+ * it, and work the worker finds earns it more. Then it sleeps until work
+ * appears. While some worker runs a task, a few idle workers (sentinels)
+ * stay awake at a small fraction of a core, to wake the others.
+ *
+ * - LACE_IDLE_BALANCED (the default): each microsecond of work earns 8 of
+ *   search, so busy workers search through gaps of up to about 1 ms; two
+ *   sentinels; for 20 ms after it worked, a sleeping worker wakes up every
+ *   100 us, so its core stays ready for the next parallel region.
+ * - LACE_IDLE_ENERGY: less CPU time for somewhat slower work after gaps.
+ *   Work earns 4 times its time, up to 16 us of search per other worker (at
+ *   most the balanced cap of 1 ms), about the cost of waking them all again;
+ *   one sentinel; sleeping workers back off at once.
+ * - LACE_IDLE_PERFORMANCE: the fastest response, for more CPU time while
+ *   there is little work. Work earns 64 times its time, so workers search
+ *   through gaps of up to 10 ms and their cores stay warm; two sentinels and
+ *   the 20 ms of short naps, as balanced.
+ *
+ * Without this call, the environment variable LACE_IDLE chooses: energy,
+ * balanced or performance. Call before lace_start().
+ *
+ * @param mode  The idle mode (default LACE_IDLE_BALANCED)
+ */
+void lace_set_idle_mode(lace_idle_mode mode);
  
 /**
  * Set the program stack size of Lace worker threads, at least 16 MB.
@@ -467,7 +505,7 @@ unsigned int lace_get_pu_count(void);
  * If <n_workers> is set to 0, automatically detects available cores.
  * If <dqsize> is est to 0, uses a reasonable default value.
  * With LACE_BACKOFF (the default), idle workers soon sleep, and an idle Lace
- * uses almost no CPU. On Linux, FreeBSD and Windows, workers are pinned as
+ * uses almost no CPU (lace_set_idle_mode() chooses how soon). On Linux, FreeBSD and Windows, workers are pinned as
  * lace_set_pinning() chooses (by default LACE_PIN_AUTO).
  */
 void lace_start(unsigned int n_workers, size_t dqsize);

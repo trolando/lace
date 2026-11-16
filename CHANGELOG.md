@@ -23,6 +23,14 @@ All notable changes to Lace will be documented in this file.
   in a 5 ms frame counted as 5 ms of work, and the search before an
   interrupt was not spent.
 
+### Added
+
+- Idle modes, chosen with `lace_set_idle_mode()` or the environment variable
+  `LACE_IDLE`: `energy` searches less (16 us per other worker, at most 1 ms)
+  and keeps one sentinel, for less CPU time; `performance` searches through
+  gaps of up to 10 ms, for the fastest response; `balanced`, the default, is
+  the idle path of 1.11 with the changes above.
+
 ### Fixed
 
 - A waker read a sleeper's flag with a relaxed load, and `lace_stop()` and
