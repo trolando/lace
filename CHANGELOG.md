@@ -10,14 +10,18 @@ All notable changes to Lace will be documented in this file.
   sleepers, the lowest-numbered first: one shared word caused wake storms at
   96-192 workers. The globals of the idle path have their own cache lines.
 - An idle worker searches while its search balance is positive. Searching
-  spends it, and a worthwhile stolen or external task earns 8 times its
-  useful time (within 1 ms either way): workers that find work search
+  spends it; every external task, and every stolen task that is worthwhile
+  (not a crumb), earns 8 times its useful time: its run time without the
+  search in leapfrog and the NEWFRAME or TOGETHER interrupts inside it. The
+  balance stays within 1 ms either way: workers that find work search
   through gaps, workers that find only crumbs soon sleep. A searching worker
   pauses between steal attempts and yields the CPU every 5 us.
-- With pinned workers on Linux, 75% of random steal attempts go to the
-  thief's own package (socket), and wake-ups take the packages in turn.
+- With pinned workers on Linux, 75% of random steal attempts pick a worker
+  on the thief's own package (socket), the rest pick from all workers; and
+  wake-ups take the packages in turn.
 - A thief whose previous steal was a crumb wakes no sleepers for its
-  victim's remaining tasks, and does not prefer that victim next.
+  victim's remaining tasks (it still does when no sentinel watches), and
+  does not prefer that victim next.
 
 ### Added
 
@@ -28,6 +32,17 @@ All notable changes to Lace will be documented in this file.
   the idle path above.
 - The benchmarks `dsyrk-lace` and `dsyrk-seq`: a tiled DSYRK (C = C - A A^T
   in b x b tiles), coarse regular tasks as in tiled linear algebra.
+
+### Fixed
+
+- `lace_stop()` and `lace_release_memory()` did not wake napping sentinels,
+  so they waited for the naps to end, up to a timer tick on Windows, and a
+  sentinel could start a nap just after a release. Lace now wakes them, and
+  a sentinel does not start a nap while a release is pending.
+- A worker that had just decided to sleep could miss the wake-up for an
+  external task that another worker took, so the task ran without helpers
+  until a futex timeout, up to 100 ms. The worker now checks again after it
+  counts itself as sleeping.
 
 ## [2.7.1] - 2026-11-15
 
