@@ -2,6 +2,15 @@
 
 All notable changes to Lace will be documented in this file.
 
+## [Unreleased]
+
+### Fixed
+
+- A worker inside a NEWFRAME or TOGETHER started external tasks of other
+  threads, so an operation could start in the middle of a stop-the-world
+  frame such as Sylvan's garbage collection; workers in a frame now leave
+  external tasks for after it (`test_frame_external`).
+
 ## [2.8.0] - 2026-11-17
 
 ### Changed
