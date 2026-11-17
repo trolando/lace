@@ -72,7 +72,7 @@ if(NOT TARGET lace::lace)
     include(FetchContent)
     FetchContent_Declare(lace
         GIT_REPOSITORY https://github.com/trolando/lace.git
-        GIT_TAG        v2.8.0
+        GIT_TAG        v2.8.1
         GIT_SHALLOW    TRUE
     )
     FetchContent_MakeAvailable(lace)
