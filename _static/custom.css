@@ -1,0 +1,17 @@
+/* Force code in first column to stay on one line, let second column wrap */
+table.func-table td:first-child code {
+    white-space: nowrap;
+}
+table.func-table td {
+    white-space: normal;
+}
+
+table.cmake-opts-table td:first-child code {
+    white-space: nowrap;
+}
+table.cmake-opts-table td:nth-child(3) code {
+    white-space: nowrap;
+}
+table.cmake-opts-table td {
+    white-space: normal;
+}
