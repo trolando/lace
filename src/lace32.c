@@ -2066,6 +2066,22 @@ typedef struct ext_lace_task {
 static _Atomic(ext_lace_task*)external_tasks[LACE_EXT_SLOTS];
 static LACE_IDLE_LINE atomic_int external_task_count = 0;
 
+/* The frames (NEWFRAME, TOGETHER) this worker is in: lace_exec_in_new_frame,
+ * which every worker of a frame runs, the initiator too */
+static LACE_TLS unsigned int lace_frame_depth = 0;
+
+/* Do external tasks wait for this worker? Not inside a frame: a frame stops
+ * the world, so its workers leave the external tasks of other threads for
+ * after it. They do not react to them either (give up sentinel duty, skip a
+ * nap or a sleep), or a waiting task would keep them spinning through the
+ * frame. When the frame ends, every worker returns to what it did before;
+ * one in its steal loop looks for external tasks in the same round. */
+static inline int
+lace_external_waiting(memory_order mo)
+{
+    return lace_frame_depth == 0 && atomic_load_explicit(&external_task_count, mo) > 0;
+}
+
 /* Wake a sleeping worker to help with an external task that a worker took, if
  * no sentinel watches; bump wake_gen first, for the workers about to sleep */
 static inline void
@@ -2113,7 +2129,10 @@ pushed:
      * before it last checks external_task_count (both seq_cst, here too), so
      * either it sees our task or we see it sleeping. Awake workers check
      * external_task_count in their idle loop. Once a worker takes the task,
-     * lace_wake_helper covers the workers that were about to sleep. */
+     * lace_wake_helper covers the workers that were about to sleep. Workers
+     * in a frame leave the task for after it; a wake-up that reaches one is
+     * not lost, as the end of the frame wakes its sleepers and sentinels and
+     * every worker then returns to its own loop, which looks again. */
     if (atomic_load_explicit(&n_sleeping, memory_order_seq_cst) > 0
         && atomic_load_explicit(&n_sentinels, memory_order_seq_cst) == 0
         ) {
@@ -2243,7 +2262,7 @@ void lace_steal_random(lace_worker *_lace_worker)
 {
     lace_check_yield(_lace_worker);
 
-    if (LACE_UNLIKELY(atomic_load_explicit(&external_task_count, memory_order_acquire) > 0)) {
+    if (LACE_UNLIKELY(lace_external_waiting(memory_order_acquire))) {
         lace_steal_external(_lace_worker);
     } else if (n_workers > 1) {
         lace_worker_public *victim = workers[lace_random_victim(_lace_worker, _lace_worker->worker, n_workers)];
@@ -2372,7 +2391,7 @@ lace_nap(atomic_int *quit, unsigned int seen_release)
      * (acquire) sees the event and skips the nap. */
     atomic_fetch_add_explicit(&n_napping, 1, memory_order_seq_cst);
     int val = atomic_load_explicit(&sentinel_futex, memory_order_acquire);
-    if (atomic_load_explicit(&external_task_count, memory_order_seq_cst) == 0 &&
+    if (!lace_external_waiting(memory_order_seq_cst) &&
         atomic_load_explicit(&lace_newframe.t, memory_order_relaxed) == NULL &&
         atomic_load_explicit(quit, memory_order_relaxed) == 0 &&
         atomic_load_explicit(&release_gen, memory_order_relaxed) == seen_release) {
@@ -2424,12 +2443,12 @@ lace_sentinel(lace_worker *lw, atomic_int *quit, unsigned int *last_victim, unsi
             }
             if (++v == n) v = 0;
             if (v == self && ++v == n) v = 0;
-            if (atomic_load_explicit(&external_task_count, memory_order_relaxed) > 0) return -1;
+            if (lace_external_waiting(memory_order_relaxed)) return -1;
         }
         /* An interrupt (NEWFRAME, TOGETHER) runs in the steal loop, after
          * this worker gave up its sentinel slot */
         if (atomic_load_explicit(&lace_newframe.t, memory_order_relaxed) != NULL) return -1;
-        if (atomic_load_explicit(&external_task_count, memory_order_acquire) > 0) return -1;
+        if (lace_external_waiting(memory_order_acquire)) return -1;
         if (atomic_load_explicit(&release_gen, memory_order_acquire) != seen_release) return -1;
         uint64_t now = lace_now_us();
         if (lace_some_active(lw)) last_active = now;
@@ -2578,7 +2597,7 @@ void lace_steal_loop_CALL(lace_worker* lw, atomic_int* quit)
         /* Every round: the counter's cache line changes only when external
          * tasks come and go, so the load is cheap next to the pause below,
          * and a waiting caller gets its task picked up a round sooner. */
-        if (LACE_UNLIKELY(atomic_load_explicit(&external_task_count, memory_order_acquire) > 0)) {
+        if (LACE_UNLIKELY(lace_external_waiting(memory_order_acquire))) {
             /* Only the worker that ran the task is busy again: the others
              * keep backing off, or a stream of external calls (from a
              * thread outside Lace) keeps every idle worker spinning. */
@@ -2690,7 +2709,7 @@ void lace_steal_loop_CALL(lace_worker* lw, atomic_int* quit)
              * NEWFRAME's task sets quit, its done, before it wakes us). */
             atomic_store_explicit(&idle_flags[worker_id].sleep, 1, memory_order_seq_cst);
             if (atomic_load_explicit(&wake_gen, memory_order_seq_cst) == gen &&
-                atomic_load_explicit(&external_task_count, memory_order_seq_cst) == 0 &&
+                !lace_external_waiting(memory_order_seq_cst) &&
                 atomic_load_explicit(&lace_newframe.t, memory_order_seq_cst) == NULL &&
                 atomic_load_explicit(quit, memory_order_seq_cst) == 0 &&
                 atomic_load_explicit(&release_gen, memory_order_seq_cst) == seen_release) {
@@ -2703,7 +2722,7 @@ void lace_steal_loop_CALL(lace_worker* lw, atomic_int* quit)
             PR_ADD(lw, CTR_backoff, lace_gethrtime() - prev);
 #endif
 
-            if (atomic_load_explicit(&external_task_count, memory_order_acquire) > 0) {
+            if (lace_external_waiting(memory_order_acquire)) {
                 const uint64_t bal_ext_t0 = lace_now_ns(); // after a sleep: nothing to spend (bal_clock was reset)
                 const lace_bal_mark bal_ext_m = lace_bal_mark_now();
                 if (lace_steal_external(lw)) {
@@ -3703,6 +3722,9 @@ lace_exec_in_new_frame(lace_worker* _lace_worker, lace_task *root)
 {
     lace_task *_lace_dq_head = _lace_worker->head;
 
+    /* In the frame, barriers included: no external tasks (lace_external_waiting) */
+    lace_frame_depth++;
+
     TailSplitNA old;
     uint8_t old_as;
 
@@ -3743,6 +3765,8 @@ lace_exec_in_new_frame(lace_worker* _lace_worker, lace_task *root)
         _lace_worker->split = _lace_worker->dq + old.ts.split;
         _lace_worker->allstolen = old_as;
     }
+
+    lace_frame_depth--;
 }
 
 /* A stretch that the search balance of the intervals around it leaves out:
