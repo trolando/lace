@@ -53,11 +53,19 @@ static int CPU_COUNT(const cpu_set_t *s)
     for (KAFFINITY m = s->bits; m != 0; m &= m - 1) n++;
     return n;
 }
+/* The first call (the main thread) records its processor group; a later
+ * thread in another group gets an empty mask, so that its check fails */
 static int thread_affinity(cpu_set_t *s)
 {
+    static int have_group = 0;
+    static WORD group = 0;
     GROUP_AFFINITY ga;
     if (!GetThreadGroupAffinity(GetCurrentThread(), &ga)) return -1;
-    s->bits = ga.Mask;
+    if (!have_group) {
+        group = ga.Group;
+        have_group = 1;
+    }
+    s->bits = ga.Group == group ? ga.Mask : 0;
     return 0;
 }
 #else
