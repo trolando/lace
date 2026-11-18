@@ -3859,8 +3859,9 @@ TASK(void, lace_wrap_together, Task*, task)
 
     /* now try to be the one who sets it! */
     while (1) {
+        /* strong: a spurious failure would leave expected NULL for lace_yield */
         Task *expected = 0;
-        if (atomic_compare_exchange_weak(&lace_newframe.t, &expected, &_t2)) break;
+        if (atomic_compare_exchange_strong(&lace_newframe.t, &expected, &_t2)) break;
         lace_yield(__lace_worker, __lace_dq_head);
     }
 
@@ -3909,8 +3910,9 @@ TASK(void, lace_wrap_newframe, Task*, task)
 
     /* now try to be the one who sets it! */
     while (1) {
+        /* strong: a spurious failure would leave expected NULL for lace_yield */
         Task *expected = 0;
-        if (atomic_compare_exchange_weak(&lace_newframe.t, &expected, &_s)) break;
+        if (atomic_compare_exchange_strong(&lace_newframe.t, &expected, &_s)) break;
         lace_yield(__lace_worker, __lace_dq_head);
     }
 
