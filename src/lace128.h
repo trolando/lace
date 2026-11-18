@@ -356,7 +356,10 @@ typedef struct lace_task lace_task;
  *
  * @param n_workers  Number of worker threads. Pass 0 to auto-detect
  *                   available cores.
- * @param dqsize     Task deque size per worker (number of task slots).
+ * @param dqsize     Task deque size per worker (number of task slots), at
+ *                   most 2^31 - 1 and on a 32-bit system what fits in half
+ *                   the address space (else Lace stops the program with an
+ *                   error).
  *                   Pass 0 for a default of 100 000. Each live SPAWN that
  *                   has not yet been SYNCed occupies one slot.
  * @param stacksize  Worker thread stack size in bytes, at least 16 MB.
@@ -393,7 +396,8 @@ void lace_start(unsigned int n_workers, size_t dqsize, size_t stacksize);
  *
  * @param n_workers  Number of threads that will enter. Pass 0 for one per
  *                   available CPU (see lace_worker_count).
- * @param dqsize     Task deque size per worker. Pass 0 for the default.
+ * @param dqsize     Task deque size per worker. Pass 0 for the default; at
+ *                   most as for lace_start.
  *
  * @see lace_worker_enter, lace_worker_loop, lace_worker_leave, lace_stop
  */
