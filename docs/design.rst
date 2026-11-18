@@ -313,7 +313,10 @@ sees a sleeper or the sleeper sees the flip before it sleeps. Without
 the sleep, threads that share CPUs with the threads they wait for (more
 threads than CPUs) keep those off the CPU, and a TOGETHER can take
 minutes. Without the naps, the core of a sleeper goes into a deep idle
-state, which took 30-140 µs to leave against 9-26 µs from a nap.
+state, which took 30-140 µs to leave against 9-26 µs from a nap. The
+sleeper decrements the counter with ``seq_cst`` as well, so that a
+sleeper of the next round that reads the decremented value is seen by
+its leader.
 
 The barrier provides full memory ordering: all memory operations by
 any thread before the barrier are visible to all threads after the
