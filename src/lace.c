@@ -3752,6 +3752,13 @@ lace_count_report_file(FILE* file)
  */
 void lace_stop(void)
 {
+    WorkerP *self = lace_get_worker();
+    if (self != NULL) {
+        fprintf(stderr, "Lace error: lace_stop called by Lace worker %u "
+            "(call it from outside Lace, never from inside a task)\n", (unsigned int)self->worker);
+        exit(1);
+    }
+
     /* Let the external tasks of other threads finish first: they may still
      * need every worker, for instance to start a NEWFRAME. Waiting ones are
      * taken while the workers run; then each worker counts the ones it runs. */
