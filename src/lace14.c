@@ -3887,15 +3887,34 @@ TASK(void, lace_together_root, Task*, t, atomic_int*, finished)
     // run the root task
     t->f(__lace_worker, __lace_dq_head, t);
 
-    // signal out completion
-    atomic_fetch_sub_explicit(finished, 1, memory_order_relaxed);
+    /* signal our completion; the last one wakes those that wait below
+     * (the initiator's frame, which holds finished, lasts until all of them
+     * have passed the barrier after this) */
+    if (atomic_fetch_sub_explicit(finished, 1, memory_order_relaxed) == 1) {
+        if (n_workers > 1) lace_futex_wake_all(finished);
+        return;
+    }
 
     /* while threads aren't done, steal randomly: left out of the search
      * balance, as for an interrupted worker (lace_yield), so that the
      * initiator's task neither earns for this wait nor takes the tasks it
-     * steals here for leapfrog */
+     * steals here for leapfrog. As at a barrier, spin briefly, then nap on
+     * finished between attempts, so that a long task of one worker does not
+     * keep the others spinning. */
     const lace_bal_scope sc = lace_bal_scope_begin();
-    while (atomic_load_explicit(finished, memory_order_relaxed) != 0) STEAL_RANDOM();
+    uint64_t start = 0;
+    for (unsigned int spin = 1;; spin++) {
+        const int left = atomic_load_explicit(finished, memory_order_relaxed);
+        if (left == 0) break;
+        STEAL_RANDOM();
+        if ((spin & 63) != 0) {
+            lace_cpu_pause();
+            continue;
+        }
+        const uint64_t now = lace_now_us();
+        if (spin == 64) start = now;
+        else if (now - start >= LACE_BARRIER_SPIN_US) lace_futex_wait(finished, left, LACE_IDLE_FUTEX_TIMEOUT_MIN);
+    }
     lace_bal_scope_end(&sc);
 }
 
