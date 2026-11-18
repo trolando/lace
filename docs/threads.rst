@@ -59,6 +59,12 @@ Rules
   all ``n`` threads, and so does ``lace_stop``.
 * ``lace_worker_leave`` and ``lace_stop`` are never called from inside a task.
   ``lace_stop`` is called by a thread that is not a worker, or that has left.
+* A ``NEWFRAME`` or ``TOGETHER`` waits for all workers that have not left. So a
+  worker leaves only when no task that may start one still runs: neither a
+  task that a thread outside Lace called, nor one of the workers' own tasks.
+  For the same reason ``lace_stop`` is called only when no worker runs tasks
+  of its own any more; it waits for the calls of threads outside Lace that
+  are still running.
 * A worker that does not steal, such as worker 0 above, still takes part in
   ``TOGETHER`` and ``NEWFRAME``, which wait for all workers: between tasks it
   should not do long work outside Lace. While it is a worker, the idle workers

@@ -427,6 +427,8 @@ void lace_worker_loop(void);
 /**
  * The calling thread stops being a Lace worker; it gets its affinity back.
  * Not from inside a task. Every worker leaves before lace_stop returns.
+ * A NEWFRAME or TOGETHER waits for every worker that has not left, so a
+ * worker leaves only when no task that may start one still runs.
  */
 void lace_worker_leave(void);
 
