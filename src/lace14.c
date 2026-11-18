@@ -3752,6 +3752,13 @@ lace_count_report_file(FILE* file)
  */
 void lace_stop(void)
 {
+    WorkerP *self = lace_get_worker();
+    if (self != NULL) {
+        fprintf(stderr, "Lace error: lace_stop called by Lace worker %u "
+            "(call it from outside Lace, never from inside a task)\n", (unsigned int)self->worker);
+        exit(1);
+    }
+
     /* Let the external calls of other threads finish first: their tasks may
      * still need every worker, for instance to start a NEWFRAME */
     atomic_store_explicit(&lace_stopping, 1, memory_order_relaxed);
