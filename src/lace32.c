@@ -2775,7 +2775,10 @@ void lace_steal_loop_CALL(lace_worker* lw, atomic_int* quit)
                 lace_futex_wait(&idle_flags[worker_id].sleep, 1, timeout_us);
             }
             atomic_store_explicit(&idle_flags[worker_id].sleep, 0, memory_order_relaxed);
-            atomic_fetch_sub_explicit(&n_sleeping, 1, memory_order_relaxed);
+            /* seq_cst as the increment: a worker that counts itself next and
+             * reads this value must still be seen by a submitter's seq_cst
+             * load (lace_run_task, lace_wake_helper) */
+            atomic_fetch_sub_explicit(&n_sleeping, 1, memory_order_seq_cst);
             bal_clock = lace_now_ns(); // sleeping costs nothing
 #if LACE_PIE_TIMES
             PR_ADD(lw, CTR_backoff, lace_gethrtime() - prev);
