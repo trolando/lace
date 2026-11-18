@@ -4172,7 +4172,14 @@ void lace_sleep_us(int64_t microseconds)
     }
 
     if (microseconds > SPIN_THRESHOLD_US) {
-        Sleep((DWORD)((microseconds + 999) / 1000));
+        /* in whole milliseconds, rounded up without overflow, and in parts
+         * that stay below INFINITE */
+        int64_t ms = microseconds / 1000 + (microseconds % 1000 != 0);
+        while (ms > 0) {
+            const DWORD part = ms > 0x7FFFFFFF ? (DWORD)0x7FFFFFFF : (DWORD)ms;
+            Sleep(part);
+            ms -= part;
+        }
         return;
     }
 
