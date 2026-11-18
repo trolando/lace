@@ -1215,6 +1215,7 @@ lace_setup_locality(void)
 typedef struct {
     LACE_ALIGN(LACE_PADDING_TARGET) atomic_uchar idle;
     atomic_int sleep; /* 1 while the worker sleeps on this futex word */
+    atomic_int ext;   /* the external tasks it runs: lace_stop waits for them */
 } lace_idle_flag;
 
 static lace_idle_flag *idle_flags = NULL;
@@ -2244,7 +2245,13 @@ lace_steal_external(lace_worker *self)
          * before this claim is seen below */
         ext_lace_task* stolen = atomic_exchange_explicit(&external_tasks[i], NULL, memory_order_seq_cst);
         if (stolen != NULL) {
-            atomic_fetch_sub_explicit(&external_task_count, 1, memory_order_relaxed);
+            /* Count the task as running here before it is counted off as
+             * waiting (seq_cst both): lace_stop, which reads the waiting
+             * count and then the running ones, sees it either way. Only this
+             * worker writes its count, on a line of its own. */
+            atomic_int *running = &idle_flags[self->worker].ext;
+            atomic_store_explicit(running, atomic_load_explicit(running, memory_order_relaxed) + 1, memory_order_seq_cst);
+            atomic_fetch_sub_explicit(&external_task_count, 1, memory_order_seq_cst);
             /* A frame published since this worker looked comes first: it
              * waits for every worker at its first barrier, and the task may
              * wait for what the frame does */
@@ -2272,6 +2279,7 @@ lace_steal_external(lace_worker *self)
             if (atomic_exchange_explicit(&stolen->state, EXT_DONE, memory_order_acq_rel) == EXT_SLEEPING) {
                 lace_futex_wake_one(&stolen->state);
             }
+            atomic_store_explicit(running, atomic_load_explicit(running, memory_order_relaxed) - 1, memory_order_release);
             lace_time_event(self, 8);
             return 1;
         }
@@ -3278,6 +3286,7 @@ lace_setup(unsigned int _n_workers, size_t dequesize, int external)
         for (unsigned int i = 0; i < n_workers; i++) {
             atomic_store_explicit(&idle_flags[i].idle, 1, memory_order_relaxed);
             atomic_store_explicit(&idle_flags[i].sleep, 0, memory_order_relaxed);
+            atomic_store_explicit(&idle_flags[i].ext, 0, memory_order_relaxed);
         }
     }
 
@@ -3674,6 +3683,18 @@ void lace_stop(void)
             "(call lace_worker_leave first, and never from inside a task)\n",
             (unsigned int)lace_thread_worker->worker);
         exit(1);
+    }
+
+    /* Let the external tasks of other threads finish first: they may still
+     * need every worker, for instance to start a NEWFRAME. Waiting ones are
+     * taken while the workers run; then each worker counts the ones it runs. */
+    for (;;) {
+        int busy = atomic_load_explicit(&external_task_count, memory_order_seq_cst) > 0;
+        for (unsigned int i = 0; !busy && i < n_workers; i++) {
+            busy = atomic_load_explicit(&idle_flags[i].ext, memory_order_seq_cst) > 0;
+        }
+        if (!busy) break;
+        lace_sleep_us(50);
     }
 
     /* seq_cst: a worker rechecks the quit flag after marking itself asleep */
