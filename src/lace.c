@@ -1288,7 +1288,7 @@ static atomic_int lace_quits = 0;
 /**
  * Flag whether lace is running
  */
-static int is_running = 0;
+static atomic_int is_running = 0; // also read by lace_is_running, from any thread
 
 /**
  * lace_release_memory: each worker compares release_gen in its idle loop and
@@ -2599,7 +2599,7 @@ lace_release_memory(void)
         if (atomic_load_explicit(&lace_stopping, memory_order_relaxed)) return;
         lace_sleep_us(50);
     }
-    if (!is_running || atomic_load_explicit(&lace_stopping, memory_order_relaxed)) {
+    if (!atomic_load_explicit(&is_running, memory_order_relaxed) || atomic_load_explicit(&lace_stopping, memory_order_relaxed)) {
         atomic_flag_clear_explicit(&release_lock, memory_order_release);
         return;
     }
@@ -3542,13 +3542,13 @@ lace_start(unsigned int _n_workers, size_t dequesize)
     pthread_attr_destroy(&worker_attr);
 #endif
 
-	is_running = 1;
+	atomic_store_explicit(&is_running, 1, memory_order_release);
 }
 
 
 int lace_is_running(void)
 {
-    return is_running;
+    return atomic_load_explicit(&is_running, memory_order_acquire);
 }
 
 
@@ -3860,7 +3860,7 @@ void lace_stop(void)
     lace_free_locality();
 #endif
 
-    is_running = 0;
+    atomic_store_explicit(&is_running, 0, memory_order_release);
     atomic_store_explicit(&lace_stopping, 0, memory_order_relaxed);
     atomic_flag_clear_explicit(&release_lock, memory_order_release);
 }
