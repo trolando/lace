@@ -396,7 +396,7 @@ static int lace_futex_wake_all(atomic_int *addr)
 # include <intrin.h>
 #endif
 
-#if defined(__i386__) || defined(__x86_64__)
+#if (defined(__i386__) || defined(__x86_64__)) && !defined(_M_ARM64EC)
 # if !defined(_MSC_VER)
 #  include <emmintrin.h>   /* _mm_pause on Clang/GCC */
 # endif
@@ -405,7 +405,7 @@ static int lace_futex_wake_all(atomic_int *addr)
 LACE_UNUSED
 static inline void lace_cpu_pause(void)
 {
-#if defined(__i386__) || defined(__x86_64__) || defined(_M_IX86) || defined(_M_X64)
+#if (defined(__i386__) || defined(__x86_64__) || defined(_M_IX86) || defined(_M_X64)) && !defined(_M_ARM64EC)
     /* x86/x64: use intrinsics/builtins, no inline asm needed */
 # if defined(_MSC_VER)
     _mm_pause();
@@ -414,8 +414,8 @@ static inline void lace_cpu_pause(void)
 # else
     __asm__ __volatile__("pause");
 # endif
-#elif defined(__arm__) || defined(__aarch64__) || defined(_M_ARM) || defined(_M_ARM64)
-    /* ARM/AArch64 */
+#elif defined(__arm__) || defined(__aarch64__) || defined(_M_ARM) || defined(_M_ARM64) || defined(_M_ARM64EC)
+    /* ARM/AArch64, and ARM64EC, which defines the x86-64 macros as well */
 # if defined(_MSC_VER)
     __yield();
 # else
