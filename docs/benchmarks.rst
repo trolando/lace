@@ -119,7 +119,11 @@ appropriate options:
    cmake --build build
 
 Then call ``lace_count_report`` at the end of your program.
-It also reports the stack high-water mark of each worker: the deepest point
-its stack has ever reached (Linux and macOS).
+It also reports the stack high-water mark of each worker that Lace started:
+the deepest point its stack has reached (Linux and macOS). It is an estimate,
+from the lowest stack page that is still in memory: pages that the system
+swapped out, or that ``lace_release_memory`` gave back, are not seen. The
+threads of ``lace_start_external`` use their own stacks, which are not
+measured.
 The statistics cost little, but they change the code layout, so compare
 timings only between builds with the same options.
