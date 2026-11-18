@@ -220,28 +220,46 @@ static size_t cache_line_size;
 #include <linux/futex.h>
 #include <sys/syscall.h>
 
+/* The timeout as the kernel's futex call reads it. The old futex call takes
+ * the old kernel timespec of two longs, also in a 32-bit program whose
+ * time_t is 64 bits (glibc with _TIME_BITS=64, musl), whose struct timespec
+ * it would misread. futex_time64 takes two 64-bit fields: on x32, and on the
+ * 32-bit architectures that only have that call, where some C libraries
+ * (musl on 32-bit RISC-V) define SYS_futex as SYS_futex_time64. */
+#if defined(SYS_futex)
+#define LACE_SYS_FUTEX SYS_futex
+#else
+#define LACE_SYS_FUTEX SYS_futex_time64
+#endif
+#if defined(SYS_futex) && !(defined(SYS_futex_time64) && SYS_futex == SYS_futex_time64) && \
+    !(defined(__x86_64__) && defined(__ILP32__))
+typedef struct { long sec, nsec; } lace_futex_timeout;
+#else
+typedef struct { long long sec, nsec; } lace_futex_timeout;
+#endif
+
 LACE_UNUSED
 static int lace_futex_wait(atomic_int *addr, int expected, int64_t timeout_us)
 {
     if (timeout_us < 0) {
-        return (int)syscall(SYS_futex, addr, FUTEX_WAIT_PRIVATE, expected, NULL, NULL, 0);
+        return (int)syscall(LACE_SYS_FUTEX, addr, FUTEX_WAIT_PRIVATE, expected, NULL, NULL, 0);
     }
-    struct timespec ts;
-    ts.tv_sec = (time_t)(timeout_us / 1000000);
-    ts.tv_nsec = (long)((timeout_us % 1000000) * 1000);
-    return (int)syscall(SYS_futex, addr, FUTEX_WAIT_PRIVATE, expected, &ts, NULL, 0);
+    lace_futex_timeout ts;
+    ts.sec = (long)(timeout_us / 1000000);
+    ts.nsec = (long)((timeout_us % 1000000) * 1000);
+    return (int)syscall(LACE_SYS_FUTEX, addr, FUTEX_WAIT_PRIVATE, expected, &ts, NULL, 0);
 }
 
 LACE_UNUSED
 static int lace_futex_wake_one(atomic_int *addr)
 {
-    return (int)syscall(SYS_futex, addr, FUTEX_WAKE_PRIVATE, 1, NULL, NULL, 0);
+    return (int)syscall(LACE_SYS_FUTEX, addr, FUTEX_WAKE_PRIVATE, 1, NULL, NULL, 0);
 }
 
 LACE_UNUSED
 static int lace_futex_wake_all(atomic_int *addr)
 {
-    return (int)syscall(SYS_futex, addr, FUTEX_WAKE_PRIVATE, INT_MAX, NULL, NULL, 0);
+    return (int)syscall(LACE_SYS_FUTEX, addr, FUTEX_WAKE_PRIVATE, INT_MAX, NULL, NULL, 0);
 }
 
 #elif defined(__FreeBSD__)
