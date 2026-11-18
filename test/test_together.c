@@ -123,12 +123,15 @@ runtests(int n_workers)
     printf("Testing mixed newframe/together...\n");
     free(worker_counter);
     worker_counter = (int*)calloc(lace_worker_count(), sizeof(int));
+    counter = 0;
     test_newframe(4);
     test_together(4);
     for (unsigned int i=0; i<lace_worker_count(); i++) {
         printf("Counter %d reads %d (expecting 2187)\n", i, worker_counter[i]);
         if (worker_counter[i] != 2187) exit(1);
     }
+    printf("Counter reads %d (expecting 2187)\n", counter);
+    if (counter != 2187) exit(1);
 
     free(worker_counter);
 
