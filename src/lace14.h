@@ -864,10 +864,10 @@ static inline uint64_t lace_macos_now_ns(void)
 #endif
 }
 
-/* High resolution timer */
+/* High resolution timer (ARM64EC defines the x86-64 macros, but has no rdtsc) */
 static inline uint64_t lace_gethrtime(void)
 {
-#if (defined(__i386__) || defined(__x86_64__) || defined(_M_IX86) || defined(_M_X64))
+#if (defined(__i386__) || defined(__x86_64__) || defined(_M_IX86) || defined(_M_X64)) && !defined(_M_ARM64EC)
     #if defined(_MSC_VER) && !defined(__clang__)
         return (uint64_t)__rdtsc();   // not __rdtscp: some (virtual) CPUs lack RDTSCP
     #elif defined(__clang__) || defined(__GNUC__)
@@ -883,6 +883,12 @@ static inline uint64_t lace_gethrtime(void)
     #else
         /* unknown compiler */
     #endif
+#elif defined(_WIN32) && !LACE_MSVC && (defined(__aarch64__) || defined(_M_ARM64EC))
+    /* Windows on ARM with GCC or Clang, ARM64EC too: the virtual counter, as
+     * this header does not include the Windows headers there */
+    uint64_t t;
+    __asm__ __volatile__("mrs %0, cntvct_el0" : "=r"(t));
+    return t;
 #elif defined(_WIN32)
     LARGE_INTEGER t;
     QueryPerformanceCounter(&t);
