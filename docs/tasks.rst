@@ -120,6 +120,10 @@ share the task's arguments, and a result would overwrite them.
 Long-running tasks should call ``lace_check_yield()`` periodically to
 cooperate with interruptions.
 
+A ``NAME_NEWFRAME`` or ``NAME_TOGETHER`` stops the world: tasks that threads
+outside Lace call (``NAME(...)``) wait until it has ended. So the task of a
+frame must not wait for such a call, or for a thread that waits for one.
+
 
 Per-task scratch storage
 ------------------------

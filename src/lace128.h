@@ -1533,6 +1533,9 @@ void lace_drop_slow(lace_worker *w, lace_task *head);
  * - \b NAME_NEWFRAME(...)   — interrupt all workers and run this task.
  * - \b NAME_TOGETHER(...)   — interrupt all workers and run on each (void tasks only).
  *
+ * Calls of NAME(...) from threads outside Lace wait until a NEWFRAME or
+ * TOGETHER has ended, so its task must not wait for one.
+ *
  * SPAWN and SYNC must be matched in strict LIFO order.
  * @{
  */
