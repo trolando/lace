@@ -1402,12 +1402,13 @@ lace_setup_idle_mode(void)
     }
     if (mode == LACE_IDLE_ENERGY) {
         /* Search for about as long as it takes to wake the other workers
-         * again, 16 us each, at most the balanced cap; work earns less; one
-         * sentinel; no short naps */
+         * again, 16 us each, at most the balanced cap; start with at most
+         * the balanced start; work earns less; one sentinel; no short naps */
         int64_t us = 16 * (int64_t)(n_workers > 1 ? n_workers - 1 : 0);
         if (us > LACE_IDLE_BALANCE_CAP_US) us = LACE_IDLE_BALANCE_CAP_US;
         idle_alpha = 4;
-        idle_start_ns = idle_cap_ns = us * 1000;
+        idle_cap_ns = us * 1000;
+        idle_start_ns = us < LACE_IDLE_SPIN_US ? us * 1000 : (int64_t)LACE_IDLE_SPIN_US * 1000;
         idle_sentinels = 1;
         idle_shallow_us = 0;
     } else if (mode == LACE_IDLE_PERFORMANCE) {
