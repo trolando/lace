@@ -87,6 +87,10 @@ main(void)
     setvbuf(stdout, NULL, _IONBF, 0);
     crash_handler_install();
     lace_set_verbosity(0);
+#if !LACE_BACKOFF
+    printf("LACE_BACKOFF is off: no worker goes into deep idle, nothing to test\n");
+    return 0;
+#endif
 
     lace_start(WORKERS, 0);
     TOGETHER(holder);
