@@ -731,6 +731,9 @@ lace_node_of(int cpu, int dflt)
 
 #endif /* __linux__ */
 
+/* The highest CPU number a CPU list may name (no overflow below) */
+#define LACE_MAX_CPU_ID 65535
+
 /* A CPU list such as 0,2,4-7 into cpus (at most max); the count, or -1 if malformed */
 static int
 lace_parse_cpulist(const char *s, int *cpus, int max)
@@ -739,12 +742,12 @@ lace_parse_cpulist(const char *s, int *cpus, int max)
     while (*s != '\0') {
         char *end;
         long a = strtol(s, &end, 10), b;
-        if (end == s || a < 0) return -1;
+        if (end == s || a < 0 || a > LACE_MAX_CPU_ID) return -1;
         s = end;
         b = a;
         if (*s == '-') {
             b = strtol(s + 1, &end, 10);
-            if (end == s + 1 || b < a) return -1;
+            if (end == s + 1 || b < a || b > LACE_MAX_CPU_ID) return -1;
             s = end;
         }
         for (long c = a; c <= b && n < max; c++) cpus[n++] = (int)c;
