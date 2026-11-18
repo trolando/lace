@@ -1445,6 +1445,14 @@ static LACE_TLS uint64_t lace_leap_ns = 0;       // time in lace_leapfrog
 static LACE_TLS uint64_t lace_stolen_sum_ns = 0; // run time of stolen tasks, nested ones too
 static LACE_TLS uint64_t lace_frame_ns = 0;      // time in interrupts (outermost ones)
 static LACE_TLS int64_t lace_bal_ns = 0; // the search balance
+/* The release_gen this worker last acknowledged: per worker, not per steal
+ * loop, as the loop that a NEWFRAME nests must not count the worker again in
+ * release_done. lace_init_worker sets it to 0, as lace_start does release_gen:
+ * a program thread can be a worker again in a later run. */
+static LACE_TLS unsigned int lace_release_seen = 0;
+/* In lace_worker_loop: lace_release_memory waits for these workers (n_looping),
+ * so only they count in release_done */
+static LACE_TLS int lace_looping = 0;
 
 /* The running totals at the start of a task (lace_bal_earn) */
 typedef struct {
@@ -1981,6 +1989,7 @@ lace_init_worker(unsigned int worker)
     lace_worker *w = workers_p[worker] = &workers_memory[worker]->worker_private;
     lace_thread_worker = w;
     lace_bal_ns = idle_start_ns; // a fresh search balance per run
+    lace_release_seen = 0; // and release generation 0, as lace_start sets release_gen
 
     w->dq = workers_memory[worker]->deque;
     w->head = w->dq;
@@ -2485,7 +2494,6 @@ void lace_steal_loop_CALL(lace_worker* lw, atomic_int* quit)
     unsigned int n = n_workers;
     unsigned int last_victim = worker_id; // means no last victim
     unsigned int idle_count = 0;
-    unsigned int seen_release = 0; // lace_start resets release_gen to 0
     int worked = 0; // ran a task since this worker last slept: may become a sentinel
     int sentinel_nap_first = 0; // its last sentinel episode saw work that turned out not worth it
     uint64_t last_work_us = 0; // when this worker last ran a task (lace_now_us)
@@ -2509,10 +2517,11 @@ void lace_steal_loop_CALL(lace_worker* lw, atomic_int* quit)
         /* In the steal loop a worker is idle until it steals; a task that
          * returned (stolen, external or an interrupt's) left the flag 0. */
         lace_set_idle(lw, 1);
-        if (LACE_UNLIKELY(atomic_load_explicit(&release_gen, memory_order_acquire) != seen_release)) {
-            seen_release = atomic_load_explicit(&release_gen, memory_order_acquire);
+        const unsigned int rg = atomic_load_explicit(&release_gen, memory_order_acquire);
+        if (LACE_UNLIKELY(rg != lace_release_seen)) {
+            lace_release_seen = rg;
             lace_release_worker_memory(lw);
-            atomic_fetch_add_explicit(&release_done, 1, memory_order_release);
+            if (lace_looping) atomic_fetch_add_explicit(&release_done, 1, memory_order_release);
         }
 
         if (n > 1) {
@@ -2635,7 +2644,7 @@ void lace_steal_loop_CALL(lace_worker* lw, atomic_int* quit)
              * program that no longer uses Lace (test_idle). */
             if (n > 1 && (worked || lace_some_active(lw)) && lace_claim_sentinel()) {
                 lace_set_idle(lw, 1); // a tiny steal this round may have left it 0
-                int r = lace_sentinel(lw, quit, &last_victim, seen_release, sentinel_nap_first);
+                int r = lace_sentinel(lw, quit, &last_victim, lace_release_seen, sentinel_nap_first);
                 bal_clock = lace_now_ns(); // sentinel duty is monitoring, not this worker's search
                 /* seq_cst, as the sleeper count: a caller of lace_run_task that
                  * saw a sentinel and did not wake anyone must see it leave
@@ -2712,7 +2721,7 @@ void lace_steal_loop_CALL(lace_worker* lw, atomic_int* quit)
                 !lace_external_waiting(memory_order_seq_cst) &&
                 atomic_load_explicit(&lace_newframe.t, memory_order_seq_cst) == NULL &&
                 atomic_load_explicit(quit, memory_order_seq_cst) == 0 &&
-                atomic_load_explicit(&release_gen, memory_order_seq_cst) == seen_release) {
+                atomic_load_explicit(&release_gen, memory_order_seq_cst) == lace_release_seen) {
                 lace_futex_wait(&idle_flags[worker_id].sleep, 1, timeout_us);
             }
             atomic_store_explicit(&idle_flags[worker_id].sleep, 0, memory_order_relaxed);
@@ -2826,9 +2835,11 @@ lace_worker_loop(void)
         fprintf(stderr, "Lace error: lace_worker_loop: this thread is not a Lace worker\n");
         exit(1);
     }
+    lace_looping = 1;
     atomic_fetch_add_explicit(&n_looping, 1, memory_order_relaxed);
     lace_steal_loop_CALL(lw, &lace_quits);
     atomic_fetch_sub_explicit(&n_looping, 1, memory_order_relaxed);
+    lace_looping = 0;
 
     // Time worker exit event
     lace_time_event(lw, 9);
