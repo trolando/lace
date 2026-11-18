@@ -173,6 +173,9 @@ The `TOGETHER` macro is useful to initialize thread-local variables on each work
 Interrupting is cooperative. Lace checks for interrupting tasks when stealing work, i.e., during `SYNC` or when idle.
 Large tasks can use the `YIELD_NEWFRAME()` macro to manually check for interrupting tasks.
 
+A `NEWFRAME` or `TOGETHER` stops the world: tasks that other threads submit with `RUN` wait until it has ended.
+So the task of a `NEWFRAME` or `TOGETHER` must not wait for such a call, or for a thread that waits for one.
+
 Lace offers the `lace_barrier` method to let all Lace workers synchronize.
 Typically used in Lace tasks created using the `TOGETHER` macro.
 
