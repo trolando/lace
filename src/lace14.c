@@ -1692,7 +1692,9 @@ lace_barrier_sleep(int wait, uint64_t start)
             LACE_IDLE_FUTEX_TIMEOUT_MIN : -1;
         lace_futex_wait(&lace_bar.wait, wait, timeout);
     }
-    atomic_fetch_sub_explicit(&lace_bar.sleeping, 1, memory_order_relaxed);
+    /* seq_cst too: a waiter of the next round that reads this value must
+     * still be seen by its leader */
+    atomic_fetch_sub_explicit(&lace_bar.sleeping, 1, memory_order_seq_cst);
 }
 
 /**
