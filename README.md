@@ -95,6 +95,8 @@ Setting | Description | Default
 `LACE_DONT_OVERCOMMIT` | Default worker stacks to the stack limit of the calling thread, clamped to 16-64 MB, instead of reserving 1 GB of address space per worker (for systems with strict overcommit accounting, `vm.overcommit_memory=2`); a size set with `lace_set_stacksize` is used either way | OFF
 `LACE_HARDENING` | Keep the compiler's default stack protector and stack clash protection in Lace's own code (when OFF, the library and the benchmarks are built with `-fno-stack-protector -fno-stack-clash-protection`, `/GS-` on MSVC) | OFF
 
+With any of the `LACE_COUNT_*` or `LACE_PIE_TIMES` options, `lace_count_report` also reports the stack high-water mark of each worker: the deepest point its stack has ever reached (Linux and macOS).
+
 The following options are only available when Lace is the top-level project:
 
 Setting | Description | Default

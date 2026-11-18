@@ -213,8 +213,9 @@ This release backports the scheduling changes of Lace 2.5.0.
   instead of loading a pointer.
 - Larger worker stacks: a stack size set with `lace_set_stacksize` is no
   longer clamped to 64 MB, and the default is a 1 GB reservation per worker
-  on 64-bit systems. The new option `LACE_DONT_OVERCOMMIT` keeps the old
-  default (`test_stack`).
+  on 64-bit systems. With the new option `LACE_DONT_OVERCOMMIT` the default
+  is the stack limit (`ulimit -s`) clamped to 16-64 MB, as before; an
+  explicit size is used either way (`test_stack`).
 - The benchmarks print a checksum of their result.
 
 ### Removed
