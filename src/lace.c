@@ -641,10 +641,16 @@ lace_pin_thread(const cpu_set_t *set)
 #if defined(__FreeBSD__)
 #include <pthread_np.h>
 #endif
+/* The calling thread's CPUs. FreeBSD before 13.2 gives the process's CPUs
+ * for sched_getaffinity(0, ...), so it asks for the thread's. */
 static int
 lace_get_mask(cpu_set_t *mask)
 {
+#if defined(__FreeBSD__)
+    return pthread_getaffinity_np(pthread_self(), sizeof(cpu_set_t), mask) == 0 ? 0 : -1;
+#else
     return sched_getaffinity(0, sizeof(cpu_set_t), mask);
+#endif
 }
 
 static void
@@ -3265,6 +3271,17 @@ lace_get_pu_count(void)
         SYSTEM_INFO sysinfo;
         GetSystemInfo(&sysinfo);
         N = (unsigned)sysinfo.dwNumberOfProcessors;
+    }
+
+#elif defined(__FreeBSD__)
+    /* The calling thread's CPUs, as the workers are pinned within them */
+    cpu_set_t cs;
+    CPU_ZERO(&cs);
+    if (lace_get_mask(&cs) == 0) {
+        N = (unsigned)CPU_COUNT(&cs);
+    }
+    else {
+        N = (unsigned)sysconf(_SC_NPROCESSORS_ONLN);
     }
 
 #elif defined(HAVE_SCHED_GETAFFINITY) && HAVE_SCHED_GETAFFINITY
