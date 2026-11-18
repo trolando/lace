@@ -196,12 +196,7 @@ main(void)
 {
     crash_handler_install();
     unsigned int workers = 4;
-#if defined(_WIN32)
-    const unsigned int ncpu = (unsigned int)GetActiveProcessorCount(ALL_PROCESSOR_GROUPS);
-#else
-    const long np = sysconf(_SC_NPROCESSORS_ONLN);
-    const unsigned int ncpu = np > 0 ? (unsigned int)np : 1;
-#endif
+    const unsigned int ncpu = lace_get_pu_count(); // the CPUs this thread may run on
     if (ncpu < workers) workers = ncpu;
     if (workers < 2) {
         printf("fewer than 2 CPUs: nothing to test\n");
