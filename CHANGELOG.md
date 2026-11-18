@@ -24,15 +24,16 @@ All notable changes to Lace will be documented in this file.
   package 1's first, ..., then each package's second, ...), instead of a
   stride over the worker numbers; otherwise the lowest-numbered sleepers are
   woken first, as before.
-- The search balance leaves NEWFRAME and TOGETHER interrupts out: an
-  external task that the steal loop takes, and a stolen task that is
-  worthwhile (not a crumb), earns 8 times its run time without the search in
-  leapfrog and without the interrupts in it, and an interrupt does not count
-  as search either, also not in a crumb. A NEWFRAME's own steal loop
+- The search balance leaves NEWFRAME and TOGETHER interrupts out: an external
+  task that the steal loop takes, and a stolen task that is worthwhile (not a
+  crumb), earns 8 times (in the balanced mode) its run time without the search
+  in leapfrog and without the interrupts in it, and an interrupt does not
+  count as search either, also not in a crumb. A NEWFRAME's own steal loop
   accounts for its time, and the TOGETHER task of an interrupted worker, as
   the initiator's wait for the others, earns nothing. In 1.11, a task with
   60 us of its own work in a 5 ms frame counted as 5 ms of work, and the
   search before an interrupt was not spent.
+- The steal loop also spends the search of its last round when it ends.
 
 ### Added
 
@@ -63,7 +64,8 @@ All notable changes to Lace will be documented in this file.
   work that the task spawned. It now counts as busy.
 - A worker that kept losing the race for waiting external tasks skipped its
   backoff: during a stream of external calls it could search without limit.
-  It now backs off as after any failed steal.
+  It now backs off as after any failed steal (but not yet after a lookup
+  that follows a sleep).
 
 ## [1.11.1] - 2026-11-15
 
@@ -85,18 +87,24 @@ All notable changes to Lace will be documented in this file.
 ### Changed
 
 - Each sleeping worker waits on its own futex word, and a waker wakes chosen
-  sleepers, the lowest-numbered first: one shared word caused wake storms at
+  sleepers, the lowest-numbered first (with pinned workers on several
+  packages, see below): one shared word caused wake storms at
   96-192 workers. The globals of the idle path have their own cache lines.
 - An idle worker searches while its search balance is positive. Searching
   spends it, and a worthwhile stolen or external task earns 8 times its
   useful time (within 1 ms either way): workers that find work search
   through gaps, workers that find only crumbs soon sleep.
-- With pinned workers on Linux, 75% of random steal attempts go to the
-  thief's own package (socket), and consecutive wake-ups go to different
-  packages.
+- With pinned workers on Linux, a thief with a peer on its own package
+  (socket) picks a victim among those peers for 75% of its random steal
+  attempts, and among all workers for the rest; wake-ups stride over the
+  workers to spread them over the packages.
+- A searching worker pauses for at least 500 ns after each round of
+  stealing.
 - A thief whose previous steal was a crumb wakes no sleepers for its
-  victim's remaining tasks, and does not prefer that victim next.
-- On a 4-socket Xeon (96 cores, 192 threads), the last three changes make
+  victim's remaining tasks (it still does when no sentinel watches), and
+  does not prefer that victim next.
+- On a 4-socket Xeon (96 cores, 192 threads), the search balance, the
+  package-local steals and wake-ups, and the crumb rule make
   mCRL2's symbolic reachability 5-28% faster with the same or less CPU time;
   the geometric mean of the Lace benchmarks changes by less than 2% on 16-96
   cores.
@@ -105,17 +113,18 @@ All notable changes to Lace will be documented in this file.
 
 ### Fixed
 
-- In a NEWFRAME or TOGETHER, a worker that went into deep idle in the frame's
-  steal loop reset its scratch arena under the task it had interrupted,
-  which still used it: a "leaked scratch" warning, then crashes or wrong
-  data (seen in mCRL2 with Sylvan's garbage collection as the frame). The
-  loop now resets only to the scratch it started with (`test_scratch_frame`).
+- In a NEWFRAME (also one started in a TOGETHER), a worker that went into deep
+  idle in the frame's steal loop reset its scratch arena under the task it had
+  interrupted, which still used it: a "leaked scratch" warning, then crashes
+  or wrong data (seen in mCRL2 with Sylvan's garbage collection as the frame).
+  The loop now resets only to the scratch it started with
+  (`test_scratch_frame`).
 
 ### Removed
 
 - `LACE_USE_HWLOC` and the hwloc code, deprecated in 1.9.0: Lace pins its
   workers itself on Linux, FreeBSD and Windows. CMake warns when the option
-  is still set, and ignores it.
+  is still set to ON, and ignores it.
 
 ## [1.9.0] - 2026-11-07
 
@@ -129,9 +138,11 @@ All notable changes to Lace will be documented in this file.
 
 ### Changed
 
-- `lace_start` reads the CPU topology for pinning once per process, and fewer
-  files (one per core and one per package instead of two per CPU): on Linux
-  machines with many CPUs a start took 1-3 ms, mostly reading sysfs.
+- `lace_start` reads the CPU topology for pinning once per process (on
+  Windows again when it runs in another processor group than the last
+  time), and fewer files (one per core and one per package
+  instead of two per CPU): on Linux machines with many CPUs a start took
+  1-3 ms, mostly reading sysfs.
 
 ### Deprecated
 
@@ -188,8 +199,10 @@ This release backports the scheduling changes of Lace 2.5.0.
   the default (`test_pin`). With hwloc, the mode `off` turns pinning off.
 - `lace_release_memory()` gives the memory that idle workers hold back to
   the operating system (`test_release`).
-- Statistics builds count leap strays and report the stack high-water mark
-  of each worker.
+- Statistics builds report the stack high-water mark of each worker
+  (Linux and macOS, and FreeBSD with hwloc), and with `LACE_COUNT_STEALS`
+  count leap strays.
+- CMake sets `lace_VERSION` for a project that includes Lace.
 - A test for mixed SYNC and DROP, `test_drop`.
 - A test that Lace starts under an address-space limit, `test_stack_limit`.
 
@@ -205,17 +218,19 @@ This release backports the scheduling changes of Lace 2.5.0.
   stealing (steal storms).
 - Cheaper calls from outside Lace: `RUN` spins briefly before it sleeps,
   and wake-ups are only sent to threads that sleep.
-- Lace's own targets are built without stack protector, unless
-  `LACE_HARDENING` is set.
+- Lace's own targets are built without stack protector and stack clash
+  protection, unless `LACE_HARDENING` is set.
 - Leaner steal and leapfrog code. Random victims are picked without
   division.
 - SPAWN, SYNC and DROP find the worker's public struct at a fixed offset
   instead of loading a pointer.
 - Larger worker stacks: a stack size set with `lace_set_stacksize` is no
   longer clamped to 64 MB, and the default is a 1 GB reservation per worker
-  on 64-bit systems. With the new option `LACE_DONT_OVERCOMMIT` the default
-  is the stack limit (`ulimit -s`) clamped to 16-64 MB, as before; an
-  explicit size is used either way (`test_stack`).
+  on 64-bit systems (not with MinGW). With the new option
+  `LACE_DONT_OVERCOMMIT` the default is the stack limit (`ulimit -s`)
+  clamped to 16-64 MB, as before (16 MB on Windows); an explicit size is
+  used either way, at least 16 MB (and at most 2 GB with MSVC)
+  (`test_stack`).
 - The benchmarks print a checksum of their result.
 
 ### Removed
