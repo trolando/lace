@@ -464,6 +464,7 @@ static Worker **workers = NULL;
  */
 static size_t dqsize = 1048576; // 1M entries, virtual only, should be sufficient... (famous last words)
 #define LACE_DQSIZE_MAX (((size_t)1 << 31) - 1) // the most tasks in a deque
+#define LACE_DQSIZE_MIN 4 // the fewest: lace_get_head looks at the first four slots
 
 /**
  * Program stack size of each Lace worker: as set with lace_set_stacksize (0
@@ -3333,6 +3334,7 @@ lace_start(unsigned int _n_workers, size_t dequesize)
     // Initialize globals
     n_workers = _n_workers == 0 ? n_pus : _n_workers;
     dqsize = dequesize > 0 ? dequesize : 1048576;
+    if (dqsize < LACE_DQSIZE_MIN) dqsize = LACE_DQSIZE_MIN;
     /* The deque's indices are 32 bits, and SPAWN computes (split + head + 2) / 2
      * with head < dqsize; and a worker's memory must not span more than
      * PTRDIFF_MAX bytes, as Lace subtracts pointers into the deque */
