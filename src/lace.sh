@@ -451,7 +451,8 @@ void lace_worker_leave(void);
  * the program then joins its own threads. Afterwards Lace can be started
  * again, also with other threads as the workers. Call it when no other
  * thread starts tasks (NAME(...), lace_run_task) any more; it first waits
- * for the tasks that other threads still run to return.
+ * for the tasks that other threads still run to return, and for a
+ * lace_release_memory in progress.
  * Do not call from a signal handler.
  *
  * @see lace_start
@@ -470,7 +471,8 @@ void lace_stop(void);
  * tasks to finish.
  *
  * Must be called from a thread that is not a Lace worker; it returns at once
- * otherwise. On Windows only the scratch arenas are released.
+ * otherwise, and while lace_stop runs. On Windows only the scratch arenas are
+ * released.
  */
 void lace_release_memory(void);
 
