@@ -155,6 +155,18 @@ main(void)
     run_mode("numa", LACE_PIN_NUMA, NULL, 0, n);
     int list[1] = { first_cpu };
     run_mode("list", -1, list, 1, n);
+#if PIN_CHECKS
+    /* A list may name a CPU more often than the mask has CPUs (it once
+     * overflowed a buffer of four entries per CPU of the mask) */
+    {
+        unsigned int nrep = 4u * (unsigned)ncpus + 8u;
+        int *rep = malloc(sizeof(int) * nrep);
+        if (rep == NULL) return 1;
+        for (unsigned int i = 0; i < nrep; i++) rep[i] = first_cpu;
+        run_mode("list-repeated", -1, rep, nrep, n);
+        free(rep);
+    }
+#endif
 
     if (failures != 0) {
         printf("test_pin: %d failures\n", failures);
