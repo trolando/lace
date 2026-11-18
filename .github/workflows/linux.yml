@@ -158,3 +158,26 @@ jobs:
       run: cmake --build build32
     - name: Test
       run: ctest --test-dir build32 --output-on-failure -VV --timeout 60 -j 1
+
+  armv7-cross:
+    needs: check-generated
+    name: 'Linux ARMv7 (cross-compiled, build only)'
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v6
+    - name: Install the cross compiler
+      run: |
+        sudo apt update
+        sudo apt install -y cmake ninja-build gcc-arm-linux-gnueabihf g++-arm-linux-gnueabihf
+    - name: Configure
+      run: |
+        cmake -S . -B build -G Ninja \
+          -DCMAKE_SYSTEM_NAME=Linux \
+          -DCMAKE_SYSTEM_PROCESSOR=arm \
+          -DCMAKE_C_COMPILER=arm-linux-gnueabihf-gcc \
+          -DCMAKE_CXX_COMPILER=arm-linux-gnueabihf-g++ \
+          -DCMAKE_BUILD_TYPE=Release \
+          -DLACE_BUILD_TESTS=ON \
+          -DLACE_BUILD_BENCHMARKS=ON
+    - name: Build
+      run: cmake --build build
