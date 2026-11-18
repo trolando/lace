@@ -27,6 +27,15 @@
 #if !defined(CPU_EQUAL) && defined(CPU_CMP)
 #define CPU_EQUAL(a, b) (!CPU_CMP(a, b)) /* FreeBSD before glibc's name */
 #endif
+#if defined(__FreeBSD__)
+#include <pthread.h>
+#include <pthread_np.h>
+/* The calling thread's CPUs: FreeBSD before 13.2 gives the process's CPUs
+ * for sched_getaffinity(0, ...) */
+static int thread_affinity(cpu_set_t *s) { return pthread_getaffinity_np(pthread_self(), sizeof(cpu_set_t), s); }
+#else
+static int thread_affinity(cpu_set_t *s) { return sched_getaffinity(0, sizeof(cpu_set_t), s); }
+#endif
 #elif defined(_WIN32)
 #define PIN_CHECKS 1
 #include <windows.h>
@@ -44,11 +53,9 @@ static int CPU_COUNT(const cpu_set_t *s)
     for (KAFFINITY m = s->bits; m != 0; m &= m - 1) n++;
     return n;
 }
-static int sched_getaffinity(int pid, size_t size, cpu_set_t *s)
+static int thread_affinity(cpu_set_t *s)
 {
     GROUP_AFFINITY ga;
-    (void)pid;
-    (void)size;
     if (!GetThreadGroupAffinity(GetCurrentThread(), &ga)) return -1;
     s->bits = ga.Mask;
     return 0;
@@ -66,7 +73,7 @@ TASK(void, record_affinity)
 {
 #if PIN_CHECKS
     CPU_ZERO(&worker_masks[LACE_WORKER_ID]);
-    (void)sched_getaffinity(0, sizeof(cpu_set_t), &worker_masks[LACE_WORKER_ID]);
+    (void)thread_affinity(&worker_masks[LACE_WORKER_ID]);
 #endif
 }
 
@@ -135,8 +142,8 @@ main(void)
     unsigned int n = 2;
     int first_cpu = 0;
 #if PIN_CHECKS
-    if (sched_getaffinity(0, sizeof(process_mask), &process_mask) != 0) {
-        perror("sched_getaffinity");
+    if (thread_affinity(&process_mask) != 0) {
+        perror("thread_affinity");
         return 1;
     }
     int ncpus = CPU_COUNT(&process_mask);
