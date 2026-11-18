@@ -1053,16 +1053,18 @@ lace_pin_setup(void)
     }
     if (pin_mode == LACE_PIN_AUTO) pin_mode = n_workers >= (unsigned)ncores ? LACE_PIN_CPU : LACE_PIN_ALL;
     if (pin_mode == LACE_PIN_LIST_) {
-        // The listed CPUs that are in the mask, in list order
-        int k = 0;
-        for (int i = 0; i < nlist; i++) {
-            if (list[i] >= 0 && list[i] < CPU_SETSIZE && CPU_ISSET((size_t)list[i], &mask)) cpus[k++] = list[i];
+        /* The listed CPUs that are in the mask, in list order: a list can
+         * name a CPU more than once, so they need not fit in cpus */
+        int k = 0, *sel = malloc(sizeof(int) * (size_t)nlist);
+        for (int i = 0; sel != NULL && i < nlist; i++) {
+            if (list[i] >= 0 && list[i] < CPU_SETSIZE && CPU_ISSET((size_t)list[i], &mask)) sel[k++] = list[i];
         }
         if (k == 0) {
-            fprintf(stderr, "Lace warning: no CPU of the pin list is in the affinity mask; not pinning\n");
+            if (sel != NULL) fprintf(stderr, "Lace warning: no CPU of the pin list is in the affinity mask; not pinning\n");
         } else if ((pin_sets = calloc(n_workers, sizeof(cpu_set_t))) != NULL) {
-            for (unsigned w = 0; w < n_workers; w++) CPU_SET((size_t)cpus[w % (unsigned)k], &pin_sets[w]);
+            for (unsigned w = 0; w < n_workers; w++) CPU_SET((size_t)sel[w % (unsigned)k], &pin_sets[w]);
         }
+        free(sel);
     } else if ((unsigned)(pin_mode == LACE_PIN_CPU ? ncpus : ncores) >= n_workers && pin_mode <= 7 &&
                (pin_sets = calloc(n_workers, sizeof(cpu_set_t))) != NULL) {
         if (pin_mode == LACE_PIN_CPU) {
