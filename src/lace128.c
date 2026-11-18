@@ -3408,8 +3408,9 @@ static uint64_t ctr_all[CTR_MAX];
 #if LACE_COUNT_EVENTS && !defined(_WIN32) && !defined(__FreeBSD__)
 #define LACE_STACK_HIGH_WATER 1
 /**
- * How much of worker @p i's stack has been touched since lace_start: from the
- * top of the stack down to its lowest resident page, found with mincore().
+ * The stack high-water mark of worker @p i: the deepest point its stack has
+ * ever reached since lace_start. Measured as how much of the stack has been
+ * touched, from the top down to its lowest resident page, found with mincore().
  * Untouched pages of the reservation are never resident. With transparent
  * huge pages the granularity can be 2 MB. Returns 0 if unknown.
  */

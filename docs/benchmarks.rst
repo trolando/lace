@@ -119,5 +119,7 @@ appropriate options:
    cmake --build build
 
 Then call ``lace_count_report`` at the end of your program.
+It also reports the stack high-water mark of each worker: the deepest point
+its stack has ever reached (Linux and macOS).
 The statistics cost little, but they change the code layout, so compare
 timings only between builds with the same options.

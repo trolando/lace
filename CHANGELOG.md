@@ -185,8 +185,9 @@ All notable changes to Lace will be documented in this file.
 - DROP pops a task that was not stolen inline, like SYNC.
 - Larger worker stacks: explicit stack sizes are no longer clamped to
   64 MB, and the default is a 1 GB reservation per worker on 64-bit
-  systems. The new option `LACE_DONT_OVERCOMMIT` keeps the old default
-  (`test_stack`).
+  systems. With the new option `LACE_DONT_OVERCOMMIT` the default is
+  the stack limit (`ulimit -s`) clamped to 16-64 MB, as before; an explicit
+  size is used either way (`test_stack`).
 - The benchmarks print a checksum of their result.
 
 ### Removed
