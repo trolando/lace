@@ -2103,13 +2103,19 @@ lace_run_task(Task* task)
     atomic_store_explicit(&et.state, EXT_RUNNING, memory_order_relaxed);
     atomic_store_explicit(&et.taken, 0, memory_order_relaxed);
 
+    /* Count the task before it is in a slot: a worker that takes a slot
+     * decrements the count, whichever task it finds there. Counted after,
+     * a task published in the meantime by another thread could be taken
+     * against our count, and its own count would be missing until we
+     * resume: workers would not look for it. */
+    atomic_fetch_add_explicit(&external_task_count, 1, memory_order_seq_cst);
+
     // Push into any empty slot
     while (1) {
         for (int i = 0; i < LACE_EXT_SLOTS; i++) {
             ExtTask* expected = NULL;
             if (atomic_compare_exchange_weak_explicit(&external_tasks[i],
                 &expected, &et, memory_order_release, memory_order_relaxed)) {
-                atomic_fetch_add_explicit(&external_task_count, 1, memory_order_seq_cst);
                 goto pushed;
             }
         }
@@ -2811,9 +2817,10 @@ lace_steal_loop_body(WorkerP *__lace_worker, Task *__lace_dq_head, atomic_int *q
                 ext_miss = 0;
                 continue;
             }
-            /* Another worker took it: go on as after a failed steal, through
-             * the balance and quit checks below. While tasks wait the count
-             * stays positive, so the next round looks again. */
+            /* Another worker took it, or its caller has not published it
+             * yet: go on as after a failed steal, through the balance and
+             * quit checks below. While tasks wait the count stays positive,
+             * so the next round looks again. */
             bal_task_ns = 0; // spent above
             ext_miss = 1;
         } else {
@@ -2939,7 +2946,8 @@ lace_steal_loop_body(WorkerP *__lace_worker, Task *__lace_dq_head, atomic_int *q
                     ext_miss = 0;
                     continue;
                 }
-                /* Counted but not in a slot: another worker is taking it */
+                /* Counted but not in a slot: another worker is taking it,
+                 * or its caller has counted it but not yet published it */
                 ext_miss = 1;
             }
         } else {
