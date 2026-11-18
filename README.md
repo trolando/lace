@@ -166,7 +166,7 @@ See the `benchmarks` directory for examples.
 
 Lace offers two methods to interrupt currently running tasks and run something else:
 - the `NEWFRAME` macro, e.g. `NEWFRAME(fib, 40)` halts current tasks and offers the `fib` task to the framework.
-- the `TOGETHER` macro halts current tasks and lets **all Lace workers** execute a copy of the given task.
+- the `TOGETHER` macro halts current tasks and lets **all Lace workers** execute the given task, which must be a void task (`VOID_TASK_*`).
 
 The `TOGETHER` macro is useful to initialize thread-local variables on each worker.
 

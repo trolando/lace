@@ -576,6 +576,7 @@ void lace_run_newframe(Task *task);
  * This helper function is used by the _TOGETHER methods for the TOGETHER() macro
  * They all start the task in a lace_barrier and complete it with a lace barrier.
  * Meaning they all start together, and all end together.
+ * The workers share the task, so it must be a void task.
  */
 void lace_run_together(Task *task);
 
@@ -769,7 +770,8 @@ void lace_run_together(Task *task);
 #define RUN(f, ...)       ( f##_RUN ( __VA_ARGS__ ) )
 
 /**
- * Signal all workers to interrupt their current tasks and instead perform (a personal copy of) the given task.
+ * Signal all workers to interrupt their current tasks and instead perform the given task.
+ * Only for void tasks (VOID_TASK_*): the workers share its arguments.
  */
 #define TOGETHER(f, ...)  ( f##_TOGETHER ( __VA_ARGS__) )
 
@@ -1376,16 +1378,6 @@ RTYPE NAME##_NEWFRAME(void)                                                     
     return ((TD_##NAME *)t)->d.res;                                                   \
 }                                                                                     \
                                                                                       \
-static inline LACE_UNUSED LACE_NO_SANITIZE_THREAD                                     \
-void NAME##_TOGETHER(void)                                                            \
-{                                                                                     \
-    Task _t;                                                                          \
-    TD_##NAME *t = (TD_##NAME *)&_t;                                                  \
-    t->f = &NAME##_WRAP;                                                              \
-    atomic_store_explicit(&t->thief, THIEF_TASK, memory_order_relaxed);               \
-                                                                                      \
-    lace_run_together(&_t);                                                           \
-}                                                                                     \
                                                                                       \
 static inline LACE_UNUSED LACE_NO_SANITIZE_THREAD                                     \
 RTYPE NAME##_RUN(void)                                                                \
@@ -1701,16 +1693,6 @@ RTYPE NAME##_NEWFRAME(ATYPE_1 arg_1)                                            
     return ((TD_##NAME *)t)->d.res;                                                   \
 }                                                                                     \
                                                                                       \
-static inline LACE_UNUSED LACE_NO_SANITIZE_THREAD                                     \
-void NAME##_TOGETHER(ATYPE_1 arg_1)                                                   \
-{                                                                                     \
-    Task _t;                                                                          \
-    TD_##NAME *t = (TD_##NAME *)&_t;                                                  \
-    t->f = &NAME##_WRAP;                                                              \
-    atomic_store_explicit(&t->thief, THIEF_TASK, memory_order_relaxed);               \
-     t->d.args.arg_1 = arg_1;                                                         \
-    lace_run_together(&_t);                                                           \
-}                                                                                     \
                                                                                       \
 static inline LACE_UNUSED LACE_NO_SANITIZE_THREAD                                     \
 RTYPE NAME##_RUN(ATYPE_1 arg_1)                                                       \
@@ -2026,16 +2008,6 @@ RTYPE NAME##_NEWFRAME(ATYPE_1 arg_1, ATYPE_2 arg_2)                             
     return ((TD_##NAME *)t)->d.res;                                                   \
 }                                                                                     \
                                                                                       \
-static inline LACE_UNUSED LACE_NO_SANITIZE_THREAD                                     \
-void NAME##_TOGETHER(ATYPE_1 arg_1, ATYPE_2 arg_2)                                    \
-{                                                                                     \
-    Task _t;                                                                          \
-    TD_##NAME *t = (TD_##NAME *)&_t;                                                  \
-    t->f = &NAME##_WRAP;                                                              \
-    atomic_store_explicit(&t->thief, THIEF_TASK, memory_order_relaxed);               \
-     t->d.args.arg_1 = arg_1; t->d.args.arg_2 = arg_2;                                \
-    lace_run_together(&_t);                                                           \
-}                                                                                     \
                                                                                       \
 static inline LACE_UNUSED LACE_NO_SANITIZE_THREAD                                     \
 RTYPE NAME##_RUN(ATYPE_1 arg_1, ATYPE_2 arg_2)                                        \
@@ -2351,16 +2323,6 @@ RTYPE NAME##_NEWFRAME(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3)              
     return ((TD_##NAME *)t)->d.res;                                                   \
 }                                                                                     \
                                                                                       \
-static inline LACE_UNUSED LACE_NO_SANITIZE_THREAD                                     \
-void NAME##_TOGETHER(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3)                     \
-{                                                                                     \
-    Task _t;                                                                          \
-    TD_##NAME *t = (TD_##NAME *)&_t;                                                  \
-    t->f = &NAME##_WRAP;                                                              \
-    atomic_store_explicit(&t->thief, THIEF_TASK, memory_order_relaxed);               \
-     t->d.args.arg_1 = arg_1; t->d.args.arg_2 = arg_2; t->d.args.arg_3 = arg_3;       \
-    lace_run_together(&_t);                                                           \
-}                                                                                     \
                                                                                       \
 static inline LACE_UNUSED LACE_NO_SANITIZE_THREAD                                     \
 RTYPE NAME##_RUN(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3)                         \
@@ -2676,16 +2638,6 @@ RTYPE NAME##_NEWFRAME(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4
     return ((TD_##NAME *)t)->d.res;                                                   \
 }                                                                                     \
                                                                                       \
-static inline LACE_UNUSED LACE_NO_SANITIZE_THREAD                                     \
-void NAME##_TOGETHER(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4)      \
-{                                                                                     \
-    Task _t;                                                                          \
-    TD_##NAME *t = (TD_##NAME *)&_t;                                                  \
-    t->f = &NAME##_WRAP;                                                              \
-    atomic_store_explicit(&t->thief, THIEF_TASK, memory_order_relaxed);               \
-     t->d.args.arg_1 = arg_1; t->d.args.arg_2 = arg_2; t->d.args.arg_3 = arg_3; t->d.args.arg_4 = arg_4;\
-    lace_run_together(&_t);                                                           \
-}                                                                                     \
                                                                                       \
 static inline LACE_UNUSED LACE_NO_SANITIZE_THREAD                                     \
 RTYPE NAME##_RUN(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4)          \
@@ -3001,16 +2953,6 @@ RTYPE NAME##_NEWFRAME(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4
     return ((TD_##NAME *)t)->d.res;                                                   \
 }                                                                                     \
                                                                                       \
-static inline LACE_UNUSED LACE_NO_SANITIZE_THREAD                                     \
-void NAME##_TOGETHER(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, ATYPE_5 arg_5)\
-{                                                                                     \
-    Task _t;                                                                          \
-    TD_##NAME *t = (TD_##NAME *)&_t;                                                  \
-    t->f = &NAME##_WRAP;                                                              \
-    atomic_store_explicit(&t->thief, THIEF_TASK, memory_order_relaxed);               \
-     t->d.args.arg_1 = arg_1; t->d.args.arg_2 = arg_2; t->d.args.arg_3 = arg_3; t->d.args.arg_4 = arg_4; t->d.args.arg_5 = arg_5;\
-    lace_run_together(&_t);                                                           \
-}                                                                                     \
                                                                                       \
 static inline LACE_UNUSED LACE_NO_SANITIZE_THREAD                                     \
 RTYPE NAME##_RUN(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, ATYPE_5 arg_5)\
@@ -3326,16 +3268,6 @@ RTYPE NAME##_NEWFRAME(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4
     return ((TD_##NAME *)t)->d.res;                                                   \
 }                                                                                     \
                                                                                       \
-static inline LACE_UNUSED LACE_NO_SANITIZE_THREAD                                     \
-void NAME##_TOGETHER(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, ATYPE_5 arg_5, ATYPE_6 arg_6)\
-{                                                                                     \
-    Task _t;                                                                          \
-    TD_##NAME *t = (TD_##NAME *)&_t;                                                  \
-    t->f = &NAME##_WRAP;                                                              \
-    atomic_store_explicit(&t->thief, THIEF_TASK, memory_order_relaxed);               \
-     t->d.args.arg_1 = arg_1; t->d.args.arg_2 = arg_2; t->d.args.arg_3 = arg_3; t->d.args.arg_4 = arg_4; t->d.args.arg_5 = arg_5; t->d.args.arg_6 = arg_6;\
-    lace_run_together(&_t);                                                           \
-}                                                                                     \
                                                                                       \
 static inline LACE_UNUSED LACE_NO_SANITIZE_THREAD                                     \
 RTYPE NAME##_RUN(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, ATYPE_5 arg_5, ATYPE_6 arg_6)\
@@ -3651,16 +3583,6 @@ RTYPE NAME##_NEWFRAME(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4
     return ((TD_##NAME *)t)->d.res;                                                   \
 }                                                                                     \
                                                                                       \
-static inline LACE_UNUSED LACE_NO_SANITIZE_THREAD                                     \
-void NAME##_TOGETHER(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, ATYPE_5 arg_5, ATYPE_6 arg_6, ATYPE_7 arg_7)\
-{                                                                                     \
-    Task _t;                                                                          \
-    TD_##NAME *t = (TD_##NAME *)&_t;                                                  \
-    t->f = &NAME##_WRAP;                                                              \
-    atomic_store_explicit(&t->thief, THIEF_TASK, memory_order_relaxed);               \
-     t->d.args.arg_1 = arg_1; t->d.args.arg_2 = arg_2; t->d.args.arg_3 = arg_3; t->d.args.arg_4 = arg_4; t->d.args.arg_5 = arg_5; t->d.args.arg_6 = arg_6; t->d.args.arg_7 = arg_7;\
-    lace_run_together(&_t);                                                           \
-}                                                                                     \
                                                                                       \
 static inline LACE_UNUSED LACE_NO_SANITIZE_THREAD                                     \
 RTYPE NAME##_RUN(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, ATYPE_5 arg_5, ATYPE_6 arg_6, ATYPE_7 arg_7)\
@@ -3976,16 +3898,6 @@ RTYPE NAME##_NEWFRAME(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4
     return ((TD_##NAME *)t)->d.res;                                                   \
 }                                                                                     \
                                                                                       \
-static inline LACE_UNUSED LACE_NO_SANITIZE_THREAD                                     \
-void NAME##_TOGETHER(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, ATYPE_5 arg_5, ATYPE_6 arg_6, ATYPE_7 arg_7, ATYPE_8 arg_8)\
-{                                                                                     \
-    Task _t;                                                                          \
-    TD_##NAME *t = (TD_##NAME *)&_t;                                                  \
-    t->f = &NAME##_WRAP;                                                              \
-    atomic_store_explicit(&t->thief, THIEF_TASK, memory_order_relaxed);               \
-     t->d.args.arg_1 = arg_1; t->d.args.arg_2 = arg_2; t->d.args.arg_3 = arg_3; t->d.args.arg_4 = arg_4; t->d.args.arg_5 = arg_5; t->d.args.arg_6 = arg_6; t->d.args.arg_7 = arg_7; t->d.args.arg_8 = arg_8;\
-    lace_run_together(&_t);                                                           \
-}                                                                                     \
                                                                                       \
 static inline LACE_UNUSED LACE_NO_SANITIZE_THREAD                                     \
 RTYPE NAME##_RUN(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, ATYPE_5 arg_5, ATYPE_6 arg_6, ATYPE_7 arg_7, ATYPE_8 arg_8)\
@@ -4301,16 +4213,6 @@ RTYPE NAME##_NEWFRAME(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4
     return ((TD_##NAME *)t)->d.res;                                                   \
 }                                                                                     \
                                                                                       \
-static inline LACE_UNUSED LACE_NO_SANITIZE_THREAD                                     \
-void NAME##_TOGETHER(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, ATYPE_5 arg_5, ATYPE_6 arg_6, ATYPE_7 arg_7, ATYPE_8 arg_8, ATYPE_9 arg_9)\
-{                                                                                     \
-    Task _t;                                                                          \
-    TD_##NAME *t = (TD_##NAME *)&_t;                                                  \
-    t->f = &NAME##_WRAP;                                                              \
-    atomic_store_explicit(&t->thief, THIEF_TASK, memory_order_relaxed);               \
-     t->d.args.arg_1 = arg_1; t->d.args.arg_2 = arg_2; t->d.args.arg_3 = arg_3; t->d.args.arg_4 = arg_4; t->d.args.arg_5 = arg_5; t->d.args.arg_6 = arg_6; t->d.args.arg_7 = arg_7; t->d.args.arg_8 = arg_8; t->d.args.arg_9 = arg_9;\
-    lace_run_together(&_t);                                                           \
-}                                                                                     \
                                                                                       \
 static inline LACE_UNUSED LACE_NO_SANITIZE_THREAD                                     \
 RTYPE NAME##_RUN(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, ATYPE_5 arg_5, ATYPE_6 arg_6, ATYPE_7 arg_7, ATYPE_8 arg_8, ATYPE_9 arg_9)\
@@ -4626,16 +4528,6 @@ RTYPE NAME##_NEWFRAME(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4
     return ((TD_##NAME *)t)->d.res;                                                   \
 }                                                                                     \
                                                                                       \
-static inline LACE_UNUSED LACE_NO_SANITIZE_THREAD                                     \
-void NAME##_TOGETHER(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, ATYPE_5 arg_5, ATYPE_6 arg_6, ATYPE_7 arg_7, ATYPE_8 arg_8, ATYPE_9 arg_9, ATYPE_10 arg_10)\
-{                                                                                     \
-    Task _t;                                                                          \
-    TD_##NAME *t = (TD_##NAME *)&_t;                                                  \
-    t->f = &NAME##_WRAP;                                                              \
-    atomic_store_explicit(&t->thief, THIEF_TASK, memory_order_relaxed);               \
-     t->d.args.arg_1 = arg_1; t->d.args.arg_2 = arg_2; t->d.args.arg_3 = arg_3; t->d.args.arg_4 = arg_4; t->d.args.arg_5 = arg_5; t->d.args.arg_6 = arg_6; t->d.args.arg_7 = arg_7; t->d.args.arg_8 = arg_8; t->d.args.arg_9 = arg_9; t->d.args.arg_10 = arg_10;\
-    lace_run_together(&_t);                                                           \
-}                                                                                     \
                                                                                       \
 static inline LACE_UNUSED LACE_NO_SANITIZE_THREAD                                     \
 RTYPE NAME##_RUN(ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, ATYPE_5 arg_5, ATYPE_6 arg_6, ATYPE_7 arg_7, ATYPE_8 arg_8, ATYPE_9 arg_9, ATYPE_10 arg_10)\

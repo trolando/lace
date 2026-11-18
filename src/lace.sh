@@ -592,6 +592,7 @@ void lace_run_newframe(Task *task);
  * This helper function is used by the _TOGETHER methods for the TOGETHER() macro
  * They all start the task in a lace_barrier and complete it with a lace barrier.
  * Meaning they all start together, and all end together.
+ * The workers share the task, so it must be a void task.
  */
 void lace_run_together(Task *task);
 
@@ -785,7 +786,8 @@ void lace_run_together(Task *task);
 #define RUN(f, ...)       ( f##_RUN ( __VA_ARGS__ ) )
 
 /**
- * Signal all workers to interrupt their current tasks and instead perform (a personal copy of) the given task.
+ * Signal all workers to interrupt their current tasks and instead perform the given task.
+ * Only for void tasks (VOID_TASK_*): the workers share its arguments.
  */
 #define TOGETHER(f, ...)  ( f##_TOGETHER ( __VA_ARGS__) )
 
@@ -1362,6 +1364,9 @@ if (( isvoid==0 )); then
   UNION="union { $ARGS_STRUCT $RTYPE res; } d;"
   SS_RETURN="return "
   SS_RETURN2=""
+  # No TOGETHER: every worker runs the same task, and a result would
+  # overwrite the arguments the other workers still read
+  TOGETHER_FN=""
 else
   DEF_MACRO="#define VOID_TASK_$r(NAME$MACRO_ARGS) \
              VOID_TASK_DECL_$r(NAME$DECL_ARGS) VOID_TASK_IMPL_$r(NAME$MACRO_ARGS)"
@@ -1373,6 +1378,17 @@ else
   if ((r)); then UNION="union { $ARGS_STRUCT } d;"; else UNION=""; fi
   SS_RETURN=""
   SS_RETURN2="return;"
+  TOGETHER_FN="static inline LACE_UNUSED LACE_NO_SANITIZE_THREAD
+void NAME##_TOGETHER($FUN_ARGS_NC)
+{
+    Task _t;
+    TD_##NAME *t = (TD_##NAME *)&_t;
+    t->f = &NAME##_WRAP;
+    atomic_store_explicit(&t->thief, THIEF_TASK, memory_order_relaxed);
+    $TASK_INIT
+    lace_run_together(&_t);
+}
+"
 fi
 
 # Write down the macro for the task declaration
@@ -1444,17 +1460,7 @@ $RTYPE NAME##_NEWFRAME($FUN_ARGS_NC)
     return $RETURN_RES;
 }
  
-static inline LACE_UNUSED LACE_NO_SANITIZE_THREAD
-void NAME##_TOGETHER($FUN_ARGS_NC)
-{
-    Task _t;
-    TD_##NAME *t = (TD_##NAME *)&_t;
-    t->f = &NAME##_WRAP;
-    atomic_store_explicit(&t->thief, THIEF_TASK, memory_order_relaxed);
-    $TASK_INIT
-    lace_run_together(&_t);
-}
-
+$TOGETHER_FN
 static inline LACE_UNUSED LACE_NO_SANITIZE_THREAD
 $RTYPE NAME##_RUN($FUN_ARGS_NC)
 {
