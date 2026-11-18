@@ -8,7 +8,8 @@ macro(set_compilation_settings NAME)
         target_compile_options(${NAME} PRIVATE
             -pipe -Wall -Wextra -Wpedantic -Wno-deprecated
             $<$<BOOL:${LACE_USE_NATIVE}>:-march=native>
-            ${LACE_NATIVE_FLAGS}
+            "$<$<COMPILE_LANGUAGE:C>:${LACE_NATIVE_FLAGS}>"
+            "$<$<COMPILE_LANGUAGE:CXX>:${LACE_NATIVE_CXX_FLAGS}>"
         )
     endif()
 
