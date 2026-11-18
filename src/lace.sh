@@ -1323,13 +1323,17 @@ static LACE_NOINLINE
 void lace_drop_slow(WorkerP *w, Task *__dq_head)
 {
     if ((w->allstolen) || (w->split > __dq_head && lace_shrink_shared(w))) lace_leapfrog(w, __dq_head);
+    atomic_store_explicit(&__dq_head->thief, THIEF_EMPTY, memory_order_relaxed);
 }
 
+/* The slot is left empty, as by SYNC: lace_get_head finds the head of the
+ * deque as the first empty slot */
 static inline LACE_UNUSED
 void lace_drop(WorkerP *w, Task *__dq_head)
 {
     if (LACE_LIKELY(0 == lace_worker_public_of(w)->movesplit)) {
         if (LACE_LIKELY(w->split <= __dq_head)) {
+            atomic_store_explicit(&__dq_head->thief, THIEF_EMPTY, memory_order_relaxed);
             return;
         }
     }

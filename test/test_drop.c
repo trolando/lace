@@ -51,6 +51,27 @@ TASK(long, tree, int, depth, atomic_int*, sink)
     return r;
 }
 
+/* A full deque of dropped tasks: DROP must leave the slots empty, as SYNC
+ * does, or lace_get_head (used by RUN from a task) takes them for tasks and
+ * the next SPAWN finds the deque full */
+TASK(int, leaf, int, x)
+{
+    return x;
+}
+
+TASK(int, inner)
+{
+    SPAWN(leaf, 1);
+    return SYNC(leaf);
+}
+
+TASK(int, fill_and_drop, int, n)
+{
+    for (int i = 0; i < n; i++) SPAWN(leaf, i);
+    for (int i = 0; i < n; i++) DROP();
+    return RUN(inner);
+}
+
 int
 main(int argc, char *argv[])
 {
@@ -75,6 +96,13 @@ main(int argc, char *argv[])
         }
     }
 
+    lace_stop();
+
+    lace_start(1, 4);
+    if (RUN(fill_and_drop, 4) != 1) {
+        printf("RUN after dropping a full deque failed\n");
+        exit(1);
+    }
     lace_stop();
     printf("test_drop: ok\n");
     return 0;
