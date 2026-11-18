@@ -1134,14 +1134,21 @@ done:
 }
 
 #if LACE_LOCALITY
+/* Free the locality tables (lace_stop, and before they are set up again) */
+static void
+lace_free_locality(void)
+{
+    free(loc_members); free(loc_start); free(loc_count); free(loc_pkg_first);
+    loc_members = loc_start = loc_count = loc_pkg_first = NULL;
+    loc_npkg = loc_pkg_max = 0;
+}
+
 /* The package of every worker, from its pin set: loc_members, loc_start,
  * loc_count, and per package loc_pkg_first */
 static void
 lace_setup_locality(void)
 {
-    free(loc_members); free(loc_start); free(loc_count); free(loc_pkg_first);
-    loc_members = loc_start = loc_count = loc_pkg_first = NULL;
-    loc_npkg = loc_pkg_max = 0;
+    lace_free_locality();
     const unsigned int n = n_workers;
     if (pin_sets == NULL || n < 2) return;
     int *pk = calloc(n, sizeof(int));
@@ -1150,8 +1157,8 @@ lace_setup_locality(void)
     loc_count = calloc(n, sizeof(unsigned int));
     loc_pkg_first = calloc(n, sizeof(unsigned int));
     if (pk == NULL || loc_members == NULL || loc_start == NULL || loc_count == NULL || loc_pkg_first == NULL) {
-        free(pk); free(loc_members); free(loc_start); free(loc_count); free(loc_pkg_first);
-        loc_members = loc_start = loc_count = loc_pkg_first = NULL;
+        free(pk);
+        lace_free_locality();
         return;
     }
     for (unsigned int w = 0; w < n; w++) {
@@ -3792,6 +3799,9 @@ void lace_stop(void)
     free(idle_flags);
 #endif
     idle_flags = NULL;
+#if LACE_LOCALITY
+    lace_free_locality();
+#endif
 
     is_running = 0;
     atomic_store_explicit(&lace_stopping, 0, memory_order_relaxed);
