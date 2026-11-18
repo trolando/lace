@@ -659,10 +659,16 @@ lace_restore_affinity(const lace_affinity *a)
 #endif
 typedef cpu_set_t lace_affinity;
 
+/* The calling thread's CPUs. FreeBSD before 13.2 gives the process's CPUs
+ * for sched_getaffinity(0, ...), so it asks for the thread's. */
 static int
 lace_get_mask(cpu_set_t *mask)
 {
+#if defined(__FreeBSD__)
+    return pthread_getaffinity_np(pthread_self(), sizeof(cpu_set_t), mask) == 0 ? 0 : -1;
+#else
     return sched_getaffinity(0, sizeof(cpu_set_t), mask);
+#endif
 }
 
 static void
@@ -3229,6 +3235,17 @@ lace_setup(unsigned int _n_workers, size_t dequesize, int external)
         SYSTEM_INFO sysinfo;
         GetSystemInfo(&sysinfo);
         n_pus = (unsigned)sysinfo.dwNumberOfProcessors;
+    }
+
+#elif defined(__FreeBSD__)
+    /* The calling thread's CPUs, as the workers are pinned within them */
+    cpu_set_t cs;
+    CPU_ZERO(&cs);
+    if (lace_get_mask(&cs) == 0) {
+        n_pus = (unsigned)CPU_COUNT(&cs);
+    }
+    else {
+        n_pus = (unsigned)sysconf(_SC_NPROCESSORS_ONLN);
     }
 
 #elif defined(HAVE_SCHED_GETAFFINITY) && HAVE_SCHED_GETAFFINITY
