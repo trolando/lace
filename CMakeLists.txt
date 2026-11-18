@@ -185,7 +185,9 @@ endif()
 
 # ── Generated header (before targets, so FILE_SET can reference it) ──────────
 
-configure_file(src/lace_config.h.in ${CMAKE_CURRENT_BINARY_DIR}/lace_config.h @ONLY)
+# In a directory of its own: a build directory named src (cmake -B src) must
+# not put it next to the source headers, where every build would find it
+configure_file(src/lace_config.h.in ${CMAKE_CURRENT_BINARY_DIR}/include/lace_config.h @ONLY)
 
 # ── Library targets ──────────────────────────────────────────────────────────
 
@@ -202,8 +204,8 @@ foreach(_target lace lace14)
                   BASE_DIRS src
                   FILES src/lace.h
           PUBLIC  FILE_SET generated_headers TYPE HEADERS
-                  BASE_DIRS ${CMAKE_CURRENT_BINARY_DIR}
-                  FILES ${CMAKE_CURRENT_BINARY_DIR}/lace_config.h
+                  BASE_DIRS ${CMAKE_CURRENT_BINARY_DIR}/include
+                  FILES ${CMAKE_CURRENT_BINARY_DIR}/include/lace_config.h
         )
     else()
         target_sources(${_target}
@@ -212,10 +214,14 @@ foreach(_target lace lace14)
                   BASE_DIRS src
                   FILES src/lace14.h
           PUBLIC  FILE_SET generated_headers TYPE HEADERS
-                  BASE_DIRS ${CMAKE_CURRENT_BINARY_DIR}
-                  FILES ${CMAKE_CURRENT_BINARY_DIR}/lace_config.h
+                  BASE_DIRS ${CMAKE_CURRENT_BINARY_DIR}/include
+                  FILES ${CMAKE_CURRENT_BINARY_DIR}/include/lace_config.h
         )
     endif()
+
+    # The generated header first: a lace_config.h that an older build left
+    # in src (cmake -B src) must not be found instead
+    target_include_directories(${_target} BEFORE PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_BINARY_DIR}/include>)
 
     # ── Compile features ─────────────────────────────────────────────────
     target_compile_features(${_target} PUBLIC c_std_11)
