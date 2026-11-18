@@ -15,6 +15,7 @@
 #ifndef DSYRK_H
 #define DSYRK_H
 
+#include <errno.h>
 #include <limits.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -26,6 +27,22 @@
 #endif
 
 static int n = 4096, k = 4096, b = 256; // sizes; n and k multiples of b
+
+/* An argument of at least lo and at most hi (no overflow in the int loops),
+ * else exit with an error */
+static int
+dsyrk_arg(const char *name, const char *s, long lo, long hi)
+{
+    char *end;
+    errno = 0;
+    long v = strtol(s, &end, 10);
+    if (end == s || *end != '\0' || errno != 0 || v < lo || v > hi) {
+        fprintf(stderr, "%s must be a number from %ld to %ld, not %s\n", name, lo, hi, s);
+        exit(1);
+    }
+    return (int)v;
+}
+#define DSYRK_DIM_MAX (1L << 20)
 static int nt, kt, ntiles;              // tiles per side of C, per row of A, in the lower triangle
 static double *A, *AT, *C;              // A: n x k, AT: k x n, C: n x n, row-major
 static int *tile_i, *tile_j;            // the lower-triangle tiles of C, row by row

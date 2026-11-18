@@ -23,14 +23,14 @@ main(int argc, char **argv)
     int c;
     while ((c = getopt(argc, argv, "b:k:sh")) != -1) {
         switch (c) {
-        case 'b': b = atoi(optarg); break;
-        case 'k': k = atoi(optarg); break;
+        case 'b': b = dsyrk_arg("the tile size", optarg, 1, DSYRK_DIM_MAX); break;
+        case 'k': k = dsyrk_arg("k", optarg, 1, DSYRK_DIM_MAX); break;
         case 's': steps = 1; break;
         case 'h': usage(argv[0]); return 0;
         default: usage(argv[0]); return 1;
         }
     }
-    if (optind + 1 == argc) n = atoi(argv[optind]);
+    if (optind + 1 == argc) n = dsyrk_arg("n", argv[optind], 1, DSYRK_DIM_MAX);
     else if (optind != argc) { usage(argv[0]); return 1; }
     if (dsyrk_setup() != 0) return 1;
 
