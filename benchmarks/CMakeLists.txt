@@ -7,7 +7,7 @@ macro(set_compilation_settings NAME)
     if(CMAKE_C_COMPILER_ID MATCHES "Clang|GNU")
         target_compile_options(${NAME} PRIVATE
             -pipe -Wall -Wextra -Wpedantic -Wno-deprecated
-            $<$<BOOL:${LACE_NATIVE_OPT}>:-march=native>
+            $<$<BOOL:${LACE_USE_NATIVE}>:-march=native>
             ${LACE_NATIVE_FLAGS}
         )
     endif()
