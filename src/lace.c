@@ -463,6 +463,7 @@ static Worker **workers = NULL;
  * Size of the task deque
  */
 static size_t dqsize = 1048576; // 1M entries, virtual only, should be sufficient... (famous last words)
+#define LACE_DQSIZE_MAX (((size_t)1 << 31) - 1) // the most tasks in a deque
 
 /**
  * Program stack size of each Lace worker: as set with lace_set_stacksize (0
@@ -3332,6 +3333,18 @@ lace_start(unsigned int _n_workers, size_t dequesize)
     // Initialize globals
     n_workers = _n_workers == 0 ? n_pus : _n_workers;
     dqsize = dequesize > 0 ? dequesize : 1048576;
+    /* The deque's indices are 32 bits, and SPAWN computes (split + head + 2) / 2
+     * with head < dqsize; and a worker's memory must not span more than
+     * PTRDIFF_MAX bytes, as Lace subtracts pointers into the deque */
+    {
+        size_t dq_max = ((size_t)PTRDIFF_MAX - sizeof(worker_data)) / sizeof(Task);
+        if (dq_max > LACE_DQSIZE_MAX) dq_max = LACE_DQSIZE_MAX;
+        if (dqsize > dq_max) {
+            fprintf(stderr, "Lace error: a deque of %zu tasks is more than the %zu that Lace supports!\n",
+                    dqsize, dq_max);
+            exit(1);
+        }
+    }
     atomic_store_explicit(&lace_quits, 0, memory_order_relaxed);
     atomic_store_explicit(&release_gen, 0, memory_order_relaxed);
     atomic_store_explicit(&release_done, 0, memory_order_relaxed);
