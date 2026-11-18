@@ -487,7 +487,9 @@ unsigned int lace_get_pu_count(void);
 /**
  * Start Lace with <n_workers> workers and a a task deque size of <dqsize> per worker.
  * If <n_workers> is set to 0, automatically detects available cores.
- * If <dqsize> is est to 0, uses a reasonable default value.
+ * If <dqsize> is set to 0, uses a reasonable default value. At most 2^31 - 1,
+ * and on a 32-bit system at most what fits in half the address space; Lace
+ * stops the program with an error for a larger size.
  * With LACE_BACKOFF (the default), idle workers soon sleep, and an idle Lace
  * uses almost no CPU (lace_set_idle_mode() chooses how soon). On Linux, FreeBSD and Windows, workers are pinned as
  * lace_set_pinning() chooses (by default LACE_PIN_AUTO).
