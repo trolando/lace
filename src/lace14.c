@@ -4100,62 +4100,48 @@ lace_abort_stack_overflow(void)
 }
 
 #if defined(_WIN32)
+#ifndef CREATE_WAITABLE_TIMER_HIGH_RESOLUTION
+#define CREATE_WAITABLE_TIMER_HIGH_RESOLUTION 0x00000002
+#endif
 void lace_sleep_us(int64_t microseconds)
 {
     if (microseconds <= 0) return;
 
-    // Cache QPC frequency once
-    static LARGE_INTEGER qpc_freq;
-    static LONG qpc_init = 0;
-    if (qpc_init == 0) {
-        LARGE_INTEGER f;
-        QueryPerformanceFrequency(&f);
-        qpc_freq = f;
-        InterlockedExchange(&qpc_init, 1);
+    /* A waitable timer for this wait, high-resolution where Windows has it
+     * (Windows 10 1803 and later): then even a short wait sleeps, as the
+     * 50 us polls of lace_stop and lace_release_memory do. A plain timer
+     * has the resolution of the system tick, so then waits up to
+     * SPIN_THRESHOLD_US spin instead. The timer is closed again: a thread
+     * that ends must not leave a handle behind. */
+    const uint32_t SPIN_THRESHOLD_US = 300;
+    HANDLE timer = CreateWaitableTimerExW(NULL, NULL, CREATE_WAITABLE_TIMER_HIGH_RESOLUTION,
+                                          TIMER_MODIFY_STATE | SYNCHRONIZE);
+    if (timer == NULL && microseconds > SPIN_THRESHOLD_US) {
+        timer = CreateWaitableTimerExW(NULL, NULL, 0, TIMER_MODIFY_STATE | SYNCHRONIZE);
+    }
+    if (timer != NULL) {
+        // Clamp to avoid signed overflow in 100ns units
+        uint64_t us = (uint64_t)microseconds;
+        if (us > (uint64_t)(INT64_MAX / 10)) us = (uint64_t)(INT64_MAX / 10);
+
+        LARGE_INTEGER due;
+        due.QuadPart = -(LONGLONG)(10ULL * us); // relative, 100ns units
+        const int slept = SetWaitableTimer(timer, &due, 0, NULL, NULL, FALSE) &&
+                          WaitForSingleObject(timer, INFINITE) == WAIT_OBJECT_0;
+        CloseHandle(timer);
+        if (slept) return;
     }
 
-    // For very short waits, a spin is usually better than Sleep()/timers.
-    const uint32_t SPIN_THRESHOLD_US = 300;
-
     if (microseconds > SPIN_THRESHOLD_US) {
-        // Reuse a per-thread waitable timer to avoid Create/Close per call
-        static LACE_TLS HANDLE tls_timer = NULL;
-
-        if (tls_timer == NULL) {
-            tls_timer = CreateWaitableTimerExW(
-                NULL, NULL,
-                0, /* optionally CREATE_WAITABLE_TIMER_HIGH_RESOLUTION if you want to try */
-                TIMER_MODIFY_STATE | SYNCHRONIZE
-            );
-        }
-
-        if (tls_timer) {
-            // Clamp to avoid signed overflow in 100ns units
-            uint64_t us = (uint64_t)microseconds;
-            if (us > (uint64_t)(INT64_MAX / 10)) us = (uint64_t)(INT64_MAX / 10);
-
-            LARGE_INTEGER due;
-            due.QuadPart = -(LONGLONG)(10ULL * us); // relative, 100ns units
-            if (SetWaitableTimer(tls_timer, &due, 0, NULL, NULL, FALSE)) {
-                WaitForSingleObject(tls_timer, INFINITE);
-                return;
-            }
-        }
-
-        // Fallback
         Sleep((DWORD)((microseconds + 999) / 1000));
         return;
     }
 
-    // Spin-wait using QPC for sub-ms delays
-    LARGE_INTEGER start, now;
-    QueryPerformanceCounter(&start);
-
-    const int64_t target_ticks =
-        ((int64_t)microseconds * (int64_t)qpc_freq.QuadPart) / 1000000LL;
-
-    const int64_t deadline = start.QuadPart + target_ticks;
-
+    // Spin-wait on the counter for sub-ms delays without a high-resolution timer
+    LARGE_INTEGER f, now;
+    QueryPerformanceFrequency(&f);
+    QueryPerformanceCounter(&now);
+    const LONGLONG deadline = now.QuadPart + (LONGLONG)((uint64_t)microseconds * (uint64_t)f.QuadPart / 1000000u);
     do {
         YieldProcessor();
         QueryPerformanceCounter(&now);
