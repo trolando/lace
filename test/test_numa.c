@@ -131,19 +131,27 @@ main(void)
     int failures = 0;
 #if defined(__linux__)
     if (check) {
-        int counted = 0;
+        /* A page whose node is not known (move_pages failed, as when a
+         * seccomp profile blocks it) is reported, not counted: it says
+         * nothing about the placement */
+        int counted = 0, unknown = 0;
         for (unsigned w = 0; w < n; w++) {
             if (cpu_node[w] < 0) continue;
             counted++;
             for (unsigned i = 0; i < N_PAGES; i++) {
                 const int p = page_node[w * N_PAGES + i];
                 if (p == cpu_node[w]) continue;
-                if (p < 0) printf("worker %u: its %s page is not known (%d)\n", w, page_names[i], p);
-                else printf("worker %u runs on node %d, its %s on node %d\n", w, cpu_node[w], page_names[i], p);
+                if (p < 0) {
+                    unknown++;
+                    continue;
+                }
+                printf("worker %u runs on node %d, its %s on node %d\n", w, cpu_node[w], page_names[i], p);
                 failures++;
             }
         }
-        printf("%u workers, %d checked\n", n, counted);
+        printf("%u workers, %d checked", n, counted);
+        if (unknown > 0) printf(", the node of %d pages not known", unknown);
+        printf("\n");
     }
     free(cpu_node);
     free(page_node);
