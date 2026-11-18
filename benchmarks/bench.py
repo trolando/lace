@@ -342,6 +342,7 @@ def discover_experiments(W):
         lace("quicksort", "quicksort-lace")
         lace("rectmul", "rectmul-lace")
         lace("strassen", "strassen-lace")
+        lace("dsyrk", "dsyrk-lace")
 
     def seq(name, exe, *args):
         if os.path.isfile(exe):
@@ -367,6 +368,7 @@ def discover_experiments(W):
     seq("quicksort", "quicksort-seq")
     seq("rectmul", "rectmul-seq")
     seq("strassen", "strassen-seq")
+    seq("dsyrk", "dsyrk-seq")
 
     return experiments
 
