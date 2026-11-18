@@ -793,11 +793,13 @@ void lace_run_together(Task *task);
 /**
  * Signal all workers to interrupt their current tasks and instead perform the given task.
  * Only for void tasks (VOID_TASK_*): the workers share its arguments.
+ * Tasks that other threads submit with RUN wait until it has ended, so the task must not wait for one.
  */
 #define TOGETHER(f, ...)  ( f##_TOGETHER ( __VA_ARGS__) )
 
 /**
  * Signal all workers to interrupt their current tasks and help the current thread with the given task.
+ * Tasks that other threads submit with RUN wait until it has ended, so the task must not wait for one.
  */
 #define NEWFRAME(f, ...)  ( f##_NEWFRAME ( __VA_ARGS__) )
 
