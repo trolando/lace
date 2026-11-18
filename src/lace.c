@@ -2089,11 +2089,13 @@ static LACE_TLS unsigned int lace_frame_depth = 0;
  * after it. They do not react to them either (give up sentinel duty, skip a
  * nap or a sleep), or a waiting task would keep them spinning through the
  * frame. When the frame ends, every worker returns to what it did before;
- * one in its steal loop looks for external tasks in the same round. */
+ * one in its steal loop looks for external tasks in the same round. Nor
+ * while a frame is pending: a worker woken for it enters it first. */
 static inline int
 lace_external_waiting(memory_order mo)
 {
-    return lace_frame_depth == 0 && atomic_load_explicit(&external_task_count, mo) > 0;
+    return lace_frame_depth == 0 && atomic_load_explicit(&external_task_count, mo) > 0 &&
+           atomic_load_explicit(&lace_newframe.t, memory_order_relaxed) == NULL;
 }
 
 /* Wake a sleeping worker to help with an external task that a worker took, if
@@ -2213,9 +2215,15 @@ lace_steal_external(lace_worker *self)
 {
     for (int i = 0; i < LACE_EXT_SLOTS; i++) {
         if (atomic_load_explicit(&external_tasks[i], memory_order_relaxed) == NULL) continue;
-        ext_lace_task* stolen = atomic_exchange_explicit(&external_tasks[i], NULL, memory_order_acquire);
+        /* seq_cst, as the CAS that publishes a frame: a frame published
+         * before this claim is seen below */
+        ext_lace_task* stolen = atomic_exchange_explicit(&external_tasks[i], NULL, memory_order_seq_cst);
         if (stolen != NULL) {
             atomic_fetch_sub_explicit(&external_task_count, 1, memory_order_relaxed);
+            /* A frame published since this worker looked comes first: it
+             * waits for every worker at its first barrier, and the task may
+             * wait for what the frame does */
+            while (atomic_load_explicit(&lace_newframe.t, memory_order_seq_cst) != NULL) lace_yield(self);
             /* Busy before the notification below, so that a worker that sees
              * it (wake_gen) sees this one active */
             lace_set_idle(self, 0);
