@@ -170,14 +170,14 @@ void markreset_task_CALL(lace_worker* lw)
     memset(b, 0x22, 2048);
 
     lace_scratch_reset(lw, mark);
-    EXPECT_EQ(lw->scratch_top, (char *)mark);
+    EXPECT_EQ((uintptr_t)lw->scratch_top, (uintptr_t)mark);
 
     /* After reset, the next allocation should reuse the same address. */
     char *c = (char *)lace_scratch_alloc(lw, 512);
     EXPECT_EQ((uintptr_t)c, (uintptr_t)a);
 
     lace_scratch_reset(lw, mark);
-    EXPECT_EQ(lw->scratch_top, before);
+    EXPECT_EQ((uintptr_t)lw->scratch_top, (uintptr_t)before);
 }
 
 static void test_markreset(void) { markreset_task(); }
