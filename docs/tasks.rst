@@ -46,7 +46,7 @@ Each ``TASK(RTYPE, NAME, ...)`` macro generates the following:
    * - ``NAME_NEWFRAME(...)``
      - Interrupt all workers and run this task.
    * - ``NAME_TOGETHER(...)``
-     - Interrupt all workers and run a copy on each worker.
+     - Interrupt all workers and run the task on each worker (void tasks only).
 
 The ``lace_worker*`` pointer passed to ``_CALL`` must not be modified. It is
 required by ``SPAWN``, ``SYNC``, and other Lace operations.
@@ -111,10 +111,11 @@ point (i.e. at ``SYNC`` or when idle):
 worker pool. The current task frame is suspended and resumed after the new
 task completes. Typical use: stop-the-world garbage collection.
 
-``NAME_TOGETHER(...)``: halts all workers and runs a copy of the given task
-on *every* worker simultaneously. All workers start together and all complete
+``NAME_TOGETHER(...)``: halts all workers and runs the given task on
+*every* worker simultaneously. All workers start together and all complete
 together (barrier semantics). Typical use: per-worker initialisation of
-thread-local state.
+thread-local state. Only void tasks (``VOID_TASK_*``) have it: the workers
+share the task's arguments, and a result would overwrite them.
 
 Long-running tasks should call ``lace_check_yield()`` periodically to
 cooperate with interruptions.

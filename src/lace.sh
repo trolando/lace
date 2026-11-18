@@ -1116,8 +1116,8 @@ void lace_run_newframe(lace_task *task);
  * @ingroup lace_internals
  * Run a task on every worker simultaneously (used by NAME_TOGETHER).
  *
- * All workers enter a barrier, execute a copy of @p task, and exit
- * through a second barrier.
+ * All workers enter a barrier, execute @p task, and exit through a second
+ * barrier. The workers share the task, so it must be a void task.
  *
  * @param task  Pointer to a prepared lace_task
  */
@@ -1562,7 +1562,7 @@ echo "
  * - \b NAME_SYNC(lw)        — join: retrieve spawned result (LIFO order).
  * - \b NAME_DROP(lw)        — cancel or discard the last spawned task.
  * - \b NAME_NEWFRAME(...)   — interrupt all workers and run this task.
- * - \b NAME_TOGETHER(...)   — interrupt all workers and run on each.
+ * - \b NAME_TOGETHER(...)   — interrupt all workers and run on each (void tasks only).
  *
  * SPAWN and SYNC must be matched in strict LIFO order.
  * @{
@@ -1589,6 +1589,9 @@ if (( isvoid==0 )); then
   UNION="union { $ARGS_STRUCT $RTYPE res; } d;"
   SS_RETURN="return "
   SS_RETURN2=""
+  # No TOGETHER: every worker runs the same task, and a result would
+  # overwrite the arguments the other workers still read
+  TOGETHER_FN=""
 else
   if ((r)); then
     DEF_MACRO="#define VOID_TASK_$r(NAME, $MACRO_ARGS)"
@@ -1601,6 +1604,18 @@ else
   if ((r)); then UNION="union { $ARGS_STRUCT } d;"; else UNION=""; fi
   SS_RETURN=""
   SS_RETURN2="return;"
+  TOGETHER_FN="LACE_NO_SANITIZE_THREAD
+static inline LACE_UNUSED
+void NAME##_TOGETHER($RUN_ARGS)
+{
+    lace_task _t;
+    task_##NAME *t = (task_##NAME *)&_t;
+    t->f = &NAME##_WRAP;
+    atomic_store_explicit(&t->thief, THIEF_TASK, memory_order_relaxed);
+    $TASK_INIT
+    lace_run_together(&_t);
+}
+"
 fi
 
 # Write down the macro for the task declaration
@@ -1682,18 +1697,7 @@ $RTYPE NAME##_NEWFRAME($RUN_ARGS)
     return $RETURN_RES;
 }
 
-LACE_NO_SANITIZE_THREAD
-static inline LACE_UNUSED
-void NAME##_TOGETHER($RUN_ARGS)
-{
-    lace_task _t;
-    task_##NAME *t = (task_##NAME *)&_t;
-    t->f = &NAME##_WRAP;
-    atomic_store_explicit(&t->thief, THIEF_TASK, memory_order_relaxed);
-    $TASK_INIT
-    lace_run_together(&_t);
-}
-
+$TOGETHER_FN
 static inline LACE_UNUSED
 $RTYPE NAME($RUN_ARGS)
 {
