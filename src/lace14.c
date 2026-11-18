@@ -1587,15 +1587,24 @@ lace_get_stacksize(void)
  * Monotonic time in microseconds, for the timed spins and, when we are
  * collecting PIE times, for the helper functions below.
  */
-static inline uint64_t lace_now_us(void)
-{
 #if defined(_WIN32)
-    /* Windows: QueryPerformanceCounter -> microseconds */
+/* Windows: QueryPerformanceCounter in nanoseconds; whole seconds and the
+ * rest apart, as count * 1e9 (or * 1e6) overflows after days of uptime */
+static inline uint64_t lace_win_now_ns(void)
+{
     LARGE_INTEGER t, f;
     QueryPerformanceCounter(&t);
     QueryPerformanceFrequency(&f);
-    /* avoid overflow: (t * 1e6) / f  */
-    return (uint64_t)(((uint64_t)t.QuadPart * 1000000ULL) / (uint64_t)f.QuadPart);
+    const uint64_t c = (uint64_t)t.QuadPart, hz = (uint64_t)f.QuadPart;
+    if (hz == 10000000) return c * 100; // the usual frequency, without divisions
+    return c / hz * 1000000000ULL + c % hz * 1000000000ULL / hz;
+}
+#endif
+
+static inline uint64_t lace_now_us(void)
+{
+#if defined(_WIN32)
+    return lace_win_now_ns() / 1000ULL;
 
 #elif defined(__APPLE__)
     return lace_macos_now_ns() / 1000ULL;
@@ -1617,7 +1626,7 @@ static inline uint64_t lace_now_ns(void)
 #if defined(__APPLE__)
     return lace_macos_now_ns();
 #elif defined(_WIN32)
-    return lace_now_us() * 1000ULL;
+    return lace_win_now_ns();
 #else
     struct timespec t;
     clock_gettime(CLOCK_MONOTONIC, &t);
