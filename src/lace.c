@@ -600,7 +600,7 @@ static unsigned int loc_pkg_max = 0;       // the most workers on one package
 /*
  * The affinity of the calling thread: its mask and pinning it. Windows pins within one processor
  * group, that of the thread that calls lace_start, where Lace also counts the
- * CPUs (GetProcessAffinityMask): a set of CPUs is one KAFFINITY there.
+ * CPUs (lace_get_pu_count): a set of CPUs is one KAFFINITY there.
  */
 #if defined(_WIN32)
 typedef struct { KAFFINITY bits; } cpu_set_t;
@@ -3212,12 +3212,11 @@ lace_get_pu_count(void)
 {
     unsigned int N;
 #if defined(_WIN32)
-    DWORD_PTR processMask = 0, systemMask = 0;
-    if (GetProcessAffinityMask(GetCurrentProcess(), &processMask, &systemMask) && processMask) {
-        unsigned count = 0;
-        DWORD_PTR m = processMask;
-        while (m) { m &= (m - 1); count++; }      // popcount
-        N = count ? count : 1;
+    /* The calling thread's CPUs in its processor group, as the workers are
+     * pinned within them (lace_get_mask) */
+    GROUP_AFFINITY ga;
+    if (GetThreadGroupAffinity(GetCurrentThread(), &ga) && ga.Mask != 0) {
+        N = (unsigned)lace_count_cpus(ga.Mask);
     }
     else {
         SYSTEM_INFO sysinfo;
