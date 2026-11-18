@@ -2504,6 +2504,7 @@ void lace_steal_loop_CALL(lace_worker* lw, atomic_int* quit)
     unsigned int idle_count = 0;
     int worked = 0; // ran a task since this worker last slept: may become a sentinel
     int sentinel_nap_first = 0; // its last sentinel episode saw work that turned out not worth it
+    int ext_miss = 0; // the external tasks counted were not in a slot when it looked
     uint64_t last_work_us = 0; // when this worker last ran a task (lace_now_us)
     uint64_t bal_clock = lace_now_ns(); // search since here is not yet spent
 #if LACE_BACKOFF
@@ -2517,6 +2518,7 @@ void lace_steal_loop_CALL(lace_worker* lw, atomic_int* quit)
     (void)scratch_floor; // without LACE_BACKOFF there is no deep idle
     (void)worked;
     (void)sentinel_nap_first;
+    (void)ext_miss;
     (void)last_work_us;
 
     while(1) {
@@ -2627,12 +2629,16 @@ void lace_steal_loop_CALL(lace_worker* lw, atomic_int* quit)
                 idle_count = 0;
                 worked = 1;
                 last_work_us = lace_now_us();
+                ext_miss = 0;
                 continue;
             }
             /* Another worker took it: go on as after a failed steal, through
              * the balance and quit checks below. While tasks wait the count
              * stays positive, so the next round looks again. */
             bal_task_ns = 0; // spent above
+            ext_miss = 1;
+        } else {
+            ext_miss = 0;
         }
 
 #if LACE_BACKOFF
@@ -2650,7 +2656,7 @@ void lace_steal_loop_CALL(lace_worker* lw, atomic_int* quit)
              * since it last slept or another one runs a task now. Not after
              * a mere timeout, or sentinels would form again and again in a
              * program that no longer uses Lace (test_idle). */
-            if (n > 1 && (worked || lace_some_active(lw)) && lace_claim_sentinel()) {
+            if (n > 1 && !ext_miss && (worked || lace_some_active(lw)) && lace_claim_sentinel()) {
                 lace_set_idle(lw, 1); // a tiny steal this round may have left it 0
                 int r = lace_sentinel(lw, quit, &last_victim, lace_release_seen, sentinel_nap_first);
                 bal_clock = lace_now_ns(); // sentinel duty is monitoring, not this worker's search
@@ -2716,6 +2722,11 @@ void lace_steal_loop_CALL(lace_worker* lw, atomic_int* quit)
              * region, at a few microseconds of CPU per nap. */
             if (lace_now_us() - last_work_us < idle_shallow_us) timeout_us = LACE_IDLE_FUTEX_TIMEOUT_MIN;
             if (timeout_us > LACE_IDLE_FUTEX_TIMEOUT_MAX) timeout_us = LACE_IDLE_FUTEX_TIMEOUT_MAX;
+            /* The external tasks counted were not in a slot: the count does
+             * not keep this worker awake (it would spin until the thread
+             * that updates the count runs), but it naps only briefly, and
+             * a caller that publishes a task wakes a sleeper */
+            if (ext_miss) timeout_us = LACE_IDLE_FUTEX_TIMEOUT_MIN;
 
             /* Count ourselves as sleeping, then check for external tasks
              * once more (seq_cst, paired with lace_run_task): a thread that
@@ -2726,7 +2737,7 @@ void lace_steal_loop_CALL(lace_worker* lw, atomic_int* quit)
              * NEWFRAME's task sets quit, its done, before it wakes us). */
             atomic_store_explicit(&idle_flags[worker_id].sleep, 1, memory_order_seq_cst);
             if (atomic_load_explicit(&wake_gen, memory_order_seq_cst) == gen &&
-                !lace_external_waiting(memory_order_seq_cst) &&
+                (ext_miss || !lace_external_waiting(memory_order_seq_cst)) &&
                 atomic_load_explicit(&lace_newframe.t, memory_order_seq_cst) == NULL &&
                 atomic_load_explicit(quit, memory_order_seq_cst) == 0 &&
                 atomic_load_explicit(&release_gen, memory_order_seq_cst) == lace_release_seen) {
@@ -2748,8 +2759,11 @@ void lace_steal_loop_CALL(lace_worker* lw, atomic_int* quit)
                     idle_count = 0;
                     worked = 1;
                     last_work_us = lace_now_us();
+                    ext_miss = 0;
+                    continue;
                 }
-                continue;
+                /* Counted but not in a slot: another worker is taking it */
+                ext_miss = 1;
             }
         } else {
             /* Stage 1: search on, with one pause per round, and yield the
