@@ -1,3 +1,6 @@
+#if defined(__linux__)
+#define _GNU_SOURCE /* pthread_getaffinity_np, CPU_COUNT; before any header */
+#endif
 /*
  * A NEWFRAME must not wait for workers that fell asleep inside it: when the
  * frame's task completes, Lace wakes them (1.11.0 did not; Sylvan's frequent
@@ -17,6 +20,7 @@
 #include <lace.h>
 
 #include "test_crash_handler.h"
+#include "test_cpus.h"
 
 #if defined(_WIN32)
     #define WIN32_LEAN_AND_MEAN
@@ -82,12 +86,7 @@ main(void)
     return 0;
 #endif
     unsigned int workers = 4;
-#if defined(_WIN32)
-    const unsigned int ncpu = (unsigned int)GetActiveProcessorCount(ALL_PROCESSOR_GROUPS);
-#else
-    const long np = sysconf(_SC_NPROCESSORS_ONLN);
-    const unsigned int ncpu = np > 0 ? (unsigned int)np : 1;
-#endif
+    const unsigned int ncpu = test_allowed_cpus();
     if (ncpu < workers) workers = ncpu;
     if (workers < 2) {
         printf("fewer than 2 CPUs: nothing to test\n");
