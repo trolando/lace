@@ -1979,8 +1979,8 @@ lace_init_worker(unsigned int worker)
     // Initialize public worker data
     wt->dq = w->dq;
     atomic_store_explicit(&wt->ts.v, 0, memory_order_relaxed);
-    wt->allstolen = 0;
-    wt->movesplit = 0;
+    atomic_store_explicit(&wt->allstolen, 0, memory_order_relaxed);
+    atomic_store_explicit(&wt->movesplit, 0, memory_order_relaxed);
     atomic_store_explicit(&wt->waiting_on, NULL, memory_order_relaxed);
 
     // Initialize private worker data
@@ -2239,7 +2239,7 @@ LACE_NO_SANITIZE_THREAD
 static LACE_NOINLINE Worker*
 lace_steal(WorkerP *self, Task *__dq_head, Worker *victim)
 {
-    if (victim != NULL && !victim->allstolen) {
+    if (victim != NULL && !atomic_load_explicit(&victim->allstolen, memory_order_relaxed)) {
         TailSplitNA ts;
         ts.v = atomic_load_explicit(&victim->ts.v, memory_order_relaxed);
         if (ts.ts.tail < ts.ts.split) {
@@ -2309,8 +2309,8 @@ lace_steal(WorkerP *self, Task *__dq_head, Worker *victim)
             return LACE_BUSY;
         }
 
-        if (victim->movesplit == 0) {
-            victim->movesplit = 1;
+        if (atomic_load_explicit(&victim->movesplit, memory_order_relaxed) == 0) {
+            atomic_store_explicit(&victim->movesplit, 1, memory_order_relaxed);
             PR_COUNTSPLITS(self, CTR_split_req);
         }
     }
@@ -2407,7 +2407,7 @@ lace_leapfrog_body(WorkerP *__lace_worker, Task *__lace_dq_head)
             /* Assume: tail = split = head (pre-pop) */
             /* Now we do a real pop ergo either decrease tail,split,head or declare allstolen */
             Worker *wt = __lace_worker->_public;
-            wt->allstolen = 1;
+            atomic_store_explicit(&wt->allstolen, 1, memory_order_relaxed);
             __lace_worker->allstolen = 1;
         }
     }
@@ -2589,11 +2589,11 @@ lace_nap(atomic_int *quit, unsigned int seen_release)
 static inline int
 lace_peek(Worker *victim)
 {
-    if (victim == NULL || victim->allstolen) return 0;
+    if (victim == NULL || atomic_load_explicit(&victim->allstolen, memory_order_relaxed)) return 0;
     TailSplitNA ts;
     ts.v = atomic_load_explicit(&victim->ts.v, memory_order_relaxed);
     if (ts.ts.tail < ts.ts.split) return 1;
-    if (victim->movesplit == 0) victim->movesplit = 1;
+    if (atomic_load_explicit(&victim->movesplit, memory_order_relaxed) == 0) atomic_store_explicit(&victim->movesplit, 1, memory_order_relaxed);
     return 0;
 }
 
@@ -3740,8 +3740,8 @@ lace_exec_in_new_frame(WorkerP *__lace_worker, Task *__lace_dq_head, Task *root)
     {
         Worker *wt = __lace_worker->_public;
 
-        old_as = wt->allstolen;
-        wt->allstolen = 1;
+        old_as = atomic_load_explicit(&wt->allstolen, memory_order_relaxed);
+        atomic_store_explicit(&wt->allstolen, 1, memory_order_relaxed);
         old.ts.split = atomic_load_explicit(&wt->ts.ts.split, memory_order_relaxed);
         atomic_store_explicit(&wt->ts.ts.split, 0, memory_order_relaxed);
         atomic_thread_fence(memory_order_seq_cst);
@@ -3768,7 +3768,7 @@ lace_exec_in_new_frame(WorkerP *__lace_worker, Task *__lace_dq_head, Task *root)
     // restore tail, split, allstolen
     {
         Worker *wt = __lace_worker->_public;
-        wt->allstolen = old_as;
+        atomic_store_explicit(&wt->allstolen, old_as, memory_order_relaxed);
         atomic_store_explicit(&wt->ts.v, old.v, memory_order_relaxed);
         __lace_worker->split = __lace_worker->dq + old.ts.split;
         __lace_worker->allstolen = old_as;

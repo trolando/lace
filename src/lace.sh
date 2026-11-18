@@ -1026,11 +1026,14 @@ typedef struct _Worker {
      * read by leapfrogging workers whose own thief has nothing to steal. It
      * shares the cache line that a steal attempt reads anyway. */
     _Atomic(struct _Worker*) waiting_on;
-    uint8_t allstolen;
+    /* allstolen and movesplit: written by the owner (and movesplit by
+     * thieves), read by thieves without synchronization: a stale value only
+     * costs a failed steal or a later split move. Relaxed atomics. */
+    _Atomic(uint8_t) allstolen;
 
     char pad1[PAD(2*P_SZ+sizeof(TailSplit)+1, LACE_PADDING_TARGET)];
 
-    uint8_t movesplit;
+    _Atomic(uint8_t) movesplit;
 } Worker;
 
 typedef struct { uint64_t s0, s1; } lace_rng_state;
@@ -1294,7 +1297,7 @@ lace_shrink_shared(WorkerP *w)
         }
     }
  
-    wt->allstolen = 1;
+    atomic_store_explicit(&wt->allstolen, 1, memory_order_relaxed);
     w->allstolen = 1;
     return 1;
 }
@@ -1315,7 +1318,7 @@ void lace_drop_slow(WorkerP *w, Task *__dq_head)
 static inline LACE_UNUSED
 void lace_drop(WorkerP *w, Task *__dq_head)
 {
-    if (LACE_LIKELY(0 == lace_worker_public_of(w)->movesplit)) {
+    if (LACE_LIKELY(0 == atomic_load_explicit(&lace_worker_public_of(w)->movesplit, memory_order_relaxed))) {
         if (LACE_LIKELY(w->split <= __dq_head)) {
             return;
         }
@@ -1429,21 +1432,21 @@ void NAME##_SPAWN(WorkerP *w, Task *__dq_head $FUN_ARGS)
  
     Worker *wt = lace_worker_public_of(w);
     if (LACE_UNLIKELY(w->allstolen)) {
-        if (wt->movesplit) wt->movesplit = 0;
+        if (atomic_load_explicit(&wt->movesplit, memory_order_relaxed)) atomic_store_explicit(&wt->movesplit, 0, memory_order_relaxed);
         head = (uint32_t)(__dq_head - w->dq);
         ts.ts.tail = head;
         ts.ts.split = head + 1;
         atomic_store_explicit(&wt->ts.v, ts.v, memory_order_release);
-        wt->allstolen = 0;
+        atomic_store_explicit(&wt->allstolen, 0, memory_order_relaxed);
         w->split = __dq_head+1;
         w->allstolen = 0;
-    } else if (LACE_UNLIKELY(wt->movesplit)) {
+    } else if (LACE_UNLIKELY(atomic_load_explicit(&wt->movesplit, memory_order_relaxed))) {
         head = (uint32_t)(__dq_head - w->dq);
         split = (uint32_t)(w->split - w->dq);
         newsplit = (split + head + 2)/2;
         atomic_store_explicit(&wt->ts.ts.split, newsplit, memory_order_release);
         w->split = w->dq + newsplit;
-        wt->movesplit = 0;
+        atomic_store_explicit(&wt->movesplit, 0, memory_order_relaxed);
         PR_COUNTSPLITS(w, CTR_split_grow);
     }
 }
@@ -1485,14 +1488,14 @@ $RTYPE NAME##_SYNC_SLOW(WorkerP *w, Task *__dq_head)
     }
  
     Worker *wt = w->_public;
-    if (wt->movesplit) {
+    if (atomic_load_explicit(&wt->movesplit, memory_order_relaxed)) {
         Task *t_s = w->split;
         ptrdiff_t diff = __dq_head - t_s;
         diff = (diff + 1) / 2;
         Task* newsplit = t_s + diff;
         w->split = newsplit;
         atomic_store_explicit(&wt->ts.ts.split, (uint32_t)(newsplit - w->dq), memory_order_release);
-        wt->movesplit = 0;
+        atomic_store_explicit(&wt->movesplit, 0, memory_order_relaxed);
         PR_COUNTSPLITS(w, CTR_split_grow);
     }
  
@@ -1506,7 +1509,7 @@ $RTYPE NAME##_SYNC(WorkerP *w, Task *__dq_head)
 {
     /* assert (__dq_head > 0); */  /* Commented out because we assume contract */
  
-    if (LACE_LIKELY(0 == lace_worker_public_of(w)->movesplit)) {
+    if (LACE_LIKELY(0 == atomic_load_explicit(&lace_worker_public_of(w)->movesplit, memory_order_relaxed))) {
         if (LACE_LIKELY(w->split <= __dq_head)) {
             TD_##NAME *t = (TD_##NAME *)__dq_head;
             atomic_store_explicit(&t->thief, THIEF_EMPTY, memory_order_relaxed);
