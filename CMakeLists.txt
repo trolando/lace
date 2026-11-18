@@ -136,8 +136,17 @@ endif()
 # Clang 18 warns about its own -march=native on CPUs with AVX10.1 ("invalid
 # feature combination"), which -Werror turns into an error; older Clang does
 # not know the warning, hence the check.
+# -march=native tunes for the build machine: not when the code is for another
+# machine (cross-compiling, or a macOS build for other or several
+# architectures), and only with GCC and Clang, which have the flag
+set(LACE_USE_NATIVE ${LACE_NATIVE_OPT})
+if(CMAKE_CROSSCOMPILING OR NOT CMAKE_C_COMPILER_ID MATCHES "GNU|Clang" OR
+   (CMAKE_OSX_ARCHITECTURES AND NOT CMAKE_OSX_ARCHITECTURES STREQUAL CMAKE_HOST_SYSTEM_PROCESSOR))
+    set(LACE_USE_NATIVE OFF)
+endif()
+
 set(LACE_NATIVE_FLAGS "")
-if(LACE_NATIVE_OPT AND CMAKE_C_COMPILER_ID MATCHES "Clang")
+if(LACE_USE_NATIVE AND CMAKE_C_COMPILER_ID MATCHES "Clang")
     include(CheckCCompilerFlag)
     set(_saved_flags "${CMAKE_REQUIRED_FLAGS}")
     string(APPEND CMAKE_REQUIRED_FLAGS " -Werror")
@@ -259,7 +268,7 @@ foreach(_target lace lace32 lace128)
             -Wconversion # catch implicit narrowing conversions
             -Wsign-conversion # catch implicit changes to signed/unsigned
             $<$<CONFIG:Debug>:-O0>
-            $<$<BOOL:${LACE_NATIVE_OPT}>:-march=native>
+            $<$<BOOL:${LACE_USE_NATIVE}>:-march=native>
         )
     elseif(CMAKE_C_COMPILER_ID MATCHES "Clang")
         target_compile_options(${_target} PRIVATE
@@ -274,7 +283,7 @@ foreach(_target lace lace32 lace128)
             -Wsign-conversion # catch implicit changes to signed/unsigned
             -Watomic-implicit-seq-cst # ensure all atomic load/store are explicit
             $<$<CONFIG:Debug>:-O0>
-            $<$<BOOL:${LACE_NATIVE_OPT}>:-march=native>
+            $<$<BOOL:${LACE_USE_NATIVE}>:-march=native>
             ${LACE_NATIVE_FLAGS}
         )
     elseif(MSVC)
