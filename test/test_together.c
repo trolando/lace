@@ -96,6 +96,10 @@ runtests(int n_workers)
     lace_start(n_workers, 0, 0);
 
     worker_counter = (int*)malloc(lace_worker_count() * sizeof(int));
+    if (worker_counter == NULL) {
+        fprintf(stderr, "out of memory\n");
+        exit(1);
+    }
 
     /*
     printf("Reporting worker id with newframe:\n");
@@ -123,6 +127,10 @@ runtests(int n_workers)
     printf("Testing mixed newframe/together...\n");
     free(worker_counter);
     worker_counter = (int*)calloc(lace_worker_count(), sizeof(int));
+    if (worker_counter == NULL) {
+        fprintf(stderr, "out of memory\n");
+        exit(1);
+    }
     counter = 0;
     test_newframe(4);
     test_together(4);
