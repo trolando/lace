@@ -1659,7 +1659,6 @@ static unsigned long long us_elapsed(void)
 
 typedef struct {
     LACE_ALIGN(LACE_PADDING_TARGET) atomic_int count;
-    LACE_ALIGN(LACE_PADDING_TARGET) atomic_int leaving;
     LACE_ALIGN(LACE_PADDING_TARGET) atomic_int wait;
     atomic_int sleeping; // waiters asleep on wait (its cache line: the leader reads it after the flip)
 } barrier_t;
@@ -1706,7 +1705,6 @@ lace_barrier(void)
     if ((int)n_workers == 1 + atomic_fetch_add_explicit(&lace_bar.count, 1, memory_order_acq_rel)) {
         // This thread is the last to arrive (the leader)
         atomic_store_explicit(&lace_bar.count, 0, memory_order_relaxed);
-        atomic_store_explicit(&lace_bar.leaving, (int)n_workers, memory_order_relaxed);
         /* seq_cst, as the sleeper count: either we see a sleeper, or the
          * sleeper sees the flip before it sleeps */
         atomic_fetch_xor_explicit(&lace_bar.wait, 1, memory_order_seq_cst);
@@ -1733,8 +1731,6 @@ lace_barrier(void)
             }
         }
     }
-    // Needed for lace_barrier_destroy to observe all threads have exited
-    atomic_fetch_sub_explicit(&lace_bar.leaving, 1, memory_order_release);
 }
 
 /**
@@ -1744,20 +1740,8 @@ static void
 lace_barrier_init(void)
 {
     atomic_init(&lace_bar.count, 0);
-    atomic_init(&lace_bar.leaving, 0);
     atomic_init(&lace_bar.wait, 0);
     atomic_init(&lace_bar.sleeping, 0);
-}
-
-/**
- * Destroy the Lace barrier (just wait until all are exited)
- */
-static void
-lace_barrier_destroy(void)
-{
-    while (atomic_load_explicit(&lace_bar.leaving, memory_order_acquire) > 0) {
-        // possibly pause/yield
-    }
 }
 
 static inline uint64_t lace_splitmix64(uint64_t* x)
@@ -3682,9 +3666,6 @@ void lace_stop(void)
         worker_stacks = NULL;
     }
 #endif
-
-    // finally, destroy the barriers
-    lace_barrier_destroy();
 
     for (unsigned int i = 0; i < n_workers; i++) {
         if (workers_p[i]->scratch_base != NULL) {
