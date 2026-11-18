@@ -313,10 +313,7 @@ sees a sleeper or the sleeper sees the flip before it sleeps. Without
 the sleep, threads that share CPUs with the threads they wait for (more
 threads than CPUs) keep those off the CPU, and a TOGETHER can take
 minutes. Without the naps, the core of a sleeper goes into a deep idle
-state, which took 30-140 µs to leave against 9-26 µs from a nap. A
-``leaving`` counter tracks how
-many threads have exited the barrier, used by ``lace_barrier_destroy``
-to wait for all threads to leave before tearing down the barrier.
+state, which took 30-140 µs to leave against 9-26 µs from a nap.
 
 The barrier provides full memory ordering: all memory operations by
 any thread before the barrier are visible to all threads after the
