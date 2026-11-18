@@ -1000,14 +1000,17 @@ static_assert(sizeof(TailSplitNA) == 8, "TailSplit size should be 8 bytes");
 typedef struct lace_worker_public {
     lace_task *dq;
     TailSplit ts;
-    uint8_t allstolen;
+    /* allstolen and movesplit: written by the owner (and movesplit by
+     * thieves), read by thieves without synchronization: a stale value only
+     * costs a failed steal or a later split move. Relaxed atomics. */
+    _Atomic(uint8_t) allstolen;
     /* While this worker leapfrogs: the thief of the task it waits for (the
      * innermost wait), else NULL. Written on entering and leaving a leapfrog;
      * read by leapfrogging workers whose own thief has nothing to steal. It
      * shares the cache line that a steal attempt reads anyway. */
     _Atomic(struct lace_worker_public*) waiting_on;
 
-    LACE_ALIGN(LACE_PADDING_TARGET) uint8_t movesplit;
+    LACE_ALIGN(LACE_PADDING_TARGET) _Atomic(uint8_t) movesplit;
 } lace_worker_public;
 
 #if LACE_MSVC
@@ -1565,21 +1568,21 @@ lace_task* NAME##_SPAWN(lace_worker* _lace_worker)                              
                                                                                       \
     lace_worker_public *wt = lace_worker_public_of(_lace_worker);                     \
     if (LACE_UNLIKELY(_lace_worker->allstolen)) {                                     \
-        if (wt->movesplit) wt->movesplit = 0;                                         \
+        if (atomic_load_explicit(&wt->movesplit, memory_order_relaxed)) atomic_store_explicit(&wt->movesplit, 0, memory_order_relaxed);\
         head = (uint32_t)(lace_head - _lace_worker->dq);                              \
         ts.ts.tail = head;                                                            \
         ts.ts.split = head+1;                                                         \
         atomic_store_explicit(&wt->ts.v, ts.v, memory_order_release);                 \
-        wt->allstolen = 0;                                                            \
+        atomic_store_explicit(&wt->allstolen, 0, memory_order_relaxed);               \
         _lace_worker->split = lace_head+1;                                            \
         _lace_worker->allstolen = 0;                                                  \
-    } else if (LACE_UNLIKELY(wt->movesplit)) {                                        \
+    } else if (LACE_UNLIKELY(atomic_load_explicit(&wt->movesplit, memory_order_relaxed))) {\
         head = (uint32_t)(lace_head - _lace_worker->dq);                              \
         split = (uint32_t)(_lace_worker->split - _lace_worker->dq);                   \
         newsplit = (split + head + 2)/2;                                              \
         atomic_store_explicit(&wt->ts.ts.split, newsplit, memory_order_release);      \
         _lace_worker->split = _lace_worker->dq + newsplit;                            \
-        wt->movesplit = 0;                                                            \
+        atomic_store_explicit(&wt->movesplit, 0, memory_order_relaxed);               \
         PR_COUNTSPLITS(_lace_worker, CTR_split_grow);                                 \
     }                                                                                 \
                                                                                       \
@@ -1628,7 +1631,7 @@ RTYPE NAME##_SYNC(lace_worker* _lace_worker)                                    
     /* assert (__dq_head > 0); */  /* Commented out because we assume contract */     \
     task_##NAME *t = (task_##NAME *)head;                                             \
                                                                                       \
-    if (LACE_LIKELY(0 == lace_worker_public_of(_lace_worker)->movesplit)) {           \
+    if (LACE_LIKELY(0 == atomic_load_explicit(&lace_worker_public_of(_lace_worker)->movesplit, memory_order_relaxed))) {\
         if (LACE_LIKELY(_lace_worker->split <= head)) {                               \
             atomic_store_explicit(&t->thief, THIEF_EMPTY, memory_order_relaxed);      \
             return NAME##_CALL(_lace_worker);                                         \
@@ -1651,7 +1654,7 @@ void NAME##_DROP(lace_worker* _lace_worker)                                     
     lace_task* head = _lace_worker->head - 1;                                         \
     _lace_worker->head = head;                                                        \
                                                                                       \
-    if (LACE_LIKELY(0 == lace_worker_public_of(_lace_worker)->movesplit)) {           \
+    if (LACE_LIKELY(0 == atomic_load_explicit(&lace_worker_public_of(_lace_worker)->movesplit, memory_order_relaxed))) {\
         if (LACE_LIKELY(_lace_worker->split <= head)) return;                         \
     }                                                                                 \
                                                                                       \
@@ -1702,21 +1705,21 @@ lace_task* NAME##_SPAWN(lace_worker* _lace_worker)                              
                                                                                       \
     lace_worker_public *wt = lace_worker_public_of(_lace_worker);                     \
     if (LACE_UNLIKELY(_lace_worker->allstolen)) {                                     \
-        if (wt->movesplit) wt->movesplit = 0;                                         \
+        if (atomic_load_explicit(&wt->movesplit, memory_order_relaxed)) atomic_store_explicit(&wt->movesplit, 0, memory_order_relaxed);\
         head = (uint32_t)(lace_head - _lace_worker->dq);                              \
         ts.ts.tail = head;                                                            \
         ts.ts.split = head+1;                                                         \
         atomic_store_explicit(&wt->ts.v, ts.v, memory_order_release);                 \
-        wt->allstolen = 0;                                                            \
+        atomic_store_explicit(&wt->allstolen, 0, memory_order_relaxed);               \
         _lace_worker->split = lace_head+1;                                            \
         _lace_worker->allstolen = 0;                                                  \
-    } else if (LACE_UNLIKELY(wt->movesplit)) {                                        \
+    } else if (LACE_UNLIKELY(atomic_load_explicit(&wt->movesplit, memory_order_relaxed))) {\
         head = (uint32_t)(lace_head - _lace_worker->dq);                              \
         split = (uint32_t)(_lace_worker->split - _lace_worker->dq);                   \
         newsplit = (split + head + 2)/2;                                              \
         atomic_store_explicit(&wt->ts.ts.split, newsplit, memory_order_release);      \
         _lace_worker->split = _lace_worker->dq + newsplit;                            \
-        wt->movesplit = 0;                                                            \
+        atomic_store_explicit(&wt->movesplit, 0, memory_order_relaxed);               \
         PR_COUNTSPLITS(_lace_worker, CTR_split_grow);                                 \
     }                                                                                 \
                                                                                       \
@@ -1776,7 +1779,7 @@ void NAME##_SYNC(lace_worker* _lace_worker)                                     
     /* assert (__dq_head > 0); */  /* Commented out because we assume contract */     \
     task_##NAME *t = (task_##NAME *)head;                                             \
                                                                                       \
-    if (LACE_LIKELY(0 == lace_worker_public_of(_lace_worker)->movesplit)) {           \
+    if (LACE_LIKELY(0 == atomic_load_explicit(&lace_worker_public_of(_lace_worker)->movesplit, memory_order_relaxed))) {\
         if (LACE_LIKELY(_lace_worker->split <= head)) {                               \
             atomic_store_explicit(&t->thief, THIEF_EMPTY, memory_order_relaxed);      \
             NAME##_CALL(_lace_worker);                                                \
@@ -1799,7 +1802,7 @@ void NAME##_DROP(lace_worker* _lace_worker)                                     
     lace_task* head = _lace_worker->head - 1;                                         \
     _lace_worker->head = head;                                                        \
                                                                                       \
-    if (LACE_LIKELY(0 == lace_worker_public_of(_lace_worker)->movesplit)) {           \
+    if (LACE_LIKELY(0 == atomic_load_explicit(&lace_worker_public_of(_lace_worker)->movesplit, memory_order_relaxed))) {\
         if (LACE_LIKELY(_lace_worker->split <= head)) return;                         \
     }                                                                                 \
                                                                                       \
@@ -1853,21 +1856,21 @@ lace_task* NAME##_SPAWN(lace_worker* _lace_worker, ATYPE_1 arg_1)               
                                                                                       \
     lace_worker_public *wt = lace_worker_public_of(_lace_worker);                     \
     if (LACE_UNLIKELY(_lace_worker->allstolen)) {                                     \
-        if (wt->movesplit) wt->movesplit = 0;                                         \
+        if (atomic_load_explicit(&wt->movesplit, memory_order_relaxed)) atomic_store_explicit(&wt->movesplit, 0, memory_order_relaxed);\
         head = (uint32_t)(lace_head - _lace_worker->dq);                              \
         ts.ts.tail = head;                                                            \
         ts.ts.split = head+1;                                                         \
         atomic_store_explicit(&wt->ts.v, ts.v, memory_order_release);                 \
-        wt->allstolen = 0;                                                            \
+        atomic_store_explicit(&wt->allstolen, 0, memory_order_relaxed);               \
         _lace_worker->split = lace_head+1;                                            \
         _lace_worker->allstolen = 0;                                                  \
-    } else if (LACE_UNLIKELY(wt->movesplit)) {                                        \
+    } else if (LACE_UNLIKELY(atomic_load_explicit(&wt->movesplit, memory_order_relaxed))) {\
         head = (uint32_t)(lace_head - _lace_worker->dq);                              \
         split = (uint32_t)(_lace_worker->split - _lace_worker->dq);                   \
         newsplit = (split + head + 2)/2;                                              \
         atomic_store_explicit(&wt->ts.ts.split, newsplit, memory_order_release);      \
         _lace_worker->split = _lace_worker->dq + newsplit;                            \
-        wt->movesplit = 0;                                                            \
+        atomic_store_explicit(&wt->movesplit, 0, memory_order_relaxed);               \
         PR_COUNTSPLITS(_lace_worker, CTR_split_grow);                                 \
     }                                                                                 \
                                                                                       \
@@ -1916,7 +1919,7 @@ RTYPE NAME##_SYNC(lace_worker* _lace_worker)                                    
     /* assert (__dq_head > 0); */  /* Commented out because we assume contract */     \
     task_##NAME *t = (task_##NAME *)head;                                             \
                                                                                       \
-    if (LACE_LIKELY(0 == lace_worker_public_of(_lace_worker)->movesplit)) {           \
+    if (LACE_LIKELY(0 == atomic_load_explicit(&lace_worker_public_of(_lace_worker)->movesplit, memory_order_relaxed))) {\
         if (LACE_LIKELY(_lace_worker->split <= head)) {                               \
             atomic_store_explicit(&t->thief, THIEF_EMPTY, memory_order_relaxed);      \
             return NAME##_CALL(_lace_worker, ((task_##NAME*)t)->d.args.arg_1);        \
@@ -1939,7 +1942,7 @@ void NAME##_DROP(lace_worker* _lace_worker)                                     
     lace_task* head = _lace_worker->head - 1;                                         \
     _lace_worker->head = head;                                                        \
                                                                                       \
-    if (LACE_LIKELY(0 == lace_worker_public_of(_lace_worker)->movesplit)) {           \
+    if (LACE_LIKELY(0 == atomic_load_explicit(&lace_worker_public_of(_lace_worker)->movesplit, memory_order_relaxed))) {\
         if (LACE_LIKELY(_lace_worker->split <= head)) return;                         \
     }                                                                                 \
                                                                                       \
@@ -1990,21 +1993,21 @@ lace_task* NAME##_SPAWN(lace_worker* _lace_worker, ATYPE_1 arg_1)               
                                                                                       \
     lace_worker_public *wt = lace_worker_public_of(_lace_worker);                     \
     if (LACE_UNLIKELY(_lace_worker->allstolen)) {                                     \
-        if (wt->movesplit) wt->movesplit = 0;                                         \
+        if (atomic_load_explicit(&wt->movesplit, memory_order_relaxed)) atomic_store_explicit(&wt->movesplit, 0, memory_order_relaxed);\
         head = (uint32_t)(lace_head - _lace_worker->dq);                              \
         ts.ts.tail = head;                                                            \
         ts.ts.split = head+1;                                                         \
         atomic_store_explicit(&wt->ts.v, ts.v, memory_order_release);                 \
-        wt->allstolen = 0;                                                            \
+        atomic_store_explicit(&wt->allstolen, 0, memory_order_relaxed);               \
         _lace_worker->split = lace_head+1;                                            \
         _lace_worker->allstolen = 0;                                                  \
-    } else if (LACE_UNLIKELY(wt->movesplit)) {                                        \
+    } else if (LACE_UNLIKELY(atomic_load_explicit(&wt->movesplit, memory_order_relaxed))) {\
         head = (uint32_t)(lace_head - _lace_worker->dq);                              \
         split = (uint32_t)(_lace_worker->split - _lace_worker->dq);                   \
         newsplit = (split + head + 2)/2;                                              \
         atomic_store_explicit(&wt->ts.ts.split, newsplit, memory_order_release);      \
         _lace_worker->split = _lace_worker->dq + newsplit;                            \
-        wt->movesplit = 0;                                                            \
+        atomic_store_explicit(&wt->movesplit, 0, memory_order_relaxed);               \
         PR_COUNTSPLITS(_lace_worker, CTR_split_grow);                                 \
     }                                                                                 \
                                                                                       \
@@ -2064,7 +2067,7 @@ void NAME##_SYNC(lace_worker* _lace_worker)                                     
     /* assert (__dq_head > 0); */  /* Commented out because we assume contract */     \
     task_##NAME *t = (task_##NAME *)head;                                             \
                                                                                       \
-    if (LACE_LIKELY(0 == lace_worker_public_of(_lace_worker)->movesplit)) {           \
+    if (LACE_LIKELY(0 == atomic_load_explicit(&lace_worker_public_of(_lace_worker)->movesplit, memory_order_relaxed))) {\
         if (LACE_LIKELY(_lace_worker->split <= head)) {                               \
             atomic_store_explicit(&t->thief, THIEF_EMPTY, memory_order_relaxed);      \
             NAME##_CALL(_lace_worker, ((task_##NAME*)t)->d.args.arg_1);               \
@@ -2087,7 +2090,7 @@ void NAME##_DROP(lace_worker* _lace_worker)                                     
     lace_task* head = _lace_worker->head - 1;                                         \
     _lace_worker->head = head;                                                        \
                                                                                       \
-    if (LACE_LIKELY(0 == lace_worker_public_of(_lace_worker)->movesplit)) {           \
+    if (LACE_LIKELY(0 == atomic_load_explicit(&lace_worker_public_of(_lace_worker)->movesplit, memory_order_relaxed))) {\
         if (LACE_LIKELY(_lace_worker->split <= head)) return;                         \
     }                                                                                 \
                                                                                       \
@@ -2141,21 +2144,21 @@ lace_task* NAME##_SPAWN(lace_worker* _lace_worker, ATYPE_1 arg_1, ATYPE_2 arg_2)
                                                                                       \
     lace_worker_public *wt = lace_worker_public_of(_lace_worker);                     \
     if (LACE_UNLIKELY(_lace_worker->allstolen)) {                                     \
-        if (wt->movesplit) wt->movesplit = 0;                                         \
+        if (atomic_load_explicit(&wt->movesplit, memory_order_relaxed)) atomic_store_explicit(&wt->movesplit, 0, memory_order_relaxed);\
         head = (uint32_t)(lace_head - _lace_worker->dq);                              \
         ts.ts.tail = head;                                                            \
         ts.ts.split = head+1;                                                         \
         atomic_store_explicit(&wt->ts.v, ts.v, memory_order_release);                 \
-        wt->allstolen = 0;                                                            \
+        atomic_store_explicit(&wt->allstolen, 0, memory_order_relaxed);               \
         _lace_worker->split = lace_head+1;                                            \
         _lace_worker->allstolen = 0;                                                  \
-    } else if (LACE_UNLIKELY(wt->movesplit)) {                                        \
+    } else if (LACE_UNLIKELY(atomic_load_explicit(&wt->movesplit, memory_order_relaxed))) {\
         head = (uint32_t)(lace_head - _lace_worker->dq);                              \
         split = (uint32_t)(_lace_worker->split - _lace_worker->dq);                   \
         newsplit = (split + head + 2)/2;                                              \
         atomic_store_explicit(&wt->ts.ts.split, newsplit, memory_order_release);      \
         _lace_worker->split = _lace_worker->dq + newsplit;                            \
-        wt->movesplit = 0;                                                            \
+        atomic_store_explicit(&wt->movesplit, 0, memory_order_relaxed);               \
         PR_COUNTSPLITS(_lace_worker, CTR_split_grow);                                 \
     }                                                                                 \
                                                                                       \
@@ -2204,7 +2207,7 @@ RTYPE NAME##_SYNC(lace_worker* _lace_worker)                                    
     /* assert (__dq_head > 0); */  /* Commented out because we assume contract */     \
     task_##NAME *t = (task_##NAME *)head;                                             \
                                                                                       \
-    if (LACE_LIKELY(0 == lace_worker_public_of(_lace_worker)->movesplit)) {           \
+    if (LACE_LIKELY(0 == atomic_load_explicit(&lace_worker_public_of(_lace_worker)->movesplit, memory_order_relaxed))) {\
         if (LACE_LIKELY(_lace_worker->split <= head)) {                               \
             atomic_store_explicit(&t->thief, THIEF_EMPTY, memory_order_relaxed);      \
             return NAME##_CALL(_lace_worker, ((task_##NAME*)t)->d.args.arg_1, ((task_##NAME*)t)->d.args.arg_2);\
@@ -2227,7 +2230,7 @@ void NAME##_DROP(lace_worker* _lace_worker)                                     
     lace_task* head = _lace_worker->head - 1;                                         \
     _lace_worker->head = head;                                                        \
                                                                                       \
-    if (LACE_LIKELY(0 == lace_worker_public_of(_lace_worker)->movesplit)) {           \
+    if (LACE_LIKELY(0 == atomic_load_explicit(&lace_worker_public_of(_lace_worker)->movesplit, memory_order_relaxed))) {\
         if (LACE_LIKELY(_lace_worker->split <= head)) return;                         \
     }                                                                                 \
                                                                                       \
@@ -2278,21 +2281,21 @@ lace_task* NAME##_SPAWN(lace_worker* _lace_worker, ATYPE_1 arg_1, ATYPE_2 arg_2)
                                                                                       \
     lace_worker_public *wt = lace_worker_public_of(_lace_worker);                     \
     if (LACE_UNLIKELY(_lace_worker->allstolen)) {                                     \
-        if (wt->movesplit) wt->movesplit = 0;                                         \
+        if (atomic_load_explicit(&wt->movesplit, memory_order_relaxed)) atomic_store_explicit(&wt->movesplit, 0, memory_order_relaxed);\
         head = (uint32_t)(lace_head - _lace_worker->dq);                              \
         ts.ts.tail = head;                                                            \
         ts.ts.split = head+1;                                                         \
         atomic_store_explicit(&wt->ts.v, ts.v, memory_order_release);                 \
-        wt->allstolen = 0;                                                            \
+        atomic_store_explicit(&wt->allstolen, 0, memory_order_relaxed);               \
         _lace_worker->split = lace_head+1;                                            \
         _lace_worker->allstolen = 0;                                                  \
-    } else if (LACE_UNLIKELY(wt->movesplit)) {                                        \
+    } else if (LACE_UNLIKELY(atomic_load_explicit(&wt->movesplit, memory_order_relaxed))) {\
         head = (uint32_t)(lace_head - _lace_worker->dq);                              \
         split = (uint32_t)(_lace_worker->split - _lace_worker->dq);                   \
         newsplit = (split + head + 2)/2;                                              \
         atomic_store_explicit(&wt->ts.ts.split, newsplit, memory_order_release);      \
         _lace_worker->split = _lace_worker->dq + newsplit;                            \
-        wt->movesplit = 0;                                                            \
+        atomic_store_explicit(&wt->movesplit, 0, memory_order_relaxed);               \
         PR_COUNTSPLITS(_lace_worker, CTR_split_grow);                                 \
     }                                                                                 \
                                                                                       \
@@ -2352,7 +2355,7 @@ void NAME##_SYNC(lace_worker* _lace_worker)                                     
     /* assert (__dq_head > 0); */  /* Commented out because we assume contract */     \
     task_##NAME *t = (task_##NAME *)head;                                             \
                                                                                       \
-    if (LACE_LIKELY(0 == lace_worker_public_of(_lace_worker)->movesplit)) {           \
+    if (LACE_LIKELY(0 == atomic_load_explicit(&lace_worker_public_of(_lace_worker)->movesplit, memory_order_relaxed))) {\
         if (LACE_LIKELY(_lace_worker->split <= head)) {                               \
             atomic_store_explicit(&t->thief, THIEF_EMPTY, memory_order_relaxed);      \
             NAME##_CALL(_lace_worker, ((task_##NAME*)t)->d.args.arg_1, ((task_##NAME*)t)->d.args.arg_2);\
@@ -2375,7 +2378,7 @@ void NAME##_DROP(lace_worker* _lace_worker)                                     
     lace_task* head = _lace_worker->head - 1;                                         \
     _lace_worker->head = head;                                                        \
                                                                                       \
-    if (LACE_LIKELY(0 == lace_worker_public_of(_lace_worker)->movesplit)) {           \
+    if (LACE_LIKELY(0 == atomic_load_explicit(&lace_worker_public_of(_lace_worker)->movesplit, memory_order_relaxed))) {\
         if (LACE_LIKELY(_lace_worker->split <= head)) return;                         \
     }                                                                                 \
                                                                                       \
@@ -2429,21 +2432,21 @@ lace_task* NAME##_SPAWN(lace_worker* _lace_worker, ATYPE_1 arg_1, ATYPE_2 arg_2,
                                                                                       \
     lace_worker_public *wt = lace_worker_public_of(_lace_worker);                     \
     if (LACE_UNLIKELY(_lace_worker->allstolen)) {                                     \
-        if (wt->movesplit) wt->movesplit = 0;                                         \
+        if (atomic_load_explicit(&wt->movesplit, memory_order_relaxed)) atomic_store_explicit(&wt->movesplit, 0, memory_order_relaxed);\
         head = (uint32_t)(lace_head - _lace_worker->dq);                              \
         ts.ts.tail = head;                                                            \
         ts.ts.split = head+1;                                                         \
         atomic_store_explicit(&wt->ts.v, ts.v, memory_order_release);                 \
-        wt->allstolen = 0;                                                            \
+        atomic_store_explicit(&wt->allstolen, 0, memory_order_relaxed);               \
         _lace_worker->split = lace_head+1;                                            \
         _lace_worker->allstolen = 0;                                                  \
-    } else if (LACE_UNLIKELY(wt->movesplit)) {                                        \
+    } else if (LACE_UNLIKELY(atomic_load_explicit(&wt->movesplit, memory_order_relaxed))) {\
         head = (uint32_t)(lace_head - _lace_worker->dq);                              \
         split = (uint32_t)(_lace_worker->split - _lace_worker->dq);                   \
         newsplit = (split + head + 2)/2;                                              \
         atomic_store_explicit(&wt->ts.ts.split, newsplit, memory_order_release);      \
         _lace_worker->split = _lace_worker->dq + newsplit;                            \
-        wt->movesplit = 0;                                                            \
+        atomic_store_explicit(&wt->movesplit, 0, memory_order_relaxed);               \
         PR_COUNTSPLITS(_lace_worker, CTR_split_grow);                                 \
     }                                                                                 \
                                                                                       \
@@ -2492,7 +2495,7 @@ RTYPE NAME##_SYNC(lace_worker* _lace_worker)                                    
     /* assert (__dq_head > 0); */  /* Commented out because we assume contract */     \
     task_##NAME *t = (task_##NAME *)head;                                             \
                                                                                       \
-    if (LACE_LIKELY(0 == lace_worker_public_of(_lace_worker)->movesplit)) {           \
+    if (LACE_LIKELY(0 == atomic_load_explicit(&lace_worker_public_of(_lace_worker)->movesplit, memory_order_relaxed))) {\
         if (LACE_LIKELY(_lace_worker->split <= head)) {                               \
             atomic_store_explicit(&t->thief, THIEF_EMPTY, memory_order_relaxed);      \
             return NAME##_CALL(_lace_worker, ((task_##NAME*)t)->d.args.arg_1, ((task_##NAME*)t)->d.args.arg_2, ((task_##NAME*)t)->d.args.arg_3);\
@@ -2515,7 +2518,7 @@ void NAME##_DROP(lace_worker* _lace_worker)                                     
     lace_task* head = _lace_worker->head - 1;                                         \
     _lace_worker->head = head;                                                        \
                                                                                       \
-    if (LACE_LIKELY(0 == lace_worker_public_of(_lace_worker)->movesplit)) {           \
+    if (LACE_LIKELY(0 == atomic_load_explicit(&lace_worker_public_of(_lace_worker)->movesplit, memory_order_relaxed))) {\
         if (LACE_LIKELY(_lace_worker->split <= head)) return;                         \
     }                                                                                 \
                                                                                       \
@@ -2566,21 +2569,21 @@ lace_task* NAME##_SPAWN(lace_worker* _lace_worker, ATYPE_1 arg_1, ATYPE_2 arg_2,
                                                                                       \
     lace_worker_public *wt = lace_worker_public_of(_lace_worker);                     \
     if (LACE_UNLIKELY(_lace_worker->allstolen)) {                                     \
-        if (wt->movesplit) wt->movesplit = 0;                                         \
+        if (atomic_load_explicit(&wt->movesplit, memory_order_relaxed)) atomic_store_explicit(&wt->movesplit, 0, memory_order_relaxed);\
         head = (uint32_t)(lace_head - _lace_worker->dq);                              \
         ts.ts.tail = head;                                                            \
         ts.ts.split = head+1;                                                         \
         atomic_store_explicit(&wt->ts.v, ts.v, memory_order_release);                 \
-        wt->allstolen = 0;                                                            \
+        atomic_store_explicit(&wt->allstolen, 0, memory_order_relaxed);               \
         _lace_worker->split = lace_head+1;                                            \
         _lace_worker->allstolen = 0;                                                  \
-    } else if (LACE_UNLIKELY(wt->movesplit)) {                                        \
+    } else if (LACE_UNLIKELY(atomic_load_explicit(&wt->movesplit, memory_order_relaxed))) {\
         head = (uint32_t)(lace_head - _lace_worker->dq);                              \
         split = (uint32_t)(_lace_worker->split - _lace_worker->dq);                   \
         newsplit = (split + head + 2)/2;                                              \
         atomic_store_explicit(&wt->ts.ts.split, newsplit, memory_order_release);      \
         _lace_worker->split = _lace_worker->dq + newsplit;                            \
-        wt->movesplit = 0;                                                            \
+        atomic_store_explicit(&wt->movesplit, 0, memory_order_relaxed);               \
         PR_COUNTSPLITS(_lace_worker, CTR_split_grow);                                 \
     }                                                                                 \
                                                                                       \
@@ -2640,7 +2643,7 @@ void NAME##_SYNC(lace_worker* _lace_worker)                                     
     /* assert (__dq_head > 0); */  /* Commented out because we assume contract */     \
     task_##NAME *t = (task_##NAME *)head;                                             \
                                                                                       \
-    if (LACE_LIKELY(0 == lace_worker_public_of(_lace_worker)->movesplit)) {           \
+    if (LACE_LIKELY(0 == atomic_load_explicit(&lace_worker_public_of(_lace_worker)->movesplit, memory_order_relaxed))) {\
         if (LACE_LIKELY(_lace_worker->split <= head)) {                               \
             atomic_store_explicit(&t->thief, THIEF_EMPTY, memory_order_relaxed);      \
             NAME##_CALL(_lace_worker, ((task_##NAME*)t)->d.args.arg_1, ((task_##NAME*)t)->d.args.arg_2, ((task_##NAME*)t)->d.args.arg_3);\
@@ -2663,7 +2666,7 @@ void NAME##_DROP(lace_worker* _lace_worker)                                     
     lace_task* head = _lace_worker->head - 1;                                         \
     _lace_worker->head = head;                                                        \
                                                                                       \
-    if (LACE_LIKELY(0 == lace_worker_public_of(_lace_worker)->movesplit)) {           \
+    if (LACE_LIKELY(0 == atomic_load_explicit(&lace_worker_public_of(_lace_worker)->movesplit, memory_order_relaxed))) {\
         if (LACE_LIKELY(_lace_worker->split <= head)) return;                         \
     }                                                                                 \
                                                                                       \
@@ -2717,21 +2720,21 @@ lace_task* NAME##_SPAWN(lace_worker* _lace_worker, ATYPE_1 arg_1, ATYPE_2 arg_2,
                                                                                       \
     lace_worker_public *wt = lace_worker_public_of(_lace_worker);                     \
     if (LACE_UNLIKELY(_lace_worker->allstolen)) {                                     \
-        if (wt->movesplit) wt->movesplit = 0;                                         \
+        if (atomic_load_explicit(&wt->movesplit, memory_order_relaxed)) atomic_store_explicit(&wt->movesplit, 0, memory_order_relaxed);\
         head = (uint32_t)(lace_head - _lace_worker->dq);                              \
         ts.ts.tail = head;                                                            \
         ts.ts.split = head+1;                                                         \
         atomic_store_explicit(&wt->ts.v, ts.v, memory_order_release);                 \
-        wt->allstolen = 0;                                                            \
+        atomic_store_explicit(&wt->allstolen, 0, memory_order_relaxed);               \
         _lace_worker->split = lace_head+1;                                            \
         _lace_worker->allstolen = 0;                                                  \
-    } else if (LACE_UNLIKELY(wt->movesplit)) {                                        \
+    } else if (LACE_UNLIKELY(atomic_load_explicit(&wt->movesplit, memory_order_relaxed))) {\
         head = (uint32_t)(lace_head - _lace_worker->dq);                              \
         split = (uint32_t)(_lace_worker->split - _lace_worker->dq);                   \
         newsplit = (split + head + 2)/2;                                              \
         atomic_store_explicit(&wt->ts.ts.split, newsplit, memory_order_release);      \
         _lace_worker->split = _lace_worker->dq + newsplit;                            \
-        wt->movesplit = 0;                                                            \
+        atomic_store_explicit(&wt->movesplit, 0, memory_order_relaxed);               \
         PR_COUNTSPLITS(_lace_worker, CTR_split_grow);                                 \
     }                                                                                 \
                                                                                       \
@@ -2780,7 +2783,7 @@ RTYPE NAME##_SYNC(lace_worker* _lace_worker)                                    
     /* assert (__dq_head > 0); */  /* Commented out because we assume contract */     \
     task_##NAME *t = (task_##NAME *)head;                                             \
                                                                                       \
-    if (LACE_LIKELY(0 == lace_worker_public_of(_lace_worker)->movesplit)) {           \
+    if (LACE_LIKELY(0 == atomic_load_explicit(&lace_worker_public_of(_lace_worker)->movesplit, memory_order_relaxed))) {\
         if (LACE_LIKELY(_lace_worker->split <= head)) {                               \
             atomic_store_explicit(&t->thief, THIEF_EMPTY, memory_order_relaxed);      \
             return NAME##_CALL(_lace_worker, ((task_##NAME*)t)->d.args.arg_1, ((task_##NAME*)t)->d.args.arg_2, ((task_##NAME*)t)->d.args.arg_3, ((task_##NAME*)t)->d.args.arg_4);\
@@ -2803,7 +2806,7 @@ void NAME##_DROP(lace_worker* _lace_worker)                                     
     lace_task* head = _lace_worker->head - 1;                                         \
     _lace_worker->head = head;                                                        \
                                                                                       \
-    if (LACE_LIKELY(0 == lace_worker_public_of(_lace_worker)->movesplit)) {           \
+    if (LACE_LIKELY(0 == atomic_load_explicit(&lace_worker_public_of(_lace_worker)->movesplit, memory_order_relaxed))) {\
         if (LACE_LIKELY(_lace_worker->split <= head)) return;                         \
     }                                                                                 \
                                                                                       \
@@ -2854,21 +2857,21 @@ lace_task* NAME##_SPAWN(lace_worker* _lace_worker, ATYPE_1 arg_1, ATYPE_2 arg_2,
                                                                                       \
     lace_worker_public *wt = lace_worker_public_of(_lace_worker);                     \
     if (LACE_UNLIKELY(_lace_worker->allstolen)) {                                     \
-        if (wt->movesplit) wt->movesplit = 0;                                         \
+        if (atomic_load_explicit(&wt->movesplit, memory_order_relaxed)) atomic_store_explicit(&wt->movesplit, 0, memory_order_relaxed);\
         head = (uint32_t)(lace_head - _lace_worker->dq);                              \
         ts.ts.tail = head;                                                            \
         ts.ts.split = head+1;                                                         \
         atomic_store_explicit(&wt->ts.v, ts.v, memory_order_release);                 \
-        wt->allstolen = 0;                                                            \
+        atomic_store_explicit(&wt->allstolen, 0, memory_order_relaxed);               \
         _lace_worker->split = lace_head+1;                                            \
         _lace_worker->allstolen = 0;                                                  \
-    } else if (LACE_UNLIKELY(wt->movesplit)) {                                        \
+    } else if (LACE_UNLIKELY(atomic_load_explicit(&wt->movesplit, memory_order_relaxed))) {\
         head = (uint32_t)(lace_head - _lace_worker->dq);                              \
         split = (uint32_t)(_lace_worker->split - _lace_worker->dq);                   \
         newsplit = (split + head + 2)/2;                                              \
         atomic_store_explicit(&wt->ts.ts.split, newsplit, memory_order_release);      \
         _lace_worker->split = _lace_worker->dq + newsplit;                            \
-        wt->movesplit = 0;                                                            \
+        atomic_store_explicit(&wt->movesplit, 0, memory_order_relaxed);               \
         PR_COUNTSPLITS(_lace_worker, CTR_split_grow);                                 \
     }                                                                                 \
                                                                                       \
@@ -2928,7 +2931,7 @@ void NAME##_SYNC(lace_worker* _lace_worker)                                     
     /* assert (__dq_head > 0); */  /* Commented out because we assume contract */     \
     task_##NAME *t = (task_##NAME *)head;                                             \
                                                                                       \
-    if (LACE_LIKELY(0 == lace_worker_public_of(_lace_worker)->movesplit)) {           \
+    if (LACE_LIKELY(0 == atomic_load_explicit(&lace_worker_public_of(_lace_worker)->movesplit, memory_order_relaxed))) {\
         if (LACE_LIKELY(_lace_worker->split <= head)) {                               \
             atomic_store_explicit(&t->thief, THIEF_EMPTY, memory_order_relaxed);      \
             NAME##_CALL(_lace_worker, ((task_##NAME*)t)->d.args.arg_1, ((task_##NAME*)t)->d.args.arg_2, ((task_##NAME*)t)->d.args.arg_3, ((task_##NAME*)t)->d.args.arg_4);\
@@ -2951,7 +2954,7 @@ void NAME##_DROP(lace_worker* _lace_worker)                                     
     lace_task* head = _lace_worker->head - 1;                                         \
     _lace_worker->head = head;                                                        \
                                                                                       \
-    if (LACE_LIKELY(0 == lace_worker_public_of(_lace_worker)->movesplit)) {           \
+    if (LACE_LIKELY(0 == atomic_load_explicit(&lace_worker_public_of(_lace_worker)->movesplit, memory_order_relaxed))) {\
         if (LACE_LIKELY(_lace_worker->split <= head)) return;                         \
     }                                                                                 \
                                                                                       \
@@ -3005,21 +3008,21 @@ lace_task* NAME##_SPAWN(lace_worker* _lace_worker, ATYPE_1 arg_1, ATYPE_2 arg_2,
                                                                                       \
     lace_worker_public *wt = lace_worker_public_of(_lace_worker);                     \
     if (LACE_UNLIKELY(_lace_worker->allstolen)) {                                     \
-        if (wt->movesplit) wt->movesplit = 0;                                         \
+        if (atomic_load_explicit(&wt->movesplit, memory_order_relaxed)) atomic_store_explicit(&wt->movesplit, 0, memory_order_relaxed);\
         head = (uint32_t)(lace_head - _lace_worker->dq);                              \
         ts.ts.tail = head;                                                            \
         ts.ts.split = head+1;                                                         \
         atomic_store_explicit(&wt->ts.v, ts.v, memory_order_release);                 \
-        wt->allstolen = 0;                                                            \
+        atomic_store_explicit(&wt->allstolen, 0, memory_order_relaxed);               \
         _lace_worker->split = lace_head+1;                                            \
         _lace_worker->allstolen = 0;                                                  \
-    } else if (LACE_UNLIKELY(wt->movesplit)) {                                        \
+    } else if (LACE_UNLIKELY(atomic_load_explicit(&wt->movesplit, memory_order_relaxed))) {\
         head = (uint32_t)(lace_head - _lace_worker->dq);                              \
         split = (uint32_t)(_lace_worker->split - _lace_worker->dq);                   \
         newsplit = (split + head + 2)/2;                                              \
         atomic_store_explicit(&wt->ts.ts.split, newsplit, memory_order_release);      \
         _lace_worker->split = _lace_worker->dq + newsplit;                            \
-        wt->movesplit = 0;                                                            \
+        atomic_store_explicit(&wt->movesplit, 0, memory_order_relaxed);               \
         PR_COUNTSPLITS(_lace_worker, CTR_split_grow);                                 \
     }                                                                                 \
                                                                                       \
@@ -3068,7 +3071,7 @@ RTYPE NAME##_SYNC(lace_worker* _lace_worker)                                    
     /* assert (__dq_head > 0); */  /* Commented out because we assume contract */     \
     task_##NAME *t = (task_##NAME *)head;                                             \
                                                                                       \
-    if (LACE_LIKELY(0 == lace_worker_public_of(_lace_worker)->movesplit)) {           \
+    if (LACE_LIKELY(0 == atomic_load_explicit(&lace_worker_public_of(_lace_worker)->movesplit, memory_order_relaxed))) {\
         if (LACE_LIKELY(_lace_worker->split <= head)) {                               \
             atomic_store_explicit(&t->thief, THIEF_EMPTY, memory_order_relaxed);      \
             return NAME##_CALL(_lace_worker, ((task_##NAME*)t)->d.args.arg_1, ((task_##NAME*)t)->d.args.arg_2, ((task_##NAME*)t)->d.args.arg_3, ((task_##NAME*)t)->d.args.arg_4, ((task_##NAME*)t)->d.args.arg_5);\
@@ -3091,7 +3094,7 @@ void NAME##_DROP(lace_worker* _lace_worker)                                     
     lace_task* head = _lace_worker->head - 1;                                         \
     _lace_worker->head = head;                                                        \
                                                                                       \
-    if (LACE_LIKELY(0 == lace_worker_public_of(_lace_worker)->movesplit)) {           \
+    if (LACE_LIKELY(0 == atomic_load_explicit(&lace_worker_public_of(_lace_worker)->movesplit, memory_order_relaxed))) {\
         if (LACE_LIKELY(_lace_worker->split <= head)) return;                         \
     }                                                                                 \
                                                                                       \
@@ -3142,21 +3145,21 @@ lace_task* NAME##_SPAWN(lace_worker* _lace_worker, ATYPE_1 arg_1, ATYPE_2 arg_2,
                                                                                       \
     lace_worker_public *wt = lace_worker_public_of(_lace_worker);                     \
     if (LACE_UNLIKELY(_lace_worker->allstolen)) {                                     \
-        if (wt->movesplit) wt->movesplit = 0;                                         \
+        if (atomic_load_explicit(&wt->movesplit, memory_order_relaxed)) atomic_store_explicit(&wt->movesplit, 0, memory_order_relaxed);\
         head = (uint32_t)(lace_head - _lace_worker->dq);                              \
         ts.ts.tail = head;                                                            \
         ts.ts.split = head+1;                                                         \
         atomic_store_explicit(&wt->ts.v, ts.v, memory_order_release);                 \
-        wt->allstolen = 0;                                                            \
+        atomic_store_explicit(&wt->allstolen, 0, memory_order_relaxed);               \
         _lace_worker->split = lace_head+1;                                            \
         _lace_worker->allstolen = 0;                                                  \
-    } else if (LACE_UNLIKELY(wt->movesplit)) {                                        \
+    } else if (LACE_UNLIKELY(atomic_load_explicit(&wt->movesplit, memory_order_relaxed))) {\
         head = (uint32_t)(lace_head - _lace_worker->dq);                              \
         split = (uint32_t)(_lace_worker->split - _lace_worker->dq);                   \
         newsplit = (split + head + 2)/2;                                              \
         atomic_store_explicit(&wt->ts.ts.split, newsplit, memory_order_release);      \
         _lace_worker->split = _lace_worker->dq + newsplit;                            \
-        wt->movesplit = 0;                                                            \
+        atomic_store_explicit(&wt->movesplit, 0, memory_order_relaxed);               \
         PR_COUNTSPLITS(_lace_worker, CTR_split_grow);                                 \
     }                                                                                 \
                                                                                       \
@@ -3216,7 +3219,7 @@ void NAME##_SYNC(lace_worker* _lace_worker)                                     
     /* assert (__dq_head > 0); */  /* Commented out because we assume contract */     \
     task_##NAME *t = (task_##NAME *)head;                                             \
                                                                                       \
-    if (LACE_LIKELY(0 == lace_worker_public_of(_lace_worker)->movesplit)) {           \
+    if (LACE_LIKELY(0 == atomic_load_explicit(&lace_worker_public_of(_lace_worker)->movesplit, memory_order_relaxed))) {\
         if (LACE_LIKELY(_lace_worker->split <= head)) {                               \
             atomic_store_explicit(&t->thief, THIEF_EMPTY, memory_order_relaxed);      \
             NAME##_CALL(_lace_worker, ((task_##NAME*)t)->d.args.arg_1, ((task_##NAME*)t)->d.args.arg_2, ((task_##NAME*)t)->d.args.arg_3, ((task_##NAME*)t)->d.args.arg_4, ((task_##NAME*)t)->d.args.arg_5);\
@@ -3239,7 +3242,7 @@ void NAME##_DROP(lace_worker* _lace_worker)                                     
     lace_task* head = _lace_worker->head - 1;                                         \
     _lace_worker->head = head;                                                        \
                                                                                       \
-    if (LACE_LIKELY(0 == lace_worker_public_of(_lace_worker)->movesplit)) {           \
+    if (LACE_LIKELY(0 == atomic_load_explicit(&lace_worker_public_of(_lace_worker)->movesplit, memory_order_relaxed))) {\
         if (LACE_LIKELY(_lace_worker->split <= head)) return;                         \
     }                                                                                 \
                                                                                       \
@@ -3293,21 +3296,21 @@ lace_task* NAME##_SPAWN(lace_worker* _lace_worker, ATYPE_1 arg_1, ATYPE_2 arg_2,
                                                                                       \
     lace_worker_public *wt = lace_worker_public_of(_lace_worker);                     \
     if (LACE_UNLIKELY(_lace_worker->allstolen)) {                                     \
-        if (wt->movesplit) wt->movesplit = 0;                                         \
+        if (atomic_load_explicit(&wt->movesplit, memory_order_relaxed)) atomic_store_explicit(&wt->movesplit, 0, memory_order_relaxed);\
         head = (uint32_t)(lace_head - _lace_worker->dq);                              \
         ts.ts.tail = head;                                                            \
         ts.ts.split = head+1;                                                         \
         atomic_store_explicit(&wt->ts.v, ts.v, memory_order_release);                 \
-        wt->allstolen = 0;                                                            \
+        atomic_store_explicit(&wt->allstolen, 0, memory_order_relaxed);               \
         _lace_worker->split = lace_head+1;                                            \
         _lace_worker->allstolen = 0;                                                  \
-    } else if (LACE_UNLIKELY(wt->movesplit)) {                                        \
+    } else if (LACE_UNLIKELY(atomic_load_explicit(&wt->movesplit, memory_order_relaxed))) {\
         head = (uint32_t)(lace_head - _lace_worker->dq);                              \
         split = (uint32_t)(_lace_worker->split - _lace_worker->dq);                   \
         newsplit = (split + head + 2)/2;                                              \
         atomic_store_explicit(&wt->ts.ts.split, newsplit, memory_order_release);      \
         _lace_worker->split = _lace_worker->dq + newsplit;                            \
-        wt->movesplit = 0;                                                            \
+        atomic_store_explicit(&wt->movesplit, 0, memory_order_relaxed);               \
         PR_COUNTSPLITS(_lace_worker, CTR_split_grow);                                 \
     }                                                                                 \
                                                                                       \
@@ -3356,7 +3359,7 @@ RTYPE NAME##_SYNC(lace_worker* _lace_worker)                                    
     /* assert (__dq_head > 0); */  /* Commented out because we assume contract */     \
     task_##NAME *t = (task_##NAME *)head;                                             \
                                                                                       \
-    if (LACE_LIKELY(0 == lace_worker_public_of(_lace_worker)->movesplit)) {           \
+    if (LACE_LIKELY(0 == atomic_load_explicit(&lace_worker_public_of(_lace_worker)->movesplit, memory_order_relaxed))) {\
         if (LACE_LIKELY(_lace_worker->split <= head)) {                               \
             atomic_store_explicit(&t->thief, THIEF_EMPTY, memory_order_relaxed);      \
             return NAME##_CALL(_lace_worker, ((task_##NAME*)t)->d.args.arg_1, ((task_##NAME*)t)->d.args.arg_2, ((task_##NAME*)t)->d.args.arg_3, ((task_##NAME*)t)->d.args.arg_4, ((task_##NAME*)t)->d.args.arg_5, ((task_##NAME*)t)->d.args.arg_6);\
@@ -3379,7 +3382,7 @@ void NAME##_DROP(lace_worker* _lace_worker)                                     
     lace_task* head = _lace_worker->head - 1;                                         \
     _lace_worker->head = head;                                                        \
                                                                                       \
-    if (LACE_LIKELY(0 == lace_worker_public_of(_lace_worker)->movesplit)) {           \
+    if (LACE_LIKELY(0 == atomic_load_explicit(&lace_worker_public_of(_lace_worker)->movesplit, memory_order_relaxed))) {\
         if (LACE_LIKELY(_lace_worker->split <= head)) return;                         \
     }                                                                                 \
                                                                                       \
@@ -3430,21 +3433,21 @@ lace_task* NAME##_SPAWN(lace_worker* _lace_worker, ATYPE_1 arg_1, ATYPE_2 arg_2,
                                                                                       \
     lace_worker_public *wt = lace_worker_public_of(_lace_worker);                     \
     if (LACE_UNLIKELY(_lace_worker->allstolen)) {                                     \
-        if (wt->movesplit) wt->movesplit = 0;                                         \
+        if (atomic_load_explicit(&wt->movesplit, memory_order_relaxed)) atomic_store_explicit(&wt->movesplit, 0, memory_order_relaxed);\
         head = (uint32_t)(lace_head - _lace_worker->dq);                              \
         ts.ts.tail = head;                                                            \
         ts.ts.split = head+1;                                                         \
         atomic_store_explicit(&wt->ts.v, ts.v, memory_order_release);                 \
-        wt->allstolen = 0;                                                            \
+        atomic_store_explicit(&wt->allstolen, 0, memory_order_relaxed);               \
         _lace_worker->split = lace_head+1;                                            \
         _lace_worker->allstolen = 0;                                                  \
-    } else if (LACE_UNLIKELY(wt->movesplit)) {                                        \
+    } else if (LACE_UNLIKELY(atomic_load_explicit(&wt->movesplit, memory_order_relaxed))) {\
         head = (uint32_t)(lace_head - _lace_worker->dq);                              \
         split = (uint32_t)(_lace_worker->split - _lace_worker->dq);                   \
         newsplit = (split + head + 2)/2;                                              \
         atomic_store_explicit(&wt->ts.ts.split, newsplit, memory_order_release);      \
         _lace_worker->split = _lace_worker->dq + newsplit;                            \
-        wt->movesplit = 0;                                                            \
+        atomic_store_explicit(&wt->movesplit, 0, memory_order_relaxed);               \
         PR_COUNTSPLITS(_lace_worker, CTR_split_grow);                                 \
     }                                                                                 \
                                                                                       \
@@ -3504,7 +3507,7 @@ void NAME##_SYNC(lace_worker* _lace_worker)                                     
     /* assert (__dq_head > 0); */  /* Commented out because we assume contract */     \
     task_##NAME *t = (task_##NAME *)head;                                             \
                                                                                       \
-    if (LACE_LIKELY(0 == lace_worker_public_of(_lace_worker)->movesplit)) {           \
+    if (LACE_LIKELY(0 == atomic_load_explicit(&lace_worker_public_of(_lace_worker)->movesplit, memory_order_relaxed))) {\
         if (LACE_LIKELY(_lace_worker->split <= head)) {                               \
             atomic_store_explicit(&t->thief, THIEF_EMPTY, memory_order_relaxed);      \
             NAME##_CALL(_lace_worker, ((task_##NAME*)t)->d.args.arg_1, ((task_##NAME*)t)->d.args.arg_2, ((task_##NAME*)t)->d.args.arg_3, ((task_##NAME*)t)->d.args.arg_4, ((task_##NAME*)t)->d.args.arg_5, ((task_##NAME*)t)->d.args.arg_6);\
@@ -3527,7 +3530,7 @@ void NAME##_DROP(lace_worker* _lace_worker)                                     
     lace_task* head = _lace_worker->head - 1;                                         \
     _lace_worker->head = head;                                                        \
                                                                                       \
-    if (LACE_LIKELY(0 == lace_worker_public_of(_lace_worker)->movesplit)) {           \
+    if (LACE_LIKELY(0 == atomic_load_explicit(&lace_worker_public_of(_lace_worker)->movesplit, memory_order_relaxed))) {\
         if (LACE_LIKELY(_lace_worker->split <= head)) return;                         \
     }                                                                                 \
                                                                                       \
@@ -3581,21 +3584,21 @@ lace_task* NAME##_SPAWN(lace_worker* _lace_worker, ATYPE_1 arg_1, ATYPE_2 arg_2,
                                                                                       \
     lace_worker_public *wt = lace_worker_public_of(_lace_worker);                     \
     if (LACE_UNLIKELY(_lace_worker->allstolen)) {                                     \
-        if (wt->movesplit) wt->movesplit = 0;                                         \
+        if (atomic_load_explicit(&wt->movesplit, memory_order_relaxed)) atomic_store_explicit(&wt->movesplit, 0, memory_order_relaxed);\
         head = (uint32_t)(lace_head - _lace_worker->dq);                              \
         ts.ts.tail = head;                                                            \
         ts.ts.split = head+1;                                                         \
         atomic_store_explicit(&wt->ts.v, ts.v, memory_order_release);                 \
-        wt->allstolen = 0;                                                            \
+        atomic_store_explicit(&wt->allstolen, 0, memory_order_relaxed);               \
         _lace_worker->split = lace_head+1;                                            \
         _lace_worker->allstolen = 0;                                                  \
-    } else if (LACE_UNLIKELY(wt->movesplit)) {                                        \
+    } else if (LACE_UNLIKELY(atomic_load_explicit(&wt->movesplit, memory_order_relaxed))) {\
         head = (uint32_t)(lace_head - _lace_worker->dq);                              \
         split = (uint32_t)(_lace_worker->split - _lace_worker->dq);                   \
         newsplit = (split + head + 2)/2;                                              \
         atomic_store_explicit(&wt->ts.ts.split, newsplit, memory_order_release);      \
         _lace_worker->split = _lace_worker->dq + newsplit;                            \
-        wt->movesplit = 0;                                                            \
+        atomic_store_explicit(&wt->movesplit, 0, memory_order_relaxed);               \
         PR_COUNTSPLITS(_lace_worker, CTR_split_grow);                                 \
     }                                                                                 \
                                                                                       \
@@ -3644,7 +3647,7 @@ RTYPE NAME##_SYNC(lace_worker* _lace_worker)                                    
     /* assert (__dq_head > 0); */  /* Commented out because we assume contract */     \
     task_##NAME *t = (task_##NAME *)head;                                             \
                                                                                       \
-    if (LACE_LIKELY(0 == lace_worker_public_of(_lace_worker)->movesplit)) {           \
+    if (LACE_LIKELY(0 == atomic_load_explicit(&lace_worker_public_of(_lace_worker)->movesplit, memory_order_relaxed))) {\
         if (LACE_LIKELY(_lace_worker->split <= head)) {                               \
             atomic_store_explicit(&t->thief, THIEF_EMPTY, memory_order_relaxed);      \
             return NAME##_CALL(_lace_worker, ((task_##NAME*)t)->d.args.arg_1, ((task_##NAME*)t)->d.args.arg_2, ((task_##NAME*)t)->d.args.arg_3, ((task_##NAME*)t)->d.args.arg_4, ((task_##NAME*)t)->d.args.arg_5, ((task_##NAME*)t)->d.args.arg_6, ((task_##NAME*)t)->d.args.arg_7);\
@@ -3667,7 +3670,7 @@ void NAME##_DROP(lace_worker* _lace_worker)                                     
     lace_task* head = _lace_worker->head - 1;                                         \
     _lace_worker->head = head;                                                        \
                                                                                       \
-    if (LACE_LIKELY(0 == lace_worker_public_of(_lace_worker)->movesplit)) {           \
+    if (LACE_LIKELY(0 == atomic_load_explicit(&lace_worker_public_of(_lace_worker)->movesplit, memory_order_relaxed))) {\
         if (LACE_LIKELY(_lace_worker->split <= head)) return;                         \
     }                                                                                 \
                                                                                       \
@@ -3718,21 +3721,21 @@ lace_task* NAME##_SPAWN(lace_worker* _lace_worker, ATYPE_1 arg_1, ATYPE_2 arg_2,
                                                                                       \
     lace_worker_public *wt = lace_worker_public_of(_lace_worker);                     \
     if (LACE_UNLIKELY(_lace_worker->allstolen)) {                                     \
-        if (wt->movesplit) wt->movesplit = 0;                                         \
+        if (atomic_load_explicit(&wt->movesplit, memory_order_relaxed)) atomic_store_explicit(&wt->movesplit, 0, memory_order_relaxed);\
         head = (uint32_t)(lace_head - _lace_worker->dq);                              \
         ts.ts.tail = head;                                                            \
         ts.ts.split = head+1;                                                         \
         atomic_store_explicit(&wt->ts.v, ts.v, memory_order_release);                 \
-        wt->allstolen = 0;                                                            \
+        atomic_store_explicit(&wt->allstolen, 0, memory_order_relaxed);               \
         _lace_worker->split = lace_head+1;                                            \
         _lace_worker->allstolen = 0;                                                  \
-    } else if (LACE_UNLIKELY(wt->movesplit)) {                                        \
+    } else if (LACE_UNLIKELY(atomic_load_explicit(&wt->movesplit, memory_order_relaxed))) {\
         head = (uint32_t)(lace_head - _lace_worker->dq);                              \
         split = (uint32_t)(_lace_worker->split - _lace_worker->dq);                   \
         newsplit = (split + head + 2)/2;                                              \
         atomic_store_explicit(&wt->ts.ts.split, newsplit, memory_order_release);      \
         _lace_worker->split = _lace_worker->dq + newsplit;                            \
-        wt->movesplit = 0;                                                            \
+        atomic_store_explicit(&wt->movesplit, 0, memory_order_relaxed);               \
         PR_COUNTSPLITS(_lace_worker, CTR_split_grow);                                 \
     }                                                                                 \
                                                                                       \
@@ -3792,7 +3795,7 @@ void NAME##_SYNC(lace_worker* _lace_worker)                                     
     /* assert (__dq_head > 0); */  /* Commented out because we assume contract */     \
     task_##NAME *t = (task_##NAME *)head;                                             \
                                                                                       \
-    if (LACE_LIKELY(0 == lace_worker_public_of(_lace_worker)->movesplit)) {           \
+    if (LACE_LIKELY(0 == atomic_load_explicit(&lace_worker_public_of(_lace_worker)->movesplit, memory_order_relaxed))) {\
         if (LACE_LIKELY(_lace_worker->split <= head)) {                               \
             atomic_store_explicit(&t->thief, THIEF_EMPTY, memory_order_relaxed);      \
             NAME##_CALL(_lace_worker, ((task_##NAME*)t)->d.args.arg_1, ((task_##NAME*)t)->d.args.arg_2, ((task_##NAME*)t)->d.args.arg_3, ((task_##NAME*)t)->d.args.arg_4, ((task_##NAME*)t)->d.args.arg_5, ((task_##NAME*)t)->d.args.arg_6, ((task_##NAME*)t)->d.args.arg_7);\
@@ -3815,7 +3818,7 @@ void NAME##_DROP(lace_worker* _lace_worker)                                     
     lace_task* head = _lace_worker->head - 1;                                         \
     _lace_worker->head = head;                                                        \
                                                                                       \
-    if (LACE_LIKELY(0 == lace_worker_public_of(_lace_worker)->movesplit)) {           \
+    if (LACE_LIKELY(0 == atomic_load_explicit(&lace_worker_public_of(_lace_worker)->movesplit, memory_order_relaxed))) {\
         if (LACE_LIKELY(_lace_worker->split <= head)) return;                         \
     }                                                                                 \
                                                                                       \
@@ -3869,21 +3872,21 @@ lace_task* NAME##_SPAWN(lace_worker* _lace_worker, ATYPE_1 arg_1, ATYPE_2 arg_2,
                                                                                       \
     lace_worker_public *wt = lace_worker_public_of(_lace_worker);                     \
     if (LACE_UNLIKELY(_lace_worker->allstolen)) {                                     \
-        if (wt->movesplit) wt->movesplit = 0;                                         \
+        if (atomic_load_explicit(&wt->movesplit, memory_order_relaxed)) atomic_store_explicit(&wt->movesplit, 0, memory_order_relaxed);\
         head = (uint32_t)(lace_head - _lace_worker->dq);                              \
         ts.ts.tail = head;                                                            \
         ts.ts.split = head+1;                                                         \
         atomic_store_explicit(&wt->ts.v, ts.v, memory_order_release);                 \
-        wt->allstolen = 0;                                                            \
+        atomic_store_explicit(&wt->allstolen, 0, memory_order_relaxed);               \
         _lace_worker->split = lace_head+1;                                            \
         _lace_worker->allstolen = 0;                                                  \
-    } else if (LACE_UNLIKELY(wt->movesplit)) {                                        \
+    } else if (LACE_UNLIKELY(atomic_load_explicit(&wt->movesplit, memory_order_relaxed))) {\
         head = (uint32_t)(lace_head - _lace_worker->dq);                              \
         split = (uint32_t)(_lace_worker->split - _lace_worker->dq);                   \
         newsplit = (split + head + 2)/2;                                              \
         atomic_store_explicit(&wt->ts.ts.split, newsplit, memory_order_release);      \
         _lace_worker->split = _lace_worker->dq + newsplit;                            \
-        wt->movesplit = 0;                                                            \
+        atomic_store_explicit(&wt->movesplit, 0, memory_order_relaxed);               \
         PR_COUNTSPLITS(_lace_worker, CTR_split_grow);                                 \
     }                                                                                 \
                                                                                       \
@@ -3932,7 +3935,7 @@ RTYPE NAME##_SYNC(lace_worker* _lace_worker)                                    
     /* assert (__dq_head > 0); */  /* Commented out because we assume contract */     \
     task_##NAME *t = (task_##NAME *)head;                                             \
                                                                                       \
-    if (LACE_LIKELY(0 == lace_worker_public_of(_lace_worker)->movesplit)) {           \
+    if (LACE_LIKELY(0 == atomic_load_explicit(&lace_worker_public_of(_lace_worker)->movesplit, memory_order_relaxed))) {\
         if (LACE_LIKELY(_lace_worker->split <= head)) {                               \
             atomic_store_explicit(&t->thief, THIEF_EMPTY, memory_order_relaxed);      \
             return NAME##_CALL(_lace_worker, ((task_##NAME*)t)->d.args.arg_1, ((task_##NAME*)t)->d.args.arg_2, ((task_##NAME*)t)->d.args.arg_3, ((task_##NAME*)t)->d.args.arg_4, ((task_##NAME*)t)->d.args.arg_5, ((task_##NAME*)t)->d.args.arg_6, ((task_##NAME*)t)->d.args.arg_7, ((task_##NAME*)t)->d.args.arg_8);\
@@ -3955,7 +3958,7 @@ void NAME##_DROP(lace_worker* _lace_worker)                                     
     lace_task* head = _lace_worker->head - 1;                                         \
     _lace_worker->head = head;                                                        \
                                                                                       \
-    if (LACE_LIKELY(0 == lace_worker_public_of(_lace_worker)->movesplit)) {           \
+    if (LACE_LIKELY(0 == atomic_load_explicit(&lace_worker_public_of(_lace_worker)->movesplit, memory_order_relaxed))) {\
         if (LACE_LIKELY(_lace_worker->split <= head)) return;                         \
     }                                                                                 \
                                                                                       \
@@ -4006,21 +4009,21 @@ lace_task* NAME##_SPAWN(lace_worker* _lace_worker, ATYPE_1 arg_1, ATYPE_2 arg_2,
                                                                                       \
     lace_worker_public *wt = lace_worker_public_of(_lace_worker);                     \
     if (LACE_UNLIKELY(_lace_worker->allstolen)) {                                     \
-        if (wt->movesplit) wt->movesplit = 0;                                         \
+        if (atomic_load_explicit(&wt->movesplit, memory_order_relaxed)) atomic_store_explicit(&wt->movesplit, 0, memory_order_relaxed);\
         head = (uint32_t)(lace_head - _lace_worker->dq);                              \
         ts.ts.tail = head;                                                            \
         ts.ts.split = head+1;                                                         \
         atomic_store_explicit(&wt->ts.v, ts.v, memory_order_release);                 \
-        wt->allstolen = 0;                                                            \
+        atomic_store_explicit(&wt->allstolen, 0, memory_order_relaxed);               \
         _lace_worker->split = lace_head+1;                                            \
         _lace_worker->allstolen = 0;                                                  \
-    } else if (LACE_UNLIKELY(wt->movesplit)) {                                        \
+    } else if (LACE_UNLIKELY(atomic_load_explicit(&wt->movesplit, memory_order_relaxed))) {\
         head = (uint32_t)(lace_head - _lace_worker->dq);                              \
         split = (uint32_t)(_lace_worker->split - _lace_worker->dq);                   \
         newsplit = (split + head + 2)/2;                                              \
         atomic_store_explicit(&wt->ts.ts.split, newsplit, memory_order_release);      \
         _lace_worker->split = _lace_worker->dq + newsplit;                            \
-        wt->movesplit = 0;                                                            \
+        atomic_store_explicit(&wt->movesplit, 0, memory_order_relaxed);               \
         PR_COUNTSPLITS(_lace_worker, CTR_split_grow);                                 \
     }                                                                                 \
                                                                                       \
@@ -4080,7 +4083,7 @@ void NAME##_SYNC(lace_worker* _lace_worker)                                     
     /* assert (__dq_head > 0); */  /* Commented out because we assume contract */     \
     task_##NAME *t = (task_##NAME *)head;                                             \
                                                                                       \
-    if (LACE_LIKELY(0 == lace_worker_public_of(_lace_worker)->movesplit)) {           \
+    if (LACE_LIKELY(0 == atomic_load_explicit(&lace_worker_public_of(_lace_worker)->movesplit, memory_order_relaxed))) {\
         if (LACE_LIKELY(_lace_worker->split <= head)) {                               \
             atomic_store_explicit(&t->thief, THIEF_EMPTY, memory_order_relaxed);      \
             NAME##_CALL(_lace_worker, ((task_##NAME*)t)->d.args.arg_1, ((task_##NAME*)t)->d.args.arg_2, ((task_##NAME*)t)->d.args.arg_3, ((task_##NAME*)t)->d.args.arg_4, ((task_##NAME*)t)->d.args.arg_5, ((task_##NAME*)t)->d.args.arg_6, ((task_##NAME*)t)->d.args.arg_7, ((task_##NAME*)t)->d.args.arg_8);\
@@ -4103,7 +4106,7 @@ void NAME##_DROP(lace_worker* _lace_worker)                                     
     lace_task* head = _lace_worker->head - 1;                                         \
     _lace_worker->head = head;                                                        \
                                                                                       \
-    if (LACE_LIKELY(0 == lace_worker_public_of(_lace_worker)->movesplit)) {           \
+    if (LACE_LIKELY(0 == atomic_load_explicit(&lace_worker_public_of(_lace_worker)->movesplit, memory_order_relaxed))) {\
         if (LACE_LIKELY(_lace_worker->split <= head)) return;                         \
     }                                                                                 \
                                                                                       \
@@ -4157,21 +4160,21 @@ lace_task* NAME##_SPAWN(lace_worker* _lace_worker, ATYPE_1 arg_1, ATYPE_2 arg_2,
                                                                                       \
     lace_worker_public *wt = lace_worker_public_of(_lace_worker);                     \
     if (LACE_UNLIKELY(_lace_worker->allstolen)) {                                     \
-        if (wt->movesplit) wt->movesplit = 0;                                         \
+        if (atomic_load_explicit(&wt->movesplit, memory_order_relaxed)) atomic_store_explicit(&wt->movesplit, 0, memory_order_relaxed);\
         head = (uint32_t)(lace_head - _lace_worker->dq);                              \
         ts.ts.tail = head;                                                            \
         ts.ts.split = head+1;                                                         \
         atomic_store_explicit(&wt->ts.v, ts.v, memory_order_release);                 \
-        wt->allstolen = 0;                                                            \
+        atomic_store_explicit(&wt->allstolen, 0, memory_order_relaxed);               \
         _lace_worker->split = lace_head+1;                                            \
         _lace_worker->allstolen = 0;                                                  \
-    } else if (LACE_UNLIKELY(wt->movesplit)) {                                        \
+    } else if (LACE_UNLIKELY(atomic_load_explicit(&wt->movesplit, memory_order_relaxed))) {\
         head = (uint32_t)(lace_head - _lace_worker->dq);                              \
         split = (uint32_t)(_lace_worker->split - _lace_worker->dq);                   \
         newsplit = (split + head + 2)/2;                                              \
         atomic_store_explicit(&wt->ts.ts.split, newsplit, memory_order_release);      \
         _lace_worker->split = _lace_worker->dq + newsplit;                            \
-        wt->movesplit = 0;                                                            \
+        atomic_store_explicit(&wt->movesplit, 0, memory_order_relaxed);               \
         PR_COUNTSPLITS(_lace_worker, CTR_split_grow);                                 \
     }                                                                                 \
                                                                                       \
@@ -4220,7 +4223,7 @@ RTYPE NAME##_SYNC(lace_worker* _lace_worker)                                    
     /* assert (__dq_head > 0); */  /* Commented out because we assume contract */     \
     task_##NAME *t = (task_##NAME *)head;                                             \
                                                                                       \
-    if (LACE_LIKELY(0 == lace_worker_public_of(_lace_worker)->movesplit)) {           \
+    if (LACE_LIKELY(0 == atomic_load_explicit(&lace_worker_public_of(_lace_worker)->movesplit, memory_order_relaxed))) {\
         if (LACE_LIKELY(_lace_worker->split <= head)) {                               \
             atomic_store_explicit(&t->thief, THIEF_EMPTY, memory_order_relaxed);      \
             return NAME##_CALL(_lace_worker, ((task_##NAME*)t)->d.args.arg_1, ((task_##NAME*)t)->d.args.arg_2, ((task_##NAME*)t)->d.args.arg_3, ((task_##NAME*)t)->d.args.arg_4, ((task_##NAME*)t)->d.args.arg_5, ((task_##NAME*)t)->d.args.arg_6, ((task_##NAME*)t)->d.args.arg_7, ((task_##NAME*)t)->d.args.arg_8, ((task_##NAME*)t)->d.args.arg_9);\
@@ -4243,7 +4246,7 @@ void NAME##_DROP(lace_worker* _lace_worker)                                     
     lace_task* head = _lace_worker->head - 1;                                         \
     _lace_worker->head = head;                                                        \
                                                                                       \
-    if (LACE_LIKELY(0 == lace_worker_public_of(_lace_worker)->movesplit)) {           \
+    if (LACE_LIKELY(0 == atomic_load_explicit(&lace_worker_public_of(_lace_worker)->movesplit, memory_order_relaxed))) {\
         if (LACE_LIKELY(_lace_worker->split <= head)) return;                         \
     }                                                                                 \
                                                                                       \
@@ -4294,21 +4297,21 @@ lace_task* NAME##_SPAWN(lace_worker* _lace_worker, ATYPE_1 arg_1, ATYPE_2 arg_2,
                                                                                       \
     lace_worker_public *wt = lace_worker_public_of(_lace_worker);                     \
     if (LACE_UNLIKELY(_lace_worker->allstolen)) {                                     \
-        if (wt->movesplit) wt->movesplit = 0;                                         \
+        if (atomic_load_explicit(&wt->movesplit, memory_order_relaxed)) atomic_store_explicit(&wt->movesplit, 0, memory_order_relaxed);\
         head = (uint32_t)(lace_head - _lace_worker->dq);                              \
         ts.ts.tail = head;                                                            \
         ts.ts.split = head+1;                                                         \
         atomic_store_explicit(&wt->ts.v, ts.v, memory_order_release);                 \
-        wt->allstolen = 0;                                                            \
+        atomic_store_explicit(&wt->allstolen, 0, memory_order_relaxed);               \
         _lace_worker->split = lace_head+1;                                            \
         _lace_worker->allstolen = 0;                                                  \
-    } else if (LACE_UNLIKELY(wt->movesplit)) {                                        \
+    } else if (LACE_UNLIKELY(atomic_load_explicit(&wt->movesplit, memory_order_relaxed))) {\
         head = (uint32_t)(lace_head - _lace_worker->dq);                              \
         split = (uint32_t)(_lace_worker->split - _lace_worker->dq);                   \
         newsplit = (split + head + 2)/2;                                              \
         atomic_store_explicit(&wt->ts.ts.split, newsplit, memory_order_release);      \
         _lace_worker->split = _lace_worker->dq + newsplit;                            \
-        wt->movesplit = 0;                                                            \
+        atomic_store_explicit(&wt->movesplit, 0, memory_order_relaxed);               \
         PR_COUNTSPLITS(_lace_worker, CTR_split_grow);                                 \
     }                                                                                 \
                                                                                       \
@@ -4368,7 +4371,7 @@ void NAME##_SYNC(lace_worker* _lace_worker)                                     
     /* assert (__dq_head > 0); */  /* Commented out because we assume contract */     \
     task_##NAME *t = (task_##NAME *)head;                                             \
                                                                                       \
-    if (LACE_LIKELY(0 == lace_worker_public_of(_lace_worker)->movesplit)) {           \
+    if (LACE_LIKELY(0 == atomic_load_explicit(&lace_worker_public_of(_lace_worker)->movesplit, memory_order_relaxed))) {\
         if (LACE_LIKELY(_lace_worker->split <= head)) {                               \
             atomic_store_explicit(&t->thief, THIEF_EMPTY, memory_order_relaxed);      \
             NAME##_CALL(_lace_worker, ((task_##NAME*)t)->d.args.arg_1, ((task_##NAME*)t)->d.args.arg_2, ((task_##NAME*)t)->d.args.arg_3, ((task_##NAME*)t)->d.args.arg_4, ((task_##NAME*)t)->d.args.arg_5, ((task_##NAME*)t)->d.args.arg_6, ((task_##NAME*)t)->d.args.arg_7, ((task_##NAME*)t)->d.args.arg_8, ((task_##NAME*)t)->d.args.arg_9);\
@@ -4391,7 +4394,7 @@ void NAME##_DROP(lace_worker* _lace_worker)                                     
     lace_task* head = _lace_worker->head - 1;                                         \
     _lace_worker->head = head;                                                        \
                                                                                       \
-    if (LACE_LIKELY(0 == lace_worker_public_of(_lace_worker)->movesplit)) {           \
+    if (LACE_LIKELY(0 == atomic_load_explicit(&lace_worker_public_of(_lace_worker)->movesplit, memory_order_relaxed))) {\
         if (LACE_LIKELY(_lace_worker->split <= head)) return;                         \
     }                                                                                 \
                                                                                       \
@@ -4445,21 +4448,21 @@ lace_task* NAME##_SPAWN(lace_worker* _lace_worker, ATYPE_1 arg_1, ATYPE_2 arg_2,
                                                                                       \
     lace_worker_public *wt = lace_worker_public_of(_lace_worker);                     \
     if (LACE_UNLIKELY(_lace_worker->allstolen)) {                                     \
-        if (wt->movesplit) wt->movesplit = 0;                                         \
+        if (atomic_load_explicit(&wt->movesplit, memory_order_relaxed)) atomic_store_explicit(&wt->movesplit, 0, memory_order_relaxed);\
         head = (uint32_t)(lace_head - _lace_worker->dq);                              \
         ts.ts.tail = head;                                                            \
         ts.ts.split = head+1;                                                         \
         atomic_store_explicit(&wt->ts.v, ts.v, memory_order_release);                 \
-        wt->allstolen = 0;                                                            \
+        atomic_store_explicit(&wt->allstolen, 0, memory_order_relaxed);               \
         _lace_worker->split = lace_head+1;                                            \
         _lace_worker->allstolen = 0;                                                  \
-    } else if (LACE_UNLIKELY(wt->movesplit)) {                                        \
+    } else if (LACE_UNLIKELY(atomic_load_explicit(&wt->movesplit, memory_order_relaxed))) {\
         head = (uint32_t)(lace_head - _lace_worker->dq);                              \
         split = (uint32_t)(_lace_worker->split - _lace_worker->dq);                   \
         newsplit = (split + head + 2)/2;                                              \
         atomic_store_explicit(&wt->ts.ts.split, newsplit, memory_order_release);      \
         _lace_worker->split = _lace_worker->dq + newsplit;                            \
-        wt->movesplit = 0;                                                            \
+        atomic_store_explicit(&wt->movesplit, 0, memory_order_relaxed);               \
         PR_COUNTSPLITS(_lace_worker, CTR_split_grow);                                 \
     }                                                                                 \
                                                                                       \
@@ -4508,7 +4511,7 @@ RTYPE NAME##_SYNC(lace_worker* _lace_worker)                                    
     /* assert (__dq_head > 0); */  /* Commented out because we assume contract */     \
     task_##NAME *t = (task_##NAME *)head;                                             \
                                                                                       \
-    if (LACE_LIKELY(0 == lace_worker_public_of(_lace_worker)->movesplit)) {           \
+    if (LACE_LIKELY(0 == atomic_load_explicit(&lace_worker_public_of(_lace_worker)->movesplit, memory_order_relaxed))) {\
         if (LACE_LIKELY(_lace_worker->split <= head)) {                               \
             atomic_store_explicit(&t->thief, THIEF_EMPTY, memory_order_relaxed);      \
             return NAME##_CALL(_lace_worker, ((task_##NAME*)t)->d.args.arg_1, ((task_##NAME*)t)->d.args.arg_2, ((task_##NAME*)t)->d.args.arg_3, ((task_##NAME*)t)->d.args.arg_4, ((task_##NAME*)t)->d.args.arg_5, ((task_##NAME*)t)->d.args.arg_6, ((task_##NAME*)t)->d.args.arg_7, ((task_##NAME*)t)->d.args.arg_8, ((task_##NAME*)t)->d.args.arg_9, ((task_##NAME*)t)->d.args.arg_10);\
@@ -4531,7 +4534,7 @@ void NAME##_DROP(lace_worker* _lace_worker)                                     
     lace_task* head = _lace_worker->head - 1;                                         \
     _lace_worker->head = head;                                                        \
                                                                                       \
-    if (LACE_LIKELY(0 == lace_worker_public_of(_lace_worker)->movesplit)) {           \
+    if (LACE_LIKELY(0 == atomic_load_explicit(&lace_worker_public_of(_lace_worker)->movesplit, memory_order_relaxed))) {\
         if (LACE_LIKELY(_lace_worker->split <= head)) return;                         \
     }                                                                                 \
                                                                                       \
@@ -4582,21 +4585,21 @@ lace_task* NAME##_SPAWN(lace_worker* _lace_worker, ATYPE_1 arg_1, ATYPE_2 arg_2,
                                                                                       \
     lace_worker_public *wt = lace_worker_public_of(_lace_worker);                     \
     if (LACE_UNLIKELY(_lace_worker->allstolen)) {                                     \
-        if (wt->movesplit) wt->movesplit = 0;                                         \
+        if (atomic_load_explicit(&wt->movesplit, memory_order_relaxed)) atomic_store_explicit(&wt->movesplit, 0, memory_order_relaxed);\
         head = (uint32_t)(lace_head - _lace_worker->dq);                              \
         ts.ts.tail = head;                                                            \
         ts.ts.split = head+1;                                                         \
         atomic_store_explicit(&wt->ts.v, ts.v, memory_order_release);                 \
-        wt->allstolen = 0;                                                            \
+        atomic_store_explicit(&wt->allstolen, 0, memory_order_relaxed);               \
         _lace_worker->split = lace_head+1;                                            \
         _lace_worker->allstolen = 0;                                                  \
-    } else if (LACE_UNLIKELY(wt->movesplit)) {                                        \
+    } else if (LACE_UNLIKELY(atomic_load_explicit(&wt->movesplit, memory_order_relaxed))) {\
         head = (uint32_t)(lace_head - _lace_worker->dq);                              \
         split = (uint32_t)(_lace_worker->split - _lace_worker->dq);                   \
         newsplit = (split + head + 2)/2;                                              \
         atomic_store_explicit(&wt->ts.ts.split, newsplit, memory_order_release);      \
         _lace_worker->split = _lace_worker->dq + newsplit;                            \
-        wt->movesplit = 0;                                                            \
+        atomic_store_explicit(&wt->movesplit, 0, memory_order_relaxed);               \
         PR_COUNTSPLITS(_lace_worker, CTR_split_grow);                                 \
     }                                                                                 \
                                                                                       \
@@ -4656,7 +4659,7 @@ void NAME##_SYNC(lace_worker* _lace_worker)                                     
     /* assert (__dq_head > 0); */  /* Commented out because we assume contract */     \
     task_##NAME *t = (task_##NAME *)head;                                             \
                                                                                       \
-    if (LACE_LIKELY(0 == lace_worker_public_of(_lace_worker)->movesplit)) {           \
+    if (LACE_LIKELY(0 == atomic_load_explicit(&lace_worker_public_of(_lace_worker)->movesplit, memory_order_relaxed))) {\
         if (LACE_LIKELY(_lace_worker->split <= head)) {                               \
             atomic_store_explicit(&t->thief, THIEF_EMPTY, memory_order_relaxed);      \
             NAME##_CALL(_lace_worker, ((task_##NAME*)t)->d.args.arg_1, ((task_##NAME*)t)->d.args.arg_2, ((task_##NAME*)t)->d.args.arg_3, ((task_##NAME*)t)->d.args.arg_4, ((task_##NAME*)t)->d.args.arg_5, ((task_##NAME*)t)->d.args.arg_6, ((task_##NAME*)t)->d.args.arg_7, ((task_##NAME*)t)->d.args.arg_8, ((task_##NAME*)t)->d.args.arg_9, ((task_##NAME*)t)->d.args.arg_10);\
@@ -4679,7 +4682,7 @@ void NAME##_DROP(lace_worker* _lace_worker)                                     
     lace_task* head = _lace_worker->head - 1;                                         \
     _lace_worker->head = head;                                                        \
                                                                                       \
-    if (LACE_LIKELY(0 == lace_worker_public_of(_lace_worker)->movesplit)) {           \
+    if (LACE_LIKELY(0 == atomic_load_explicit(&lace_worker_public_of(_lace_worker)->movesplit, memory_order_relaxed))) {\
         if (LACE_LIKELY(_lace_worker->split <= head)) return;                         \
     }                                                                                 \
                                                                                       \
