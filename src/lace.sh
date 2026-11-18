@@ -449,7 +449,9 @@ void lace_worker_leave(void);
  * lace_worker_leave), never from inside a task. With lace_start_external, it
  * makes every lace_worker_loop return and waits until all workers have left;
  * the program then joins its own threads. Afterwards Lace can be started
- * again, also with other threads as the workers.
+ * again, also with other threads as the workers. Call it when no other
+ * thread starts tasks (NAME(...), lace_run_task) any more; it first waits
+ * for the tasks that other threads still run to return.
  * Do not call from a signal handler.
  *
  * @see lace_start

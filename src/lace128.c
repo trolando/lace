@@ -2092,6 +2092,9 @@ typedef struct ext_lace_task {
 #define LACE_EXT_SLOTS 64
 static _Atomic(ext_lace_task*)external_tasks[LACE_EXT_SLOTS];
 static LACE_IDLE_LINE atomic_int external_task_count = 0;
+/* The calls of lace_run_task from outside Lace that have not returned yet:
+ * lace_stop waits for them */
+static atomic_int external_calls = 0;
 
 /* The frames (NEWFRAME, TOGETHER) this worker is in: lace_exec_in_new_frame,
  * which every worker of a frame runs, the initiator too */
@@ -2124,16 +2127,10 @@ lace_wake_helper(void)
     }
 }
 
-void
-lace_run_task(lace_task *task)
+/* Run a task from a thread outside Lace: hand it to a worker and wait */
+static void
+lace_run_external(lace_task *task)
 {
-    // check if we are really not in a Lace thread
-    lace_worker* self = lace_get_worker();
-    if (self != 0) {
-        task->f(self, task);
-        return;
-    }
-
     ext_lace_task et;
     et.task = task;
     atomic_store_explicit(&et.task->thief, 0, memory_order_relaxed);
@@ -2226,6 +2223,22 @@ pushed:
     while (atomic_load_explicit(&et.state, memory_order_acquire) != EXT_DONE) {
         lace_futex_wait(&et.state, EXT_SLEEPING, -1);
     }
+}
+
+void
+lace_run_task(lace_task *task)
+{
+    // check if we are really not in a Lace thread
+    lace_worker* self = lace_get_worker();
+    if (self != 0) {
+        task->f(self, task);
+        return;
+    }
+
+    /* Counted while it runs: lace_stop waits for it */
+    atomic_fetch_add_explicit(&external_calls, 1, memory_order_relaxed);
+    lace_run_external(task);
+    atomic_fetch_sub_explicit(&external_calls, 1, memory_order_release);
 }
 
 /* Run one external task if there is one; returns whether it did. */
@@ -3670,6 +3683,10 @@ void lace_stop(void)
             (unsigned int)lace_thread_worker->worker);
         exit(1);
     }
+
+    /* Let the external calls of other threads finish first: their tasks may
+     * still need every worker, for instance to start a NEWFRAME */
+    while (atomic_load_explicit(&external_calls, memory_order_acquire) > 0) lace_sleep_us(50);
 
     /* seq_cst: a worker rechecks the quit flag after marking itself asleep */
     atomic_store_explicit(&lace_quits, 1, memory_order_seq_cst);
