@@ -498,7 +498,7 @@ void lace_start(unsigned int n_workers, size_t dqsize);
  * Stop Lace.
  * Call this method from outside Lace threads, when no other thread starts
  * tasks with RUN any more. It first waits for the tasks that other threads
- * still run with RUN to return.
+ * still run with RUN to return, and for a lace_release_memory in progress.
  */
 void lace_stop(void);
 
@@ -514,7 +514,8 @@ void lace_stop(void);
  * tasks to finish.
  *
  * Must be called from a thread that is not a Lace worker; it returns at once
- * otherwise. On Windows only the scratch arenas are released.
+ * otherwise, and while lace_stop runs. On Windows only the scratch arenas are
+ * released.
  */
 void lace_release_memory(void);
 

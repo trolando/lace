@@ -1284,6 +1284,8 @@ static int is_running = 0;
 static LACE_IDLE_LINE atomic_uint release_gen = 0;
 static atomic_uint release_done = 0;
 static atomic_flag release_lock = ATOMIC_FLAG_INIT;
+/* Set while lace_stop runs: lace_release_memory gives way to it */
+static atomic_int lace_stopping = 0;
 
 /**
  * Futex-based idle system for progressive worker sleeping
@@ -2558,9 +2560,20 @@ lace_release_worker_memory(WorkerP *lw, Task *head)
 void
 lace_release_memory(void)
 {
-    if (!is_running || lace_get_worker() != NULL) return;
+    if (lace_get_worker() != NULL) return;
 
-    while (atomic_flag_test_and_set_explicit(&release_lock, memory_order_acquire)) lace_sleep_us(50);
+    /* The lock also keeps lace_stop out, which takes it too. A release gives
+     * way to a stop that waits for the lock, so that repeated releases
+     * cannot keep lace_stop waiting. */
+    if (atomic_load_explicit(&lace_stopping, memory_order_relaxed)) return;
+    while (atomic_flag_test_and_set_explicit(&release_lock, memory_order_acquire)) {
+        if (atomic_load_explicit(&lace_stopping, memory_order_relaxed)) return;
+        lace_sleep_us(50);
+    }
+    if (!is_running || atomic_load_explicit(&lace_stopping, memory_order_relaxed)) {
+        atomic_flag_clear_explicit(&release_lock, memory_order_release);
+        return;
+    }
     atomic_store_explicit(&release_done, 0, memory_order_relaxed);
     /* seq_cst: a worker rechecks release_gen after marking itself asleep */
     atomic_fetch_add_explicit(&release_gen, 1, memory_order_seq_cst);
@@ -3692,7 +3705,11 @@ void lace_stop(void)
 {
     /* Let the external calls of other threads finish first: their tasks may
      * still need every worker, for instance to start a NEWFRAME */
+    atomic_store_explicit(&lace_stopping, 1, memory_order_relaxed);
     while (atomic_load_explicit(&external_calls, memory_order_acquire) > 0) lace_sleep_us(50);
+    /* and a lace_release_memory in progress, which waits for every worker
+     * and uses the idle flags that are freed below */
+    while (atomic_flag_test_and_set_explicit(&release_lock, memory_order_acquire)) lace_sleep_us(50);
 
     /* seq_cst: a worker rechecks the quit flag after marking itself asleep */
     atomic_store_explicit(&lace_quits, 1, memory_order_seq_cst);
@@ -3776,6 +3793,8 @@ void lace_stop(void)
     idle_flags = NULL;
 
     is_running = 0;
+    atomic_store_explicit(&lace_stopping, 0, memory_order_relaxed);
+    atomic_flag_clear_explicit(&release_lock, memory_order_release);
 }
 
 /**
