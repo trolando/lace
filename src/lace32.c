@@ -3966,6 +3966,10 @@ lace_yield(lace_worker *worker)
     lace_bal_scope_end(&sc);
 }
 
+/* The workers that nap while they wait for the others of a TOGETHER: the
+ * last one to finish wakes them only if there are any */
+static atomic_int together_nappers = 0;
+
 /**
  * Root task for the TOGETHER method.
  * Ensures after executing, to steal random tasks until done.
@@ -3987,8 +3991,10 @@ lace_together_root_CALL(lace_worker* lw, lace_task* t, atomic_int* finished)
     /* signal our completion; the last one wakes those that wait below
      * (the initiator's frame, which holds finished, lasts until all of them
      * have passed the barrier after this) */
-    if (atomic_fetch_sub_explicit(finished, 1, memory_order_relaxed) == 1) {
-        if (n_workers > 1) lace_futex_wake_all(finished);
+    if (atomic_fetch_sub_explicit(finished, 1, memory_order_seq_cst) == 1) {
+        /* seq_cst, as the count of the nappers below: either we see a
+         * napper, or its futex wait sees finished changed */
+        if (atomic_load_explicit(&together_nappers, memory_order_seq_cst) > 0) lace_futex_wake_all(finished);
         return;
     }
 
@@ -4010,7 +4016,11 @@ lace_together_root_CALL(lace_worker* lw, lace_task* t, atomic_int* finished)
         }
         const uint64_t now = lace_now_us();
         if (spin == 64) start = now;
-        else if (now - start >= LACE_BARRIER_SPIN_US) lace_futex_wait(finished, left, LACE_IDLE_FUTEX_TIMEOUT_MIN);
+        else if (now - start >= LACE_BARRIER_SPIN_US) {
+            atomic_fetch_add_explicit(&together_nappers, 1, memory_order_seq_cst);
+            lace_futex_wait(finished, left, LACE_IDLE_FUTEX_TIMEOUT_MIN);
+            atomic_fetch_sub_explicit(&together_nappers, 1, memory_order_seq_cst);
+        }
     }
     lace_bal_scope_end(&sc);
 }
