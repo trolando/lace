@@ -305,6 +305,14 @@ def determine_worker_configs():
     return (1,)
 
 
+def executable(exe):
+    """The file name of a benchmark program: exe, or exe.exe on Windows; None if neither exists."""
+    for name in (exe, exe + ".exe"):
+        if os.path.isfile(name):
+            return name
+    return None
+
+
 def discover_experiments(W):
     """
     Discover available benchmark programs and generate experiment definitions.
@@ -319,7 +327,8 @@ def discover_experiments(W):
 
     for w in W:
         def lace(name, exe, *args):
-            if os.path.isfile(exe):
+            exe = executable(exe)
+            if exe is not None:
                 experiments.append((name, [f"./{exe}", "-w", str(w), *args], w))
             if os.path.isfile(exe+".exe"):
                 experiments.append((name, [f"./{exe}.exe", "-w", str(w), *args], w))
@@ -345,7 +354,8 @@ def discover_experiments(W):
         lace("dsyrk", "dsyrk-lace")
 
     def seq(name, exe, *args):
-        if os.path.isfile(exe):
+        exe = executable(exe)
+        if exe is not None:
             experiments.append((f"{name}-seq", [f"./{exe}", *args], 1))
         if os.path.isfile(exe+".exe"):
             experiments.append((f"{name}-seq", [f"./{exe}.exe", *args], 1))
