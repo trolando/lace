@@ -91,7 +91,7 @@ main(void)
         printf("fib(20) = %d, expected 6765\n", r);
         return 1;
     }
-    if (allowed != 0 && n > allowed) {
+    if (allowed != 0 && n != allowed) {
         printf("%u workers for %u allowed CPUs\n", n, allowed);
         return 1;
     }
