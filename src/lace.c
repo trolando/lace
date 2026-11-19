@@ -1315,7 +1315,7 @@ static lace_worker **workers_p;
  * Flag to signal all workers to quit.
  */
 static atomic_int lace_quits = 0;
-static int is_running = 0;
+static atomic_int is_running = 0; // also read by lace_is_running, from any thread
 
 /**
  * lace_release_memory: each worker compares release_gen in its idle loop and
@@ -2427,7 +2427,7 @@ lace_release_memory(void)
         if (atomic_load_explicit(&lace_stopping, memory_order_relaxed)) return;
         lace_sleep_us(50);
     }
-    if (!is_running || atomic_load_explicit(&lace_stopping, memory_order_relaxed)) {
+    if (!atomic_load_explicit(&is_running, memory_order_relaxed) || atomic_load_explicit(&lace_stopping, memory_order_relaxed)) {
         atomic_flag_clear_explicit(&release_lock, memory_order_release);
         return;
     }
@@ -2882,7 +2882,7 @@ static LACE_TLS int lace_saved_slack = -1;
 void
 lace_worker_enter(unsigned int worker)
 {
-    if (!is_running || worker >= n_workers) {
+    if (!atomic_load_explicit(&is_running, memory_order_acquire) || worker >= n_workers) {
         fprintf(stderr, "Lace error: lace_worker_enter(%u): Lace is not running, or has fewer workers\n", worker);
         exit(1);
     }
@@ -3216,7 +3216,7 @@ lace_alloc_stacks(size_t stacksize)
 static void
 lace_setup(unsigned int _n_workers, size_t dequesize, int external)
 {
-    if (is_running) {
+    if (atomic_load_explicit(&is_running, memory_order_relaxed)) {
         fprintf(stderr, "Lace error: Lace is already running\n");
         exit(1);
     }
@@ -3511,7 +3511,7 @@ lace_start(unsigned int _n_workers, size_t dequesize, size_t stacksize)
     handles = (HANDLE*)malloc(n_workers * sizeof(*handles));
 #endif
 
-    is_running = 1; // before the threads start, as they enter
+    atomic_store_explicit(&is_running, 1, memory_order_release); // before the threads start, as they enter
 
     /* Create worker 0; each worker creates the next two (lace_worker_thread) */
     lace_spawn_worker(0);
@@ -3528,12 +3528,12 @@ lace_start_external(unsigned int _n_workers, size_t dequesize)
     if (verbosity) {
         fprintf(stdout, "Lace startup: %u workers on the program's own threads.\n", n_workers);
     }
-    is_running = 1;
+    atomic_store_explicit(&is_running, 1, memory_order_release);
 }
 
 int lace_is_running(void)
 {
-    return is_running;
+    return atomic_load_explicit(&is_running, memory_order_acquire);
 }
 
 
@@ -3850,7 +3850,7 @@ void lace_stop(void)
     worker_entered = NULL;
     external_mode = 0;
 
-    is_running = 0;
+    atomic_store_explicit(&is_running, 0, memory_order_release);
     atomic_store_explicit(&lace_stopping, 0, memory_order_relaxed);
     atomic_flag_clear_explicit(&release_lock, memory_order_release);
 }
