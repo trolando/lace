@@ -149,9 +149,8 @@ main(void)
                 failures++;
             }
         }
-        printf("%u workers, %d checked", n, counted);
-        if (unknown > 0) printf(", the node of %d pages not known", unknown);
-        printf("\n");
+        printf("%u workers, %d with a known node: %d of their %d pages checked\n", n, counted,
+               counted * N_PAGES - unknown, counted * N_PAGES);
     }
     free(cpu_node);
     free(page_node);
