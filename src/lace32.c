@@ -3516,6 +3516,10 @@ lace_start(unsigned int _n_workers, size_t dequesize, size_t stacksize)
 #else
     handles = (HANDLE*)malloc(n_workers * sizeof(*handles));
 #endif
+    if (handles == NULL) {
+        fprintf(stderr, "Lace error: unable to allocate the thread handles!\n");
+        exit(1);
+    }
 
     atomic_store_explicit(&is_running, 1, memory_order_release); // before the threads start, as they enter
 
