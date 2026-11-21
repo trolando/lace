@@ -502,6 +502,9 @@ void lace_start(unsigned int n_workers, size_t dqsize);
  * Call this method from outside Lace threads, when no other thread starts
  * tasks with RUN any more. It first waits for the tasks that other threads
  * still run with RUN to return, and for a lace_release_memory in progress.
+ * Lace starts and stops in turn (lace_start, lace_stop, lace_start, ...), and
+ * tasks are called only while it runs. A lace_stop while Lace does not run
+ * prints an error and returns.
  */
 void lace_stop(void);
 
