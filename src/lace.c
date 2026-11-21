@@ -1936,9 +1936,9 @@ void *
 lace_scratch_grow(WorkerP *lw, size_t aligned_size)
 {
     char *cur_top = lw->scratch_top;
-    char *new_top = cur_top + aligned_size;
 
-    if (LACE_UNLIKELY(new_top > lw->scratch_reserve_end)) {
+    /* Compare sizes: a pointer past the reservation is not formed */
+    if (LACE_UNLIKELY(aligned_size > (size_t)(lw->scratch_reserve_end - cur_top))) {
         fprintf(stderr,
                 "Lace fatal: scratch arena exhausted on worker %u "
                 "(reservation %zu bytes, request %zu bytes). "
@@ -1949,11 +1949,10 @@ lace_scratch_grow(WorkerP *lw, size_t aligned_size)
         abort();
     }
 
-    char *desired_end = new_top + scratch_band;
-    if (desired_end < new_top /* overflow */
-        || desired_end > lw->scratch_reserve_end) {
-        desired_end = lw->scratch_reserve_end;
-    }
+    char *new_top = cur_top + aligned_size;
+
+    char *desired_end = scratch_band < (size_t)(lw->scratch_reserve_end - new_top)
+        ? new_top + scratch_band : lw->scratch_reserve_end;
     char *commit_to = lace_scratch_round_up_ptr(desired_end);
     if (commit_to > lw->scratch_reserve_end) commit_to = lw->scratch_reserve_end;
 
@@ -1981,11 +1980,8 @@ lace_scratch_trim(WorkerP *lw)
 {
     if (lw->scratch_base == NULL) return;
 
-    char *keep_end = lw->scratch_top + scratch_band;
-    if (keep_end < lw->scratch_top /* overflow */
-        || keep_end > lw->scratch_reserve_end) {
-        keep_end = lw->scratch_reserve_end;
-    }
+    char *keep_end = scratch_band < (size_t)(lw->scratch_reserve_end - lw->scratch_top)
+        ? lw->scratch_top + scratch_band : lw->scratch_reserve_end;
     keep_end = lace_scratch_round_up_ptr(keep_end);
     if (keep_end > lw->scratch_reserve_end) keep_end = lw->scratch_reserve_end;
 

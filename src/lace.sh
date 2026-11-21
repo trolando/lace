@@ -1118,13 +1118,14 @@ void *lace_scratch_grow(WorkerP *lw, size_t aligned_size);
 /** Allocate size bytes from the scratch arena. Aligned to 16 bytes. */
 static inline void *lace_scratch_alloc(WorkerP *lw, size_t size)
 {
-    size = (size + 15) & ~(size_t)15;
     char *result = lw->scratch_top;
-    char *new_top = result + size;
-    if (LACE_UNLIKELY(new_top > lw->scratch_committed_end)) {
-        return lace_scratch_grow(lw, size);
+    /* Compare sizes, so that neither the rounding nor a pointer past the
+     * committed end overflows: top and end are multiples of 16, so a size
+     * that fits still fits after rounding */
+    if (LACE_UNLIKELY(size > (size_t)(lw->scratch_committed_end - result))) {
+        return lace_scratch_grow(lw, size > SIZE_MAX - 15 ? SIZE_MAX & ~(size_t)15 : (size + 15) & ~(size_t)15);
     }
-    lw->scratch_top = new_top;
+    lw->scratch_top = result + ((size + 15) & ~(size_t)15);
     return result;
 }
 
