@@ -86,6 +86,7 @@ echo '
 #include <assert.h> // for static_assert
 #include <errno.h>
 #include <stdalign.h>
+#include <stddef.h> // for offsetof
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -1601,6 +1602,10 @@ echo
 echo "// Task macros for arity $r"
 echo
 
+# A type that needs more alignment than a pointer moves d: the task would not
+# sit in a lace_task slot as the other tasks do
+ALIGN_CHECK="static_assert(offsetof(task_##NAME, d) == offsetof(lace_task, d), \"task_\" #NAME \" needs a larger alignment than the lace_task struct has!\");"
+
 # Create a void and a non-void version
 for isvoid in 0 1; do
 if (( isvoid==0 )); then
@@ -1614,6 +1619,7 @@ if (( isvoid==0 )); then
   SAVE_RVAL="((task_##NAME*)t)->d.res ="
   RETURN_RES="((task_##NAME *)t)->d.res"
   UNION="union { $ARGS_STRUCT $RTYPE res; } d;"
+  ALIGN_ASSERT="$ALIGN_CHECK"
   SS_RETURN="return "
   SS_RETURN2=""
   # No TOGETHER: every worker runs the same task, and a result would
@@ -1628,7 +1634,7 @@ else
   RTYPE="void"
   SAVE_RVAL=""
   RETURN_RES=""
-  if ((r)); then UNION="union { $ARGS_STRUCT } d;"; else UNION=""; fi
+  if ((r)); then UNION="union { $ARGS_STRUCT } d;"; ALIGN_ASSERT="$ALIGN_CHECK"; else UNION=""; ALIGN_ASSERT=""; fi
   SS_RETURN=""
   SS_RETURN2="return;"
   TOGETHER_FN="LACE_NO_SANITIZE_THREAD
@@ -1655,6 +1661,7 @@ typedef struct task_##NAME {
 } task_##NAME;
 
 static_assert(sizeof(task_##NAME) <= sizeof(lace_task), \"task_\" #NAME \" is too large to fit in the lace_task struct!\");
+$ALIGN_ASSERT
 
 $RTYPE NAME##_CALL(lace_worker*$DECL_ARGS);
 

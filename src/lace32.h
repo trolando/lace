@@ -70,6 +70,7 @@
 #include <assert.h> // for static_assert
 #include <errno.h>
 #include <stdalign.h>
+#include <stddef.h> // for offsetof
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -1558,6 +1559,7 @@ typedef struct task_##NAME {                                                    
 } task_##NAME;                                                                        \
                                                                                       \
 static_assert(sizeof(task_##NAME) <= sizeof(lace_task), "task_" #NAME " is too large to fit in the lace_task struct!");\
+static_assert(offsetof(task_##NAME, d) == offsetof(lace_task, d), "task_" #NAME " needs a larger alignment than the lace_task struct has!");\
                                                                                       \
 RTYPE NAME##_CALL(lace_worker*);                                                      \
                                                                                       \
@@ -1695,6 +1697,7 @@ typedef struct task_##NAME {                                                    
 } task_##NAME;                                                                        \
                                                                                       \
 static_assert(sizeof(task_##NAME) <= sizeof(lace_task), "task_" #NAME " is too large to fit in the lace_task struct!");\
+                                                                                      \
                                                                                       \
 void NAME##_CALL(lace_worker*);                                                       \
                                                                                       \
@@ -1846,6 +1849,7 @@ typedef struct task_##NAME {                                                    
 } task_##NAME;                                                                        \
                                                                                       \
 static_assert(sizeof(task_##NAME) <= sizeof(lace_task), "task_" #NAME " is too large to fit in the lace_task struct!");\
+static_assert(offsetof(task_##NAME, d) == offsetof(lace_task, d), "task_" #NAME " needs a larger alignment than the lace_task struct has!");\
                                                                                       \
 RTYPE NAME##_CALL(lace_worker*, ATYPE_1);                                             \
                                                                                       \
@@ -1983,6 +1987,7 @@ typedef struct task_##NAME {                                                    
 } task_##NAME;                                                                        \
                                                                                       \
 static_assert(sizeof(task_##NAME) <= sizeof(lace_task), "task_" #NAME " is too large to fit in the lace_task struct!");\
+static_assert(offsetof(task_##NAME, d) == offsetof(lace_task, d), "task_" #NAME " needs a larger alignment than the lace_task struct has!");\
                                                                                       \
 void NAME##_CALL(lace_worker*, ATYPE_1);                                              \
                                                                                       \
@@ -2134,6 +2139,7 @@ typedef struct task_##NAME {                                                    
 } task_##NAME;                                                                        \
                                                                                       \
 static_assert(sizeof(task_##NAME) <= sizeof(lace_task), "task_" #NAME " is too large to fit in the lace_task struct!");\
+static_assert(offsetof(task_##NAME, d) == offsetof(lace_task, d), "task_" #NAME " needs a larger alignment than the lace_task struct has!");\
                                                                                       \
 RTYPE NAME##_CALL(lace_worker*, ATYPE_1, ATYPE_2);                                    \
                                                                                       \
@@ -2271,6 +2277,7 @@ typedef struct task_##NAME {                                                    
 } task_##NAME;                                                                        \
                                                                                       \
 static_assert(sizeof(task_##NAME) <= sizeof(lace_task), "task_" #NAME " is too large to fit in the lace_task struct!");\
+static_assert(offsetof(task_##NAME, d) == offsetof(lace_task, d), "task_" #NAME " needs a larger alignment than the lace_task struct has!");\
                                                                                       \
 void NAME##_CALL(lace_worker*, ATYPE_1, ATYPE_2);                                     \
                                                                                       \
@@ -2422,6 +2429,7 @@ typedef struct task_##NAME {                                                    
 } task_##NAME;                                                                        \
                                                                                       \
 static_assert(sizeof(task_##NAME) <= sizeof(lace_task), "task_" #NAME " is too large to fit in the lace_task struct!");\
+static_assert(offsetof(task_##NAME, d) == offsetof(lace_task, d), "task_" #NAME " needs a larger alignment than the lace_task struct has!");\
                                                                                       \
 RTYPE NAME##_CALL(lace_worker*, ATYPE_1, ATYPE_2, ATYPE_3);                           \
                                                                                       \
@@ -2559,6 +2567,7 @@ typedef struct task_##NAME {                                                    
 } task_##NAME;                                                                        \
                                                                                       \
 static_assert(sizeof(task_##NAME) <= sizeof(lace_task), "task_" #NAME " is too large to fit in the lace_task struct!");\
+static_assert(offsetof(task_##NAME, d) == offsetof(lace_task, d), "task_" #NAME " needs a larger alignment than the lace_task struct has!");\
                                                                                       \
 void NAME##_CALL(lace_worker*, ATYPE_1, ATYPE_2, ATYPE_3);                            \
                                                                                       \
@@ -2710,6 +2719,7 @@ typedef struct task_##NAME {                                                    
 } task_##NAME;                                                                        \
                                                                                       \
 static_assert(sizeof(task_##NAME) <= sizeof(lace_task), "task_" #NAME " is too large to fit in the lace_task struct!");\
+static_assert(offsetof(task_##NAME, d) == offsetof(lace_task, d), "task_" #NAME " needs a larger alignment than the lace_task struct has!");\
                                                                                       \
 RTYPE NAME##_CALL(lace_worker*, ATYPE_1, ATYPE_2, ATYPE_3, ATYPE_4);                  \
                                                                                       \
@@ -2847,6 +2857,7 @@ typedef struct task_##NAME {                                                    
 } task_##NAME;                                                                        \
                                                                                       \
 static_assert(sizeof(task_##NAME) <= sizeof(lace_task), "task_" #NAME " is too large to fit in the lace_task struct!");\
+static_assert(offsetof(task_##NAME, d) == offsetof(lace_task, d), "task_" #NAME " needs a larger alignment than the lace_task struct has!");\
                                                                                       \
 void NAME##_CALL(lace_worker*, ATYPE_1, ATYPE_2, ATYPE_3, ATYPE_4);                   \
                                                                                       \
@@ -2998,6 +3009,7 @@ typedef struct task_##NAME {                                                    
 } task_##NAME;                                                                        \
                                                                                       \
 static_assert(sizeof(task_##NAME) <= sizeof(lace_task), "task_" #NAME " is too large to fit in the lace_task struct!");\
+static_assert(offsetof(task_##NAME, d) == offsetof(lace_task, d), "task_" #NAME " needs a larger alignment than the lace_task struct has!");\
                                                                                       \
 RTYPE NAME##_CALL(lace_worker*, ATYPE_1, ATYPE_2, ATYPE_3, ATYPE_4, ATYPE_5);         \
                                                                                       \
@@ -3135,6 +3147,7 @@ typedef struct task_##NAME {                                                    
 } task_##NAME;                                                                        \
                                                                                       \
 static_assert(sizeof(task_##NAME) <= sizeof(lace_task), "task_" #NAME " is too large to fit in the lace_task struct!");\
+static_assert(offsetof(task_##NAME, d) == offsetof(lace_task, d), "task_" #NAME " needs a larger alignment than the lace_task struct has!");\
                                                                                       \
 void NAME##_CALL(lace_worker*, ATYPE_1, ATYPE_2, ATYPE_3, ATYPE_4, ATYPE_5);          \
                                                                                       \
@@ -3286,6 +3299,7 @@ typedef struct task_##NAME {                                                    
 } task_##NAME;                                                                        \
                                                                                       \
 static_assert(sizeof(task_##NAME) <= sizeof(lace_task), "task_" #NAME " is too large to fit in the lace_task struct!");\
+static_assert(offsetof(task_##NAME, d) == offsetof(lace_task, d), "task_" #NAME " needs a larger alignment than the lace_task struct has!");\
                                                                                       \
 RTYPE NAME##_CALL(lace_worker*, ATYPE_1, ATYPE_2, ATYPE_3, ATYPE_4, ATYPE_5, ATYPE_6);\
                                                                                       \
@@ -3423,6 +3437,7 @@ typedef struct task_##NAME {                                                    
 } task_##NAME;                                                                        \
                                                                                       \
 static_assert(sizeof(task_##NAME) <= sizeof(lace_task), "task_" #NAME " is too large to fit in the lace_task struct!");\
+static_assert(offsetof(task_##NAME, d) == offsetof(lace_task, d), "task_" #NAME " needs a larger alignment than the lace_task struct has!");\
                                                                                       \
 void NAME##_CALL(lace_worker*, ATYPE_1, ATYPE_2, ATYPE_3, ATYPE_4, ATYPE_5, ATYPE_6); \
                                                                                       \
@@ -3574,6 +3589,7 @@ typedef struct task_##NAME {                                                    
 } task_##NAME;                                                                        \
                                                                                       \
 static_assert(sizeof(task_##NAME) <= sizeof(lace_task), "task_" #NAME " is too large to fit in the lace_task struct!");\
+static_assert(offsetof(task_##NAME, d) == offsetof(lace_task, d), "task_" #NAME " needs a larger alignment than the lace_task struct has!");\
                                                                                       \
 RTYPE NAME##_CALL(lace_worker*, ATYPE_1, ATYPE_2, ATYPE_3, ATYPE_4, ATYPE_5, ATYPE_6, ATYPE_7);\
                                                                                       \
@@ -3711,6 +3727,7 @@ typedef struct task_##NAME {                                                    
 } task_##NAME;                                                                        \
                                                                                       \
 static_assert(sizeof(task_##NAME) <= sizeof(lace_task), "task_" #NAME " is too large to fit in the lace_task struct!");\
+static_assert(offsetof(task_##NAME, d) == offsetof(lace_task, d), "task_" #NAME " needs a larger alignment than the lace_task struct has!");\
                                                                                       \
 void NAME##_CALL(lace_worker*, ATYPE_1, ATYPE_2, ATYPE_3, ATYPE_4, ATYPE_5, ATYPE_6, ATYPE_7);\
                                                                                       \
@@ -3862,6 +3879,7 @@ typedef struct task_##NAME {                                                    
 } task_##NAME;                                                                        \
                                                                                       \
 static_assert(sizeof(task_##NAME) <= sizeof(lace_task), "task_" #NAME " is too large to fit in the lace_task struct!");\
+static_assert(offsetof(task_##NAME, d) == offsetof(lace_task, d), "task_" #NAME " needs a larger alignment than the lace_task struct has!");\
                                                                                       \
 RTYPE NAME##_CALL(lace_worker*, ATYPE_1, ATYPE_2, ATYPE_3, ATYPE_4, ATYPE_5, ATYPE_6, ATYPE_7, ATYPE_8);\
                                                                                       \
@@ -3999,6 +4017,7 @@ typedef struct task_##NAME {                                                    
 } task_##NAME;                                                                        \
                                                                                       \
 static_assert(sizeof(task_##NAME) <= sizeof(lace_task), "task_" #NAME " is too large to fit in the lace_task struct!");\
+static_assert(offsetof(task_##NAME, d) == offsetof(lace_task, d), "task_" #NAME " needs a larger alignment than the lace_task struct has!");\
                                                                                       \
 void NAME##_CALL(lace_worker*, ATYPE_1, ATYPE_2, ATYPE_3, ATYPE_4, ATYPE_5, ATYPE_6, ATYPE_7, ATYPE_8);\
                                                                                       \
@@ -4150,6 +4169,7 @@ typedef struct task_##NAME {                                                    
 } task_##NAME;                                                                        \
                                                                                       \
 static_assert(sizeof(task_##NAME) <= sizeof(lace_task), "task_" #NAME " is too large to fit in the lace_task struct!");\
+static_assert(offsetof(task_##NAME, d) == offsetof(lace_task, d), "task_" #NAME " needs a larger alignment than the lace_task struct has!");\
                                                                                       \
 RTYPE NAME##_CALL(lace_worker*, ATYPE_1, ATYPE_2, ATYPE_3, ATYPE_4, ATYPE_5, ATYPE_6, ATYPE_7, ATYPE_8, ATYPE_9);\
                                                                                       \
@@ -4287,6 +4307,7 @@ typedef struct task_##NAME {                                                    
 } task_##NAME;                                                                        \
                                                                                       \
 static_assert(sizeof(task_##NAME) <= sizeof(lace_task), "task_" #NAME " is too large to fit in the lace_task struct!");\
+static_assert(offsetof(task_##NAME, d) == offsetof(lace_task, d), "task_" #NAME " needs a larger alignment than the lace_task struct has!");\
                                                                                       \
 void NAME##_CALL(lace_worker*, ATYPE_1, ATYPE_2, ATYPE_3, ATYPE_4, ATYPE_5, ATYPE_6, ATYPE_7, ATYPE_8, ATYPE_9);\
                                                                                       \
@@ -4438,6 +4459,7 @@ typedef struct task_##NAME {                                                    
 } task_##NAME;                                                                        \
                                                                                       \
 static_assert(sizeof(task_##NAME) <= sizeof(lace_task), "task_" #NAME " is too large to fit in the lace_task struct!");\
+static_assert(offsetof(task_##NAME, d) == offsetof(lace_task, d), "task_" #NAME " needs a larger alignment than the lace_task struct has!");\
                                                                                       \
 RTYPE NAME##_CALL(lace_worker*, ATYPE_1, ATYPE_2, ATYPE_3, ATYPE_4, ATYPE_5, ATYPE_6, ATYPE_7, ATYPE_8, ATYPE_9, ATYPE_10);\
                                                                                       \
@@ -4575,6 +4597,7 @@ typedef struct task_##NAME {                                                    
 } task_##NAME;                                                                        \
                                                                                       \
 static_assert(sizeof(task_##NAME) <= sizeof(lace_task), "task_" #NAME " is too large to fit in the lace_task struct!");\
+static_assert(offsetof(task_##NAME, d) == offsetof(lace_task, d), "task_" #NAME " needs a larger alignment than the lace_task struct has!");\
                                                                                       \
 void NAME##_CALL(lace_worker*, ATYPE_1, ATYPE_2, ATYPE_3, ATYPE_4, ATYPE_5, ATYPE_6, ATYPE_7, ATYPE_8, ATYPE_9, ATYPE_10);\
                                                                                       \
