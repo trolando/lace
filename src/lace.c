@@ -3517,6 +3517,10 @@ lace_start(unsigned int _n_workers, size_t dequesize)
 #else
     handles = (HANDLE*)malloc(n_workers * sizeof(*handles));
 #endif
+    if (handles == NULL) {
+        fprintf(stderr, "Lace error: unable to allocate the thread handles!\n");
+        exit(1);
+    }
 
     /* Spawn all workers */
     for (unsigned int i = 0; i < n_workers; i++) {
