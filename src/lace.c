@@ -3871,6 +3871,7 @@ void lace_stop(void)
 
     atomic_store_explicit(&is_running, 0, memory_order_release);
     atomic_store_explicit(&lace_stopping, 0, memory_order_relaxed);
+    n_workers = 0; // lace_workers and the counter functions see no workers
     atomic_flag_clear_explicit(&release_lock, memory_order_release);
 }
 
