@@ -4045,9 +4045,20 @@ lace_together_root_CALL(lace_worker* lw, lace_task* t, atomic_int* finished)
 
 TASK(void, lace_wrap_together, lace_task*, task)
 
+/* A frame waits for all n_workers, also for one that left (and so never comes) */
+static void
+lace_check_none_left(const char *frame)
+{
+    if (LACE_UNLIKELY(atomic_load_explicit(&n_left, memory_order_relaxed) != 0)) {
+        fprintf(stderr, "Lace error: %s after a worker left with lace_worker_leave\n", frame);
+        exit(1);
+    }
+}
+
 void
 lace_wrap_together_CALL(lace_worker* worker, lace_task* task)
 {
+    lace_check_none_left("TOGETHER");
     /* synchronization integer (decrease by 1 when done...) */
     atomic_int done = (int)n_workers;
 
@@ -4105,6 +4116,7 @@ TASK(void, lace_wrap_newframe, lace_task*, task)
 void
 lace_wrap_newframe_CALL(lace_worker* worker, lace_task* task)
 {
+    lace_check_none_left("NEWFRAME");
     /* synchronization integer (set to 1 when done...) */
     atomic_int done = 0;
 
