@@ -3522,11 +3522,12 @@ lace_start(unsigned int _n_workers, size_t dequesize)
     for (unsigned int i = 0; i < n_workers; i++) {
 #if !LACE_MSVC
 #if !defined(_WIN32) && !defined(__FreeBSD__)
-        if (pthread_attr_setstack(&worker_attr,
+        int src = pthread_attr_setstack(&worker_attr,
             (char*)worker_stacks[i] + worker_stack_page_size,
-            worker_stack_size - worker_stack_page_size) != 0) {
+            worker_stack_size - worker_stack_page_size);
+        if (src != 0) {
             fprintf(stderr, "Lace error: unable to set stack for worker %u: %s\n",
-                i, strerror(errno));
+                i, strerror(src));
             exit(1);
         }
 #endif
