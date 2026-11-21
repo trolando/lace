@@ -1351,6 +1351,7 @@ typedef struct _TD_##NAME {                                                     
 } TD_##NAME;                                                                          \
                                                                                       \
 static_assert(sizeof(TD_##NAME) <= sizeof(Task), "TD_" #NAME " is too large to fit in the Task struct!");\
+static_assert(offsetof(TD_##NAME, d) == offsetof(Task, d), "TD_" #NAME " needs a larger alignment than the Task struct has!");\
                                                                                       \
 void NAME##_WRAP(WorkerP *, Task *, Task *);                                          \
 RTYPE NAME##_CALL(WorkerP *, Task * );                                                \
@@ -1502,6 +1503,7 @@ typedef struct _TD_##NAME {                                                     
 } TD_##NAME;                                                                          \
                                                                                       \
 static_assert(sizeof(TD_##NAME) <= sizeof(Task), "TD_" #NAME " is too large to fit in the Task struct!");\
+                                                                                      \
                                                                                       \
 void NAME##_WRAP(WorkerP *, Task *, Task *);                                          \
 void NAME##_CALL(WorkerP *, Task * );                                                 \
@@ -1666,6 +1668,7 @@ typedef struct _TD_##NAME {                                                     
 } TD_##NAME;                                                                          \
                                                                                       \
 static_assert(sizeof(TD_##NAME) <= sizeof(Task), "TD_" #NAME " is too large to fit in the Task struct!");\
+static_assert(offsetof(TD_##NAME, d) == offsetof(Task, d), "TD_" #NAME " needs a larger alignment than the Task struct has!");\
                                                                                       \
 void NAME##_WRAP(WorkerP *, Task *, Task *);                                          \
 RTYPE NAME##_CALL(WorkerP *, Task * , ATYPE_1 arg_1);                                 \
@@ -1817,6 +1820,7 @@ typedef struct _TD_##NAME {                                                     
 } TD_##NAME;                                                                          \
                                                                                       \
 static_assert(sizeof(TD_##NAME) <= sizeof(Task), "TD_" #NAME " is too large to fit in the Task struct!");\
+static_assert(offsetof(TD_##NAME, d) == offsetof(Task, d), "TD_" #NAME " needs a larger alignment than the Task struct has!");\
                                                                                       \
 void NAME##_WRAP(WorkerP *, Task *, Task *);                                          \
 void NAME##_CALL(WorkerP *, Task * , ATYPE_1 arg_1);                                  \
@@ -1981,6 +1985,7 @@ typedef struct _TD_##NAME {                                                     
 } TD_##NAME;                                                                          \
                                                                                       \
 static_assert(sizeof(TD_##NAME) <= sizeof(Task), "TD_" #NAME " is too large to fit in the Task struct!");\
+static_assert(offsetof(TD_##NAME, d) == offsetof(Task, d), "TD_" #NAME " needs a larger alignment than the Task struct has!");\
                                                                                       \
 void NAME##_WRAP(WorkerP *, Task *, Task *);                                          \
 RTYPE NAME##_CALL(WorkerP *, Task * , ATYPE_1 arg_1, ATYPE_2 arg_2);                  \
@@ -2132,6 +2137,7 @@ typedef struct _TD_##NAME {                                                     
 } TD_##NAME;                                                                          \
                                                                                       \
 static_assert(sizeof(TD_##NAME) <= sizeof(Task), "TD_" #NAME " is too large to fit in the Task struct!");\
+static_assert(offsetof(TD_##NAME, d) == offsetof(Task, d), "TD_" #NAME " needs a larger alignment than the Task struct has!");\
                                                                                       \
 void NAME##_WRAP(WorkerP *, Task *, Task *);                                          \
 void NAME##_CALL(WorkerP *, Task * , ATYPE_1 arg_1, ATYPE_2 arg_2);                   \
@@ -2296,6 +2302,7 @@ typedef struct _TD_##NAME {                                                     
 } TD_##NAME;                                                                          \
                                                                                       \
 static_assert(sizeof(TD_##NAME) <= sizeof(Task), "TD_" #NAME " is too large to fit in the Task struct!");\
+static_assert(offsetof(TD_##NAME, d) == offsetof(Task, d), "TD_" #NAME " needs a larger alignment than the Task struct has!");\
                                                                                       \
 void NAME##_WRAP(WorkerP *, Task *, Task *);                                          \
 RTYPE NAME##_CALL(WorkerP *, Task * , ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3);   \
@@ -2447,6 +2454,7 @@ typedef struct _TD_##NAME {                                                     
 } TD_##NAME;                                                                          \
                                                                                       \
 static_assert(sizeof(TD_##NAME) <= sizeof(Task), "TD_" #NAME " is too large to fit in the Task struct!");\
+static_assert(offsetof(TD_##NAME, d) == offsetof(Task, d), "TD_" #NAME " needs a larger alignment than the Task struct has!");\
                                                                                       \
 void NAME##_WRAP(WorkerP *, Task *, Task *);                                          \
 void NAME##_CALL(WorkerP *, Task * , ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3);    \
@@ -2611,6 +2619,7 @@ typedef struct _TD_##NAME {                                                     
 } TD_##NAME;                                                                          \
                                                                                       \
 static_assert(sizeof(TD_##NAME) <= sizeof(Task), "TD_" #NAME " is too large to fit in the Task struct!");\
+static_assert(offsetof(TD_##NAME, d) == offsetof(Task, d), "TD_" #NAME " needs a larger alignment than the Task struct has!");\
                                                                                       \
 void NAME##_WRAP(WorkerP *, Task *, Task *);                                          \
 RTYPE NAME##_CALL(WorkerP *, Task * , ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4);\
@@ -2762,6 +2771,7 @@ typedef struct _TD_##NAME {                                                     
 } TD_##NAME;                                                                          \
                                                                                       \
 static_assert(sizeof(TD_##NAME) <= sizeof(Task), "TD_" #NAME " is too large to fit in the Task struct!");\
+static_assert(offsetof(TD_##NAME, d) == offsetof(Task, d), "TD_" #NAME " needs a larger alignment than the Task struct has!");\
                                                                                       \
 void NAME##_WRAP(WorkerP *, Task *, Task *);                                          \
 void NAME##_CALL(WorkerP *, Task * , ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4);\
@@ -2926,6 +2936,7 @@ typedef struct _TD_##NAME {                                                     
 } TD_##NAME;                                                                          \
                                                                                       \
 static_assert(sizeof(TD_##NAME) <= sizeof(Task), "TD_" #NAME " is too large to fit in the Task struct!");\
+static_assert(offsetof(TD_##NAME, d) == offsetof(Task, d), "TD_" #NAME " needs a larger alignment than the Task struct has!");\
                                                                                       \
 void NAME##_WRAP(WorkerP *, Task *, Task *);                                          \
 RTYPE NAME##_CALL(WorkerP *, Task * , ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, ATYPE_5 arg_5);\
@@ -3077,6 +3088,7 @@ typedef struct _TD_##NAME {                                                     
 } TD_##NAME;                                                                          \
                                                                                       \
 static_assert(sizeof(TD_##NAME) <= sizeof(Task), "TD_" #NAME " is too large to fit in the Task struct!");\
+static_assert(offsetof(TD_##NAME, d) == offsetof(Task, d), "TD_" #NAME " needs a larger alignment than the Task struct has!");\
                                                                                       \
 void NAME##_WRAP(WorkerP *, Task *, Task *);                                          \
 void NAME##_CALL(WorkerP *, Task * , ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, ATYPE_5 arg_5);\
@@ -3241,6 +3253,7 @@ typedef struct _TD_##NAME {                                                     
 } TD_##NAME;                                                                          \
                                                                                       \
 static_assert(sizeof(TD_##NAME) <= sizeof(Task), "TD_" #NAME " is too large to fit in the Task struct!");\
+static_assert(offsetof(TD_##NAME, d) == offsetof(Task, d), "TD_" #NAME " needs a larger alignment than the Task struct has!");\
                                                                                       \
 void NAME##_WRAP(WorkerP *, Task *, Task *);                                          \
 RTYPE NAME##_CALL(WorkerP *, Task * , ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, ATYPE_5 arg_5, ATYPE_6 arg_6);\
@@ -3392,6 +3405,7 @@ typedef struct _TD_##NAME {                                                     
 } TD_##NAME;                                                                          \
                                                                                       \
 static_assert(sizeof(TD_##NAME) <= sizeof(Task), "TD_" #NAME " is too large to fit in the Task struct!");\
+static_assert(offsetof(TD_##NAME, d) == offsetof(Task, d), "TD_" #NAME " needs a larger alignment than the Task struct has!");\
                                                                                       \
 void NAME##_WRAP(WorkerP *, Task *, Task *);                                          \
 void NAME##_CALL(WorkerP *, Task * , ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, ATYPE_5 arg_5, ATYPE_6 arg_6);\
@@ -3556,6 +3570,7 @@ typedef struct _TD_##NAME {                                                     
 } TD_##NAME;                                                                          \
                                                                                       \
 static_assert(sizeof(TD_##NAME) <= sizeof(Task), "TD_" #NAME " is too large to fit in the Task struct!");\
+static_assert(offsetof(TD_##NAME, d) == offsetof(Task, d), "TD_" #NAME " needs a larger alignment than the Task struct has!");\
                                                                                       \
 void NAME##_WRAP(WorkerP *, Task *, Task *);                                          \
 RTYPE NAME##_CALL(WorkerP *, Task * , ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, ATYPE_5 arg_5, ATYPE_6 arg_6, ATYPE_7 arg_7);\
@@ -3707,6 +3722,7 @@ typedef struct _TD_##NAME {                                                     
 } TD_##NAME;                                                                          \
                                                                                       \
 static_assert(sizeof(TD_##NAME) <= sizeof(Task), "TD_" #NAME " is too large to fit in the Task struct!");\
+static_assert(offsetof(TD_##NAME, d) == offsetof(Task, d), "TD_" #NAME " needs a larger alignment than the Task struct has!");\
                                                                                       \
 void NAME##_WRAP(WorkerP *, Task *, Task *);                                          \
 void NAME##_CALL(WorkerP *, Task * , ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, ATYPE_5 arg_5, ATYPE_6 arg_6, ATYPE_7 arg_7);\
@@ -3871,6 +3887,7 @@ typedef struct _TD_##NAME {                                                     
 } TD_##NAME;                                                                          \
                                                                                       \
 static_assert(sizeof(TD_##NAME) <= sizeof(Task), "TD_" #NAME " is too large to fit in the Task struct!");\
+static_assert(offsetof(TD_##NAME, d) == offsetof(Task, d), "TD_" #NAME " needs a larger alignment than the Task struct has!");\
                                                                                       \
 void NAME##_WRAP(WorkerP *, Task *, Task *);                                          \
 RTYPE NAME##_CALL(WorkerP *, Task * , ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, ATYPE_5 arg_5, ATYPE_6 arg_6, ATYPE_7 arg_7, ATYPE_8 arg_8);\
@@ -4022,6 +4039,7 @@ typedef struct _TD_##NAME {                                                     
 } TD_##NAME;                                                                          \
                                                                                       \
 static_assert(sizeof(TD_##NAME) <= sizeof(Task), "TD_" #NAME " is too large to fit in the Task struct!");\
+static_assert(offsetof(TD_##NAME, d) == offsetof(Task, d), "TD_" #NAME " needs a larger alignment than the Task struct has!");\
                                                                                       \
 void NAME##_WRAP(WorkerP *, Task *, Task *);                                          \
 void NAME##_CALL(WorkerP *, Task * , ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, ATYPE_5 arg_5, ATYPE_6 arg_6, ATYPE_7 arg_7, ATYPE_8 arg_8);\
@@ -4186,6 +4204,7 @@ typedef struct _TD_##NAME {                                                     
 } TD_##NAME;                                                                          \
                                                                                       \
 static_assert(sizeof(TD_##NAME) <= sizeof(Task), "TD_" #NAME " is too large to fit in the Task struct!");\
+static_assert(offsetof(TD_##NAME, d) == offsetof(Task, d), "TD_" #NAME " needs a larger alignment than the Task struct has!");\
                                                                                       \
 void NAME##_WRAP(WorkerP *, Task *, Task *);                                          \
 RTYPE NAME##_CALL(WorkerP *, Task * , ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, ATYPE_5 arg_5, ATYPE_6 arg_6, ATYPE_7 arg_7, ATYPE_8 arg_8, ATYPE_9 arg_9);\
@@ -4337,6 +4356,7 @@ typedef struct _TD_##NAME {                                                     
 } TD_##NAME;                                                                          \
                                                                                       \
 static_assert(sizeof(TD_##NAME) <= sizeof(Task), "TD_" #NAME " is too large to fit in the Task struct!");\
+static_assert(offsetof(TD_##NAME, d) == offsetof(Task, d), "TD_" #NAME " needs a larger alignment than the Task struct has!");\
                                                                                       \
 void NAME##_WRAP(WorkerP *, Task *, Task *);                                          \
 void NAME##_CALL(WorkerP *, Task * , ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, ATYPE_5 arg_5, ATYPE_6 arg_6, ATYPE_7 arg_7, ATYPE_8 arg_8, ATYPE_9 arg_9);\
@@ -4501,6 +4521,7 @@ typedef struct _TD_##NAME {                                                     
 } TD_##NAME;                                                                          \
                                                                                       \
 static_assert(sizeof(TD_##NAME) <= sizeof(Task), "TD_" #NAME " is too large to fit in the Task struct!");\
+static_assert(offsetof(TD_##NAME, d) == offsetof(Task, d), "TD_" #NAME " needs a larger alignment than the Task struct has!");\
                                                                                       \
 void NAME##_WRAP(WorkerP *, Task *, Task *);                                          \
 RTYPE NAME##_CALL(WorkerP *, Task * , ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, ATYPE_5 arg_5, ATYPE_6 arg_6, ATYPE_7 arg_7, ATYPE_8 arg_8, ATYPE_9 arg_9, ATYPE_10 arg_10);\
@@ -4652,6 +4673,7 @@ typedef struct _TD_##NAME {                                                     
 } TD_##NAME;                                                                          \
                                                                                       \
 static_assert(sizeof(TD_##NAME) <= sizeof(Task), "TD_" #NAME " is too large to fit in the Task struct!");\
+static_assert(offsetof(TD_##NAME, d) == offsetof(Task, d), "TD_" #NAME " needs a larger alignment than the Task struct has!");\
                                                                                       \
 void NAME##_WRAP(WorkerP *, Task *, Task *);                                          \
 void NAME##_CALL(WorkerP *, Task * , ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, ATYPE_5 arg_5, ATYPE_6 arg_6, ATYPE_7 arg_7, ATYPE_8 arg_8, ATYPE_9 arg_9, ATYPE_10 arg_10);\
@@ -4816,6 +4838,7 @@ typedef struct _TD_##NAME {                                                     
 } TD_##NAME;                                                                          \
                                                                                       \
 static_assert(sizeof(TD_##NAME) <= sizeof(Task), "TD_" #NAME " is too large to fit in the Task struct!");\
+static_assert(offsetof(TD_##NAME, d) == offsetof(Task, d), "TD_" #NAME " needs a larger alignment than the Task struct has!");\
                                                                                       \
 void NAME##_WRAP(WorkerP *, Task *, Task *);                                          \
 RTYPE NAME##_CALL(WorkerP *, Task * , ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, ATYPE_5 arg_5, ATYPE_6 arg_6, ATYPE_7 arg_7, ATYPE_8 arg_8, ATYPE_9 arg_9, ATYPE_10 arg_10, ATYPE_11 arg_11);\
@@ -4967,6 +4990,7 @@ typedef struct _TD_##NAME {                                                     
 } TD_##NAME;                                                                          \
                                                                                       \
 static_assert(sizeof(TD_##NAME) <= sizeof(Task), "TD_" #NAME " is too large to fit in the Task struct!");\
+static_assert(offsetof(TD_##NAME, d) == offsetof(Task, d), "TD_" #NAME " needs a larger alignment than the Task struct has!");\
                                                                                       \
 void NAME##_WRAP(WorkerP *, Task *, Task *);                                          \
 void NAME##_CALL(WorkerP *, Task * , ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, ATYPE_5 arg_5, ATYPE_6 arg_6, ATYPE_7 arg_7, ATYPE_8 arg_8, ATYPE_9 arg_9, ATYPE_10 arg_10, ATYPE_11 arg_11);\
@@ -5131,6 +5155,7 @@ typedef struct _TD_##NAME {                                                     
 } TD_##NAME;                                                                          \
                                                                                       \
 static_assert(sizeof(TD_##NAME) <= sizeof(Task), "TD_" #NAME " is too large to fit in the Task struct!");\
+static_assert(offsetof(TD_##NAME, d) == offsetof(Task, d), "TD_" #NAME " needs a larger alignment than the Task struct has!");\
                                                                                       \
 void NAME##_WRAP(WorkerP *, Task *, Task *);                                          \
 RTYPE NAME##_CALL(WorkerP *, Task * , ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, ATYPE_5 arg_5, ATYPE_6 arg_6, ATYPE_7 arg_7, ATYPE_8 arg_8, ATYPE_9 arg_9, ATYPE_10 arg_10, ATYPE_11 arg_11, ATYPE_12 arg_12);\
@@ -5282,6 +5307,7 @@ typedef struct _TD_##NAME {                                                     
 } TD_##NAME;                                                                          \
                                                                                       \
 static_assert(sizeof(TD_##NAME) <= sizeof(Task), "TD_" #NAME " is too large to fit in the Task struct!");\
+static_assert(offsetof(TD_##NAME, d) == offsetof(Task, d), "TD_" #NAME " needs a larger alignment than the Task struct has!");\
                                                                                       \
 void NAME##_WRAP(WorkerP *, Task *, Task *);                                          \
 void NAME##_CALL(WorkerP *, Task * , ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, ATYPE_5 arg_5, ATYPE_6 arg_6, ATYPE_7 arg_7, ATYPE_8 arg_8, ATYPE_9 arg_9, ATYPE_10 arg_10, ATYPE_11 arg_11, ATYPE_12 arg_12);\
@@ -5446,6 +5472,7 @@ typedef struct _TD_##NAME {                                                     
 } TD_##NAME;                                                                          \
                                                                                       \
 static_assert(sizeof(TD_##NAME) <= sizeof(Task), "TD_" #NAME " is too large to fit in the Task struct!");\
+static_assert(offsetof(TD_##NAME, d) == offsetof(Task, d), "TD_" #NAME " needs a larger alignment than the Task struct has!");\
                                                                                       \
 void NAME##_WRAP(WorkerP *, Task *, Task *);                                          \
 RTYPE NAME##_CALL(WorkerP *, Task * , ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, ATYPE_5 arg_5, ATYPE_6 arg_6, ATYPE_7 arg_7, ATYPE_8 arg_8, ATYPE_9 arg_9, ATYPE_10 arg_10, ATYPE_11 arg_11, ATYPE_12 arg_12, ATYPE_13 arg_13);\
@@ -5597,6 +5624,7 @@ typedef struct _TD_##NAME {                                                     
 } TD_##NAME;                                                                          \
                                                                                       \
 static_assert(sizeof(TD_##NAME) <= sizeof(Task), "TD_" #NAME " is too large to fit in the Task struct!");\
+static_assert(offsetof(TD_##NAME, d) == offsetof(Task, d), "TD_" #NAME " needs a larger alignment than the Task struct has!");\
                                                                                       \
 void NAME##_WRAP(WorkerP *, Task *, Task *);                                          \
 void NAME##_CALL(WorkerP *, Task * , ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, ATYPE_5 arg_5, ATYPE_6 arg_6, ATYPE_7 arg_7, ATYPE_8 arg_8, ATYPE_9 arg_9, ATYPE_10 arg_10, ATYPE_11 arg_11, ATYPE_12 arg_12, ATYPE_13 arg_13);\
@@ -5761,6 +5789,7 @@ typedef struct _TD_##NAME {                                                     
 } TD_##NAME;                                                                          \
                                                                                       \
 static_assert(sizeof(TD_##NAME) <= sizeof(Task), "TD_" #NAME " is too large to fit in the Task struct!");\
+static_assert(offsetof(TD_##NAME, d) == offsetof(Task, d), "TD_" #NAME " needs a larger alignment than the Task struct has!");\
                                                                                       \
 void NAME##_WRAP(WorkerP *, Task *, Task *);                                          \
 RTYPE NAME##_CALL(WorkerP *, Task * , ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, ATYPE_5 arg_5, ATYPE_6 arg_6, ATYPE_7 arg_7, ATYPE_8 arg_8, ATYPE_9 arg_9, ATYPE_10 arg_10, ATYPE_11 arg_11, ATYPE_12 arg_12, ATYPE_13 arg_13, ATYPE_14 arg_14);\
@@ -5912,6 +5941,7 @@ typedef struct _TD_##NAME {                                                     
 } TD_##NAME;                                                                          \
                                                                                       \
 static_assert(sizeof(TD_##NAME) <= sizeof(Task), "TD_" #NAME " is too large to fit in the Task struct!");\
+static_assert(offsetof(TD_##NAME, d) == offsetof(Task, d), "TD_" #NAME " needs a larger alignment than the Task struct has!");\
                                                                                       \
 void NAME##_WRAP(WorkerP *, Task *, Task *);                                          \
 void NAME##_CALL(WorkerP *, Task * , ATYPE_1 arg_1, ATYPE_2 arg_2, ATYPE_3 arg_3, ATYPE_4 arg_4, ATYPE_5 arg_5, ATYPE_6 arg_6, ATYPE_7 arg_7, ATYPE_8 arg_8, ATYPE_9 arg_9, ATYPE_10 arg_10, ATYPE_11 arg_11, ATYPE_12 arg_12, ATYPE_13 arg_13, ATYPE_14 arg_14);\

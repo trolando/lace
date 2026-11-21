@@ -1382,6 +1382,10 @@ echo
 echo "// Task macros for tasks of arity $r"
 echo
 
+# A type that needs more alignment than a pointer moves d: the task would not
+# sit in a Task slot as the other tasks do
+ALIGN_CHECK="static_assert(offsetof(TD_##NAME, d) == offsetof(Task, d), \"TD_\" #NAME \" needs a larger alignment than the Task struct has!\");"
+
 # Create a void and a non-void version
 for isvoid in 0 1; do
 if (( isvoid==0 )); then
@@ -1394,6 +1398,7 @@ if (( isvoid==0 )); then
   SAVE_RVAL="t->d.res ="
   RETURN_RES="((TD_##NAME *)t)->d.res"
   UNION="union { $ARGS_STRUCT $RTYPE res; } d;"
+  ALIGN_ASSERT="$ALIGN_CHECK"
   SS_RETURN="return "
   SS_RETURN2=""
   # No TOGETHER: every worker runs the same task, and a result would
@@ -1407,7 +1412,7 @@ else
   RTYPE="void"
   SAVE_RVAL=""
   RETURN_RES=""
-  if ((r)); then UNION="union { $ARGS_STRUCT } d;"; else UNION=""; fi
+  if ((r)); then UNION="union { $ARGS_STRUCT } d;"; ALIGN_ASSERT="$ALIGN_CHECK"; else UNION=""; ALIGN_ASSERT=""; fi
   SS_RETURN=""
   SS_RETURN2="return;"
   TOGETHER_FN="static inline LACE_UNUSED LACE_NO_SANITIZE_THREAD
@@ -1433,6 +1438,7 @@ typedef struct _TD_##NAME {
 } TD_##NAME;
 
 static_assert(sizeof(TD_##NAME) <= sizeof(Task), \"TD_\" #NAME \" is too large to fit in the Task struct!\");
+$ALIGN_ASSERT
 
 void NAME##_WRAP(WorkerP *, Task *, Task *);
 $RTYPE NAME##_CALL(WorkerP *, Task * $FUN_ARGS);
