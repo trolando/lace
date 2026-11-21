@@ -1150,7 +1150,8 @@ static inline int lace_is_stolen_task(lace_task* t)
 
 static inline int lace_is_completed_task(lace_task* t)
 {
-    return ((size_t)(lace_worker_public*)atomic_load_explicit(&t->thief, memory_order_relaxed) == 2) ? 1 : 0;
+    /* acquire: the thief stores the result before it marks the task completed */
+    return ((size_t)(lace_worker_public*)atomic_load_explicit(&t->thief, memory_order_acquire) == 2) ? 1 : 0;
 }
 
 static inline void* lace_task_result(lace_task* t)
