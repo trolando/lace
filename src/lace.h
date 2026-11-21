@@ -1137,7 +1137,15 @@ static inline void lace_scratch_reset(WorkerP *lw, void *mark)
  * `count` is evaluated exactly once.
  */
 #define LACE_SCRATCH_ARRAY(type, count) \
-    ((type *)lace_scratch_alloc(__lace_worker, (size_t)(count) * sizeof(type)))
+    ((type *)lace_scratch_array(__lace_worker, (size_t)(count), sizeof(type)))
+
+/** count * elem_size bytes; a size that overflows cannot fit, and
+ * lace_scratch_grow stops the program for it */
+static inline void *lace_scratch_array(WorkerP *lw, size_t count, size_t elem_size)
+{
+    if (elem_size != 0 && count > SIZE_MAX / elem_size) return lace_scratch_grow(lw, SIZE_MAX & ~(size_t)15);
+    return lace_scratch_alloc(lw, count * elem_size);
+}
 
 #define LACE_STOLEN      ((Worker*)0)
 #define LACE_BUSY        ((Worker*)1)
