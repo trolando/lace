@@ -427,11 +427,21 @@ static inline void lace_cpu_pause(void)
 #endif
 }
 
+#if defined(__APPLE__)
+#include <mach/mach.h>
+#include <mach/thread_switch.h>
+#endif
+
 LACE_UNUSED
 static inline void lace_cpu_yield(void)
 {
 #if defined(_WIN32)
     SwitchToThread();
+#elif defined(__APPLE__)
+    /* Not sched_yield: on macOS it also lowers the thread's priority for a
+     * scheduler quantum (10 ms), and on a busy machine the thread then waits
+     * that long, also when a frame's barrier waits for it */
+    (void)thread_switch(MACH_PORT_NULL, SWITCH_OPTION_NONE, 0);
 #else
     sched_yield();
 #endif
