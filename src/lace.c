@@ -3010,9 +3010,10 @@ lace_spawn_worker(unsigned int i)
         exit(1);
     }
 #if !defined(_WIN32) && !defined(__FreeBSD__)
-    if (pthread_attr_setstack(&attr, (char*)worker_stacks[i] + worker_stack_page_size,
-                              worker_stack_size - worker_stack_page_size) != 0) {
-        fprintf(stderr, "Lace error: unable to set stack for worker %u: %s\n", i, strerror(errno));
+    int src = pthread_attr_setstack(&attr, (char*)worker_stacks[i] + worker_stack_page_size,
+                                    worker_stack_size - worker_stack_page_size);
+    if (src != 0) {
+        fprintf(stderr, "Lace error: unable to set stack for worker %u: %s\n", i, strerror(src));
         exit(1);
     }
 #else
