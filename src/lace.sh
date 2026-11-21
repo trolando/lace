@@ -620,8 +620,9 @@ void lace_run_together(Task *task);
 #define LACE_SECOND_(a, b, ...) b
 #define LACE_PROBE() ~, 1
 #define LACE_IS_PROBE(...) LACE_SECOND_(__VA_ARGS__, 0, ~)
-#define LACE_IS_VOID(T) LACE_IS_PROBE(LACE_PASTE(LACE_IS_VOID_HELPER_, T))
-#define LACE_IS_VOID_HELPER_void LACE_PROBE()
+/* Only a plain void gives LACE_PROBE(): in void * the * comes before the () */
+#define LACE_IS_VOID(T) LACE_IS_PROBE(LACE_PASTE(LACE_IS_VOID_HELPER_, T)())
+#define LACE_IS_VOID_HELPER_void LACE_PROBE
 
 #define LACE_ARITY(n) LACE_ARITY_I(n)
 #define LACE_ARITY_I(n) LACE_ARITY_##n
