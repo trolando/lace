@@ -3746,6 +3746,10 @@ void lace_stop(void)
             (unsigned int)lace_thread_worker->worker);
         exit(1);
     }
+    if (!atomic_load_explicit(&is_running, memory_order_acquire)) {
+        fprintf(stderr, "Lace error: lace_stop called while Lace is not running\n");
+        return;
+    }
 
     /* Let the external tasks of other threads finish first: they may still
      * need every worker, for instance to start a NEWFRAME. Waiting ones are

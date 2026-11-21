@@ -443,6 +443,9 @@ void lace_worker_leave(void);
  * thread starts tasks (NAME(...), lace_run_task) any more; it first waits
  * for the tasks that other threads still run to return, and for a
  * lace_release_memory in progress.
+ * Lace starts and stops in turn (lace_start, lace_stop, lace_start, ...), and
+ * tasks are called only while it runs. A lace_stop while Lace does not run
+ * prints an error and returns.
  * Do not call from a signal handler.
  *
  * @see lace_start
