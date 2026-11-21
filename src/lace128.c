@@ -2175,6 +2175,10 @@ lace_run_task(lace_task *task)
         task->f(self, task);
         return;
     }
+    if (LACE_UNLIKELY(!atomic_load_explicit(&is_running, memory_order_relaxed))) {
+        fprintf(stderr, "Lace error: a task was called from outside Lace while Lace does not run\n");
+        exit(1);
+    }
 
     ext_lace_task et;
     et.task = task;
