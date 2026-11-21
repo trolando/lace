@@ -3290,7 +3290,7 @@ lace_setup(unsigned int _n_workers, size_t dequesize, int external)
 
     // Initialize globals
     n_workers = _n_workers == 0 ? n_pus : _n_workers;
-    dqsize = dequesize > 0 ? dequesize : 100000;
+    dqsize = dequesize > 0 ? dequesize : 1048576;
     /* The deque's indices are 32 bits, and SPAWN computes (split + head + 2) / 2
      * with head < dqsize; and a worker's memory must not span more than
      * PTRDIFF_MAX bytes, as Lace subtracts pointers into the deque */

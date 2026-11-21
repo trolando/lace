@@ -360,7 +360,7 @@ typedef struct lace_task lace_task;
  *                   most 2^31 - 1 and on a 32-bit system what fits in half
  *                   the address space (else Lace stops the program with an
  *                   error).
- *                   Pass 0 for a default of 100 000. Each live SPAWN that
+ *                   Pass 0 for a default of 1 048 576. Each live SPAWN that
  *                   has not yet been SYNCed occupies one slot.
  * @param stacksize  Worker thread stack size in bytes, at least 16 MB.
  *                   Pass 0 for the default: a 1 GB reservation on 64-bit
