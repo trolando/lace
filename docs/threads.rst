@@ -64,9 +64,9 @@ Rules
   after a worker left). So a worker leaves only when no task that may start
   one still runs: neither a task that a thread outside Lace called, nor one of
   the workers' own tasks.
-  For the same reason ``lace_stop`` is called only when no worker runs tasks
-  of its own any more; it waits for the calls of threads outside Lace that
-  are still running.
+  For the same reason ``lace_stop`` is called only when no task runs any
+  more: no worker runs tasks of its own, no task that a thread outside Lace
+  called still runs or waits, and no thread calls one any more.
 * A worker that does not steal, such as worker 0 above, still takes part in
   ``TOGETHER`` and ``NEWFRAME``, which wait for all workers: between tasks it
   should not do long work outside Lace. While it is a worker, the idle workers

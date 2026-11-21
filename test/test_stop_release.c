@@ -1,10 +1,7 @@
 /*
- * First, lace_stop while a task that another thread called still runs. The
- * task starts a NEWFRAME and a TOGETHER after lace_stop was called:
- * lace_stop must wait for it, as the frames need every worker. Then, after
- * a new lace_start, lace_stop while another thread calls lace_release_memory
- * over and over: the releases must not keep lace_stop waiting, nor run on
- * after it. A watchdog ends the test if it hangs.
+ * lace_stop while another thread calls lace_release_memory over and over:
+ * the releases must not keep lace_stop waiting, nor run on after it. A
+ * watchdog ends the test if it hangs.
  */
 
 #include <stdio.h>
@@ -31,7 +28,7 @@
 
 #define TIME_LIMIT_MS 30000
 
-static atomic_int task_entered = 0, task_done = 0, released = 0, stopped = 0, finished = 0;
+static atomic_int released = 0, stopped = 0, finished = 0;
 
 static void
 pause_ms(int ms)
@@ -42,25 +39,6 @@ pause_ms(int ms)
     usleep((useconds_t)ms * 1000);
 #endif
 }
-
-TASK(void, nothing)
-void nothing_CALL(lace_worker *lw)
-{
-    (void)lw;
-}
-
-TASK(void, slow_then_frames)
-void slow_then_frames_CALL(lace_worker *lw)
-{
-    (void)lw;
-    atomic_store(&task_entered, 1);
-    pause_ms(100); // lace_stop is called meanwhile
-    nothing_NEWFRAME();
-    nothing_TOGETHER();
-    atomic_store(&task_done, 1);
-}
-
-static void caller_run(void) { slow_then_frames(); }
 
 static void
 releaser_run(void)
@@ -86,7 +64,6 @@ watchdog_run(void)
 
 #if LACE_MSVC
 typedef HANDLE test_thread;
-static unsigned __stdcall caller(void *arg) { (void)arg; caller_run(); return 0; }
 static unsigned __stdcall releaser(void *arg) { (void)arg; releaser_run(); return 0; }
 static unsigned __stdcall watchdog(void *arg) { (void)arg; watchdog_run(); return 0; }
 static int
@@ -103,7 +80,6 @@ join_thread(test_thread t)
 }
 #else
 typedef pthread_t test_thread;
-static void *caller(void *arg) { (void)arg; caller_run(); return NULL; }
 static void *releaser(void *arg) { (void)arg; releaser_run(); return NULL; }
 static void *watchdog(void *arg) { (void)arg; watchdog_run(); return NULL; }
 static int
@@ -122,26 +98,11 @@ int
 main(void)
 {
     crash_handler_install();
-    test_thread w, c, r;
+    test_thread w, r;
     if (!start_thread(&w, watchdog)) {
         fprintf(stderr, "unable to create the threads\n");
         return 1;
     }
-
-    // lace_stop while the external task runs
-    lace_start(4, 0, 0);
-    if (!start_thread(&c, caller)) {
-        fprintf(stderr, "unable to create the threads\n");
-        return 1;
-    }
-    while (!atomic_load(&task_entered)) pause_ms(1);
-    lace_stop();
-    join_thread(c);
-    if (!atomic_load(&task_done)) {
-        fprintf(stderr, "the external task did not complete\n");
-        return 1;
-    }
-    printf("lace_stop waited for the external task: ok\n");
 
     // lace_stop while the releases go on
     lace_start(4, 0, 0);
