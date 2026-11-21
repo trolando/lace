@@ -3312,6 +3312,11 @@ lace_get_pu_count(void)
 void
 lace_start(unsigned int _n_workers, size_t dequesize)
 {
+    if (atomic_load_explicit(&is_running, memory_order_relaxed)) {
+        fprintf(stderr, "Lace error: Lace is already running\n");
+        exit(1);
+    }
+
     /* Cache the OS page size for scratch-arena commit/decommit. */
     lace_scratch_init_page_size();
 
