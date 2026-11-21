@@ -842,7 +842,8 @@ LACE_NOINLINE LACE_COLD void lace_yield(WorkerP *__lace_worker, Task *__lace_dq_
 /**
  * True if the given task is completed, False otherwise.
  */
-#define TASK_IS_COMPLETED(t) ((size_t)atomic_load_explicit(&(t)->thief, memory_order_relaxed) == 2)
+/* acquire: the thief stores the result before it marks the task completed */
+#define TASK_IS_COMPLETED(t) ((size_t)atomic_load_explicit(&(t)->thief, memory_order_acquire) == 2)
 
 /**
  * Retrieves a pointer to the result of the given task.
